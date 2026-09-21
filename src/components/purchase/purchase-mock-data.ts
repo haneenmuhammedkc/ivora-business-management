@@ -1,0 +1,55 @@
+import { PurchaseRecord, PurchaseSummaryKPIs } from "@/types/purchase";
+
+export const mockPurchaseKPIs: PurchaseSummaryKPIs = {
+  totalPurchase: 3,
+  totalSourcingCostAED: 186000,
+  logisticsOverheadAED: 1200,
+};
+
+export const mockPurchasesList: PurchaseRecord[] = [
+  {
+    id: "PR-0248",
+    business: "Business 01",
+    businessEntities: "Entity A + B",
+    date: "10 Sep 2026",
+    product: "999.9 Physical Bullion",
+    locationVault: "Souk Node #04 Vault",
+    quantityGms: 6500,
+    basePriceAED: 31.2,
+    freightAED: 450,
+    labourAED: 350,
+    totalLandedAED: 204800,
+    status: "CLEARED",
+    selected: true,
+  },
+  {
+    id: "PR-0247",
+    business: "Business 02",
+    businessEntities: "Entity A + C",
+    date: "08 Sep 2026",
+    product: "Gold Grain 995",
+    locationVault: "Refinery Consignment A",
+    quantityGms: 5200,
+    basePriceAED: 29.8,
+    freightAED: 320,
+    labourAED: 280,
+    totalLandedAED: 156290,
+    status: "IN PROGRESS",
+    selected: false,
+  },
+  {
+    id: "PR-0246",
+    business: "Business 01",
+    businessEntities: "Entity A + B",
+    date: "06 Sep 2026",
+    product: "Pure Bullion Bar",
+    locationVault: "DIFC Clearing Hub",
+    quantityGms: 6840,
+    basePriceAED: 28.4,
+    freightAED: 290,
+    labourAED: 240,
+    totalLandedAED: 195210,
+    status: "DRAFT",
+    selected: false,
+  },
+];
