@@ -1,7 +1,7 @@
 import React from "react";
 import { AppShell } from "@/components/layout/app-shell";
 
-export default function DashboardLayout({
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;

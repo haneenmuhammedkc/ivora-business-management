@@ -22,25 +22,25 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-[#f8fafc] px-4 py-12 sm:px-6 lg:px-8">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-white px-4 py-12 sm:px-6 lg:px-8">
       {/* Top Right Help Action */}
-      <div className="absolute top-6 right-6">
+      <div className="absolute top-8 right-8">
         <a
           href="#help"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
         >
           <HelpCircleIcon size={14} />
           Need Help?
         </a>
       </div>
 
-      {/* Login Card */}
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 sm:p-10 shadow-xl shadow-slate-200/50 border border-gray-100">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900">
+      {/* Login Card with pale blue-gray surface and generous rounding */}
+      <div className="w-full max-w-[440px] rounded-3xl bg-[#f0f4f8] p-8 sm:p-10 shadow-xl shadow-slate-200/40 border border-[#e2e8f0]">
+        <div className="text-left mb-8">
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#0c0d12]">
             Welcome Back
           </h1>
-          <p className="mt-2 text-xs sm:text-sm text-gray-500">
+          <p className="mt-2 text-xs sm:text-sm text-gray-500 font-medium">
             Sign in to manage your corporate workspace
           </p>
         </div>
@@ -67,6 +67,7 @@ export default function LoginPage() {
               icon={<MailIcon size={16} />}
               iconPosition="left"
               placeholder="name@company.com"
+              className="bg-white py-2.5"
               required
             />
           </div>
@@ -95,6 +96,7 @@ export default function LoginPage() {
                 icon={<LockIcon size={16} />}
                 iconPosition="left"
                 placeholder="Enter password"
+                className="bg-white py-2.5"
                 required
               />
               <button
@@ -108,15 +110,15 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
+          <div className="flex items-center justify-between pt-1">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black accent-black cursor-pointer"
               />
-              <span className="text-xs text-gray-600">Remember me for 30 days</span>
+              <span className="text-xs text-gray-700 font-medium">Remember me for 30 days</span>
             </label>
           </div>
 
@@ -124,7 +126,7 @@ export default function LoginPage() {
             type="submit"
             variant="primary"
             size="lg"
-            className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2"
+            className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2 py-3.5 bg-[#0c0d12] hover:bg-[#1f2430] rounded-lg"
             icon={<ArrowRightIcon size={15} />}
             iconPosition="right"
           >
@@ -134,7 +136,7 @@ export default function LoginPage() {
       </div>
 
       {/* Security Footer Note */}
-      <div className="mt-8 flex items-center gap-2 text-xs text-gray-400">
+      <div className="mt-12 flex items-center gap-2 text-xs text-gray-500 font-medium">
         <ShieldCheckIcon size={15} className="text-gray-400" />
         <span>Bank-grade 256-bit SSL encryption. Authorized access only.</span>
       </div>
