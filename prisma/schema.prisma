@@ -2,10 +2,357 @@
 // Learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
   provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  ROOT_ADMIN
+  PARTNER_RESTRICTED
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum BusinessStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TradingCycleStatus {
+  DRAFT
+  IN_PROGRESS
+  REALIZED
+  COMPLETED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  IN_PROGRESS
+  CLEARED
+}
+
+enum SaleStatus {
+  PENDING
+  CLEARED
+}
+
+enum ExpenseCategory {
+  DELIVERY_FREIGHT
+  LABOUR_VAULT
+  PROCESSING_ASSAYING
+  INDIA_EXPENSE
+  TRANSFER_FX_FEES
+  GENERAL_OVERHEAD
+}
+
+enum ExpensePaymentStatus {
+  PENDING
+  CLEARED
+}
+
+enum ProfitAllocationStatus {
+  UNSETTLED
+  PARTIALLY_SETTLED
+  SETTLED
+}
+
+enum TransactionType {
+  CAPITAL_INWARD
+  PROFIT_DISBURSAL
+  CAPITAL_RETURN
+  OPERATIONAL_PAYMENT
+}
+
+enum PaymentMethod {
+  DIRECT_BANK_WIRE
+  ESCROW_TRANSFER
+  CASH_VAULT
+  CHEQUE
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id               String     @id @default(cuid())
+  email            String     @unique
+  passwordHash     String
+  name             String
+  role             UserRole   @default(PARTNER_RESTRICTED)
+  status           UserStatus @default(ACTIVE)
+  twoFactorEnabled Boolean    @default(false)
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  businessUsers BusinessUser[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+}
+
+model Business {
+  id          String         @id @default(cuid())
+  name        String
+  code        String         @unique
+  description String?
+  status      BusinessStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  businessUsers BusinessUser[]
+  investors     Investor[]
+  investments   Investment[]
+  tradingCycles TradingCycle[]
+  purchases     Purchase[]
+  sales         Sale[]
+  expenses      Expense[]
+  transactions  Transaction[]
+
+  @@index([code])
+  @@index([status])
+}
+
+model BusinessUser {
+  id             String   @id @default(cuid())
+  businessId     String
+  userId         String
+  equitySharePct Decimal  @db.Decimal(5, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, userId])
+  @@index([businessId])
+  @@index([userId])
+}
+
+model Investor {
+  id              String   @id @default(cuid())
+  name            String
+  code            String   @unique
+  email           String?
+  phone           String?
+  defaultSharePct Decimal? @db.Decimal(5, 2)
+  status          String   @default("ACTIVE")
+  businessId      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business          Business?          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investments       Investment[]
+  profitAllocations ProfitAllocation[]
+  transactions      Transaction[]
+
+  @@index([code])
+  @@index([status])
+  @@index([businessId])
+}
+
+model Investment {
+  id              String   @id @default(cuid())
+  investorId      String
+  businessId      String
+  committedAmount Decimal  @db.Decimal(18, 2)
+  profitSharePct  Decimal  @db.Decimal(5, 2)
+  allocatedGrams  Decimal? @db.Decimal(18, 3)
+  depositDate     DateTime
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  investor          Investor           @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  profitAllocations ProfitAllocation[]
+
+  @@index([investorId])
+  @@index([businessId])
+}
+
+model TradingCycle {
+  id                      String             @id @default(cuid())
+  cycleCode               String             @unique
+  businessId              String
+  status                  TradingCycleStatus @default(DRAFT)
+  startDate               DateTime
+  completionDate          DateTime?
+  grossRealizationAed     Decimal?           @db.Decimal(18, 2)
+  purchaseLandedCostAed   Decimal?           @db.Decimal(18, 2)
+  directExpensesAed       Decimal?           @db.Decimal(18, 2)
+  grossArbitrageSpreadAed Decimal?           @db.Decimal(18, 2)
+  netProfitAed            Decimal?           @db.Decimal(18, 2)
+  investorShareTotalAed   Decimal?           @db.Decimal(18, 2)
+  deskRetainedProfitAed   Decimal?           @db.Decimal(18, 2)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  purchase          Purchase?
+  sale              Sale?
+  expenses          Expense[]
+  profitAllocations ProfitAllocation[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([cycleCode])
+}
+
+model Purchase {
+  id                      String         @id @default(cuid())
+  purchaseCode            String         @unique
+  businessId              String
+  tradingCycleId          String?        @unique
+  purchaseDate            DateTime
+  sourcingVault           String
+  productType             String
+  quantityGms             Decimal        @db.Decimal(18, 3)
+  basePricePerGm          Decimal        @db.Decimal(18, 4)
+  baseAcquisitionValue    Decimal        @db.Decimal(18, 2)
+  transitInsuranceFreight Decimal        @default(0) @db.Decimal(18, 2)
+  vaultHandlingLabour     Decimal        @default(0) @db.Decimal(18, 2)
+  customsSecurity         Decimal        @default(0) @db.Decimal(18, 2)
+  totalLandedCost         Decimal        @db.Decimal(18, 2)
+  status                  PurchaseStatus @default(DRAFT)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([tradingCycleId])
+  @@index([purchaseDate])
+}
+
+model Sale {
+  id                  String     @id @default(cuid())
+  saleCode            String     @unique
+  businessId          String
+  tradingCycleId      String?    @unique
+  saleDate            DateTime
+  liquidationDesk     String
+  buyerFirm           String
+  productType         String
+  quantityGms         Decimal    @db.Decimal(18, 3)
+  sellingPricePerGm   Decimal    @db.Decimal(18, 4)
+  inrRealizationValue Decimal    @db.Decimal(18, 2)
+  realizedFxRate      Decimal    @db.Decimal(18, 4)
+  aedEquivalent       Decimal    @db.Decimal(18, 2)
+  status              SaleStatus @default(PENDING)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([tradingCycleId])
+  @@index([saleDate])
+}
+
+model Expense {
+  id                   String               @id @default(cuid())
+  expenseCode          String               @unique
+  businessId           String
+  tradingCycleId       String?
+  category             ExpenseCategory
+  description          String
+  refNo                String?
+  amount               Decimal              @db.Decimal(18, 2)
+  expenseDate          DateTime
+  status               ExpensePaymentStatus @default(CLEARED)
+  isPurchaseLandedCost Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([tradingCycleId])
+  @@index([category])
+  @@index([expenseDate])
+}
+
+model ProfitAllocation {
+  id              String                 @id @default(cuid())
+  tradingCycleId  String
+  investorId      String
+  investmentId    String?
+  netCycleProfit  Decimal                @db.Decimal(18, 2)
+  contractRatio   Decimal                @db.Decimal(5, 2)
+  allocatedAmount Decimal                @db.Decimal(18, 2)
+  status          ProfitAllocationStatus @default(UNSETTLED)
+  lockedAt        DateTime               @default(now())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  tradingCycle TradingCycle @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+  investor     Investor     @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  investment   Investment?  @relation(fields: [investmentId], references: [id], onDelete: Restrict)
+
+  @@unique([tradingCycleId, investorId])
+  @@index([tradingCycleId])
+  @@index([investorId])
+  @@index([status])
+}
+
+model Transaction {
+  id              String          @id @default(cuid())
+  transactionCode String          @unique
+  businessId      String
+  investorId      String?
+  amount          Decimal         @db.Decimal(18, 2)
+  type            TransactionType
+  paymentMethod   PaymentMethod
+  bankReference   String?
+  escrowAccount   String?
+  transactionDate DateTime
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investor Investor? @relation(fields: [investorId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([investorId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+  @@index([userId])
 }
