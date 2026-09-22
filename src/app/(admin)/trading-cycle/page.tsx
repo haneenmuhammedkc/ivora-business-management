@@ -1,53 +1,146 @@
-import React from "react";
+"use client";
+
+import React, { useState, useMemo } from "react";
 import { PageHeader } from "@/components/ui/page-header";
-import { StatCard } from "@/components/ui/stat-card";
-import { SearchInput } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { FadeUp } from "@/components/ui/motion";
+import {
+  TradingCycleKpiCards,
+  TradingCycleFilters,
+  TradingCycleTableView,
+  TradingCycleDetailsPanel,
+  mockTradingCycleKPIs,
+  mockTradingCycleList,
+} from "@/components/trading-cycle";
+import { TradingCycleRecord } from "@/types/trading-cycle";
 
 export default function TradingCyclePage() {
+  const [cycles, setCycles] = useState<TradingCycleRecord[]>(mockTradingCycleList);
+  const [selectedCycleId, setSelectedCycleId] = useState<string>("TR-0248");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedBusiness, setSelectedBusiness] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
+  const [selectedProduct, setSelectedProduct] = useState("all");
+
+  // Filtered cycles
+  const filteredCycles = useMemo(() => {
+    return cycles.filter((c) => {
+      // Search filter
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase();
+        const matchesId = c.id.toLowerCase().includes(query);
+        const matchesBusiness = c.business.toLowerCase().includes(query);
+        const matchesPurchase = c.purchaseId.toLowerCase().includes(query);
+        const matchesSale = c.saleId.toLowerCase().includes(query);
+        const matchesCommodity = c.commodity.toLowerCase().includes(query);
+        if (
+          !matchesId &&
+          !matchesBusiness &&
+          !matchesPurchase &&
+          !matchesSale &&
+          !matchesCommodity
+        ) {
+          return false;
+        }
+      }
+
+      // Business filter
+      if (selectedBusiness !== "all" && c.business !== selectedBusiness) {
+        return false;
+      }
+
+      // Status filter
+      if (selectedStatus !== "all" && c.status !== selectedStatus) {
+        return false;
+      }
+
+      // Product filter
+      if (selectedProduct !== "all" && c.commodity !== selectedProduct) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [cycles, searchTerm, selectedBusiness, selectedStatus, selectedProduct]);
+
+  // Active selected cycle for details panel
+  const activeCycle = useMemo(() => {
+    return (
+      cycles.find((c) => c.id === selectedCycleId) ||
+      filteredCycles[0] ||
+      cycles[0]
+    );
+  }, [cycles, selectedCycleId, filteredCycles]);
+
+  // Selection handlers
+  const handleSelectCycle = (cycle: TradingCycleRecord) => {
+    setSelectedCycleId(cycle.id);
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setCycles((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, selected: !c.selected } : c))
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allSelected = filteredCycles.length > 0 && filteredCycles.every((c) => c.selected);
+    const filteredIds = new Set(filteredCycles.map((c) => c.id));
+    setCycles((prev) =>
+      prev.map((c) =>
+        filteredIds.has(c.id) ? { ...c, selected: !allSelected } : c
+      )
+    );
+  };
+
   return (
-    <div className="space-y-6 pb-10">
-      <PageHeader
-        title="Trading Cycle"
-        subtitle="Track Complete Dubai-To-India Trading Lifecycles, Realization, And Multi-Entity Partner Profit Settlements."
-      />
+    <div className="space-y-6 pb-14">
+      {/* Page Header */}
+      <FadeUp delay={0.05}>
+        <PageHeader
+          title="Trading Cycle"
+          subtitle="Track Complete Dubai-To-India Trading Lifecycles, Realization, And Multi-Entity Partner Profit Settlements."
+        />
+      </FadeUp>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="TOTAL CYCLES" value="03" />
-        <StatCard label="COMPLETED CYCLES" value="02" />
-        <StatCard label="PENDING CYCLES" value="01" />
-        <StatCard variant="highlight" label="NET REALIZED PROFIT" currency="AED" value="35,990" />
-      </div>
+      {/* KPI Cards */}
+      <FadeUp delay={0.1}>
+        <TradingCycleKpiCards kpis={mockTradingCycleKPIs} />
+      </FadeUp>
 
-      {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="w-full sm:max-w-xs">
-          <SearchInput placeholder="Search..." />
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          <Select
-            options={[{ value: "all", label: "All Businesses" }]}
-            prefixLabel="Business"
-            className="w-40"
+      {/* Filters */}
+      <FadeUp delay={0.15}>
+        <TradingCycleFilters
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          selectedBusiness={selectedBusiness}
+          onBusinessChange={setSelectedBusiness}
+          selectedStatus={selectedStatus}
+          onStatusChange={setSelectedStatus}
+          selectedProduct={selectedProduct}
+          onProductChange={setSelectedProduct}
+        />
+      </FadeUp>
+
+      {/* Trading Cycle Register Table */}
+      <FadeUp delay={0.2}>
+        <TradingCycleTableView
+          cycles={filteredCycles}
+          selectedCycleId={selectedCycleId}
+          onSelectCycle={handleSelectCycle}
+          onToggleSelect={handleToggleSelect}
+          onSelectAll={handleSelectAll}
+        />
+      </FadeUp>
+
+      {/* Selected Cycle Details Panel */}
+      {activeCycle && (
+        <FadeUp delay={0.25}>
+          <TradingCycleDetailsPanel
+            cycle={activeCycle}
+            onClose={() => setSelectedCycleId("")}
           />
-          <Select
-            options={[{ value: "all", label: "All Status" }]}
-            prefixLabel="Status"
-            className="w-36"
-          />
-        </div>
-      </div>
-
-      {/* Module Placeholder */}
-      <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center bg-gray-50/50">
-        <h3 className="text-sm font-semibold text-gray-700">
-          Trading Cycle Lifecycle & Waterfall Engine
-        </h3>
-        <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
-          Dubai & India synchronized ledger, arbitrage spread calculations, dual-currency FX settlement, and partner distribution engine ready for Phase 2.
-        </p>
-      </div>
+        </FadeUp>
+      )}
     </div>
   );
 }

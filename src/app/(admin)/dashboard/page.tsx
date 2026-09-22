@@ -1,8 +1,9 @@
 import React from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { StatCardGrid } from "@/components/ui/stat-card-grid";
 import { Select } from "@/components/ui/select";
-import { FadeUp, StaggerContainer, StaggerItem } from "@/components/ui/motion";
+import { FadeUp, StaggerItem } from "@/components/ui/motion";
 import { PhysicalTradingLifecycle } from "@/components/dashboard/trading-lifecycle";
 import { BusinessPerformance } from "@/components/dashboard/business-performance";
 import { TradingPerformance } from "@/components/dashboard/trading-performance";
@@ -52,6 +53,7 @@ const DASHBOARD_KPIS: DashboardKPI[] = [
     currency: "AED",
     value: "37,350",
     description: "After all cleared expenses",
+    variant: "highlight",
   },
   {
     id: "investor-share",
@@ -95,11 +97,7 @@ export default function DashboardPage() {
       </FadeUp>
 
       {/* 2. KPI Cards (Staggered Entrance) */}
-      <StaggerContainer
-        staggerInterval={0.04}
-        delayChildren={0.06}
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5"
-      >
+      <StatCardGrid>
         {DASHBOARD_KPIS.map((kpi) => (
           <StaggerItem key={kpi.id}>
             <StatCard
@@ -111,7 +109,7 @@ export default function DashboardPage() {
             />
           </StaggerItem>
         ))}
-      </StaggerContainer>
+      </StatCardGrid>
 
       {/* 3. Physical Trading Lifecycle Section */}
       <FadeUp delay={0.12} duration={0.35}>
