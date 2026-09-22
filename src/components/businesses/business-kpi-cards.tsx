@@ -1,48 +1,58 @@
 import React from "react";
-import { StatCard } from "@/components/ui/stat-card";
+import { StatCard, StatCardProps } from "@/components/ui/stat-card";
+import { StatCardGrid } from "@/components/ui/stat-card-grid";
 import { BusinessesSummaryKPIs } from "@/types/business";
-import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
+import { StaggerItem } from "@/components/ui/motion";
 
 export interface BusinessKpiCardsProps {
   kpis: BusinessesSummaryKPIs;
 }
 
 export function BusinessKpiCards({ kpis }: BusinessKpiCardsProps) {
+  const stats: (StatCardProps & { id: string })[] = [
+    {
+      id: "total-businesses",
+      label: "TOTAL BUSINESSES",
+      value: kpis.totalBusinesses.toString().padStart(2, "0"),
+    },
+    {
+      id: "active-businesses",
+      label: "ACTIVE BUSINESSES",
+      value: kpis.activeBusinesses.toString().padStart(2, "0"),
+    },
+    {
+      id: "total-partners",
+      label: "TOTAL PARTNERS",
+      value: kpis.totalPartners.toString().padStart(2, "0"),
+    },
+    {
+      id: "combined-investment",
+      label: "COMBINED INVESTMENT",
+      currency: "AED",
+      value: kpis.combinedInvestmentAED.toLocaleString(),
+    },
+    {
+      id: "combined-net-profit",
+      variant: "highlight",
+      label: "COMBINED NET PROFIT",
+      currency: "AED",
+      value: kpis.combinedNetProfitAED.toLocaleString(),
+    },
+  ];
+
   return (
-    <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-      <StaggerItem>
-        <StatCard
-          label="TOTAL BUSINESSES"
-          value={kpis.totalBusinesses.toString().padStart(2, "0")}
-        />
-      </StaggerItem>
-      <StaggerItem>
-        <StatCard
-          label="ACTIVE BUSINESSES"
-          value={kpis.activeBusinesses.toString().padStart(2, "0")}
-        />
-      </StaggerItem>
-      <StaggerItem>
-        <StatCard
-          label="TOTAL PARTNERS"
-          value={kpis.totalPartners.toString().padStart(2, "0")}
-        />
-      </StaggerItem>
-      <StaggerItem>
-        <StatCard
-          label="COMBINED INVESTMENT"
-          currency="AED"
-          value={kpis.combinedInvestmentAED.toLocaleString()}
-        />
-      </StaggerItem>
-      <StaggerItem>
-        <StatCard
-          variant="highlight"
-          label="COMBINED NET PROFIT"
-          currency="AED"
-          value={kpis.combinedNetProfitAED.toLocaleString()}
-        />
-      </StaggerItem>
-    </StaggerContainer>
+    <StatCardGrid>
+      {stats.map((stat) => (
+        <StaggerItem key={stat.id}>
+          <StatCard
+            label={stat.label}
+            value={stat.value}
+            currency={stat.currency}
+            variant={stat.variant}
+            description={stat.description}
+          />
+        </StaggerItem>
+      ))}
+    </StatCardGrid>
   );
 }

@@ -1,59 +1,159 @@
-import React from "react";
+"use client";
+
+import React, { useState, useMemo } from "react";
 import { PageHeader } from "@/components/ui/page-header";
-import { StatCard } from "@/components/ui/stat-card";
-import { Button } from "@/components/ui/button";
-import { SearchInput } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { PlusIcon } from "@/components/ui/icons";
+import { FadeUp } from "@/components/ui/motion";
+import {
+  ExpenseKpiCards,
+  ExpenseFilters,
+  ExpenseTableView,
+  ExpenseLineageBanner,
+  ExpenseDetailsPanel,
+  mockExpensesKPIs,
+  mockExpensesList,
+} from "@/components/expenses";
+import { ExpenseRecord } from "@/types/expenses";
 
 export default function ExpensesPage() {
-  return (
-    <div className="space-y-6 pb-10">
-      <PageHeader
-        title="Expenses"
-        subtitle="Track Trading Expenses, Logistics, Handling Overhead, And Business-Level Allocations."
-        actions={
-          <Button variant="primary" icon={<PlusIcon size={14} />}>
-            Add Expense
-          </Button>
-        }
-      />
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>(mockExpensesList);
+  const [selectedExpenseId, setSelectedExpenseId] = useState<string>("EXP-018");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedBusiness, setSelectedBusiness] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
+  const [selectedProduct, setSelectedProduct] = useState("all");
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="TOTAL EXPENSES" currency="AED" value="120,000" />
-        <StatCard label="LABOUR & HANDLING" currency="AED" value="245,000" />
-        <StatCard label="FREIGHT & LOGISTICS" currency="AED" value="245,000" />
-      </div>
+  // Filtered expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((exp) => {
+      // Search filter
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase();
+        const matchesId = exp.id.toLowerCase().includes(query);
+        const matchesBusiness = exp.business.toLowerCase().includes(query);
+        const matchesCategory = exp.category.toLowerCase().includes(query);
+        const matchesDesc = exp.description.toLowerCase().includes(query);
+        const matchesCycle = exp.cycle.toLowerCase().includes(query);
+        const matchesRef = exp.ref.toLowerCase().includes(query);
+        if (
+          !matchesId &&
+          !matchesBusiness &&
+          !matchesCategory &&
+          !matchesDesc &&
+          !matchesCycle &&
+          !matchesRef
+        ) {
+          return false;
+        }
+      }
+
+      // Business filter
+      if (selectedBusiness !== "all" && exp.business !== selectedBusiness) {
+        return false;
+      }
+
+      // Status filter
+      if (selectedStatus !== "all" && exp.status !== selectedStatus) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [expenses, searchTerm, selectedBusiness, selectedStatus]);
+
+  // Active selected expense for details panel
+  const activeExpense = useMemo(() => {
+    return (
+      expenses.find((exp) => exp.id === selectedExpenseId) ||
+      filteredExpenses[0] ||
+      expenses[0]
+    );
+  }, [expenses, selectedExpenseId, filteredExpenses]);
+
+  // Selection handlers
+  const handleSelectExpense = (expense: ExpenseRecord) => {
+    setSelectedExpenseId(expense.id);
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setExpenses((prev) =>
+      prev.map((exp) =>
+        exp.id === id ? { ...exp, selected: !exp.selected } : exp
+      )
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allSelected = filteredExpenses.length > 0 && filteredExpenses.every((e) => e.selected);
+    const filteredIds = new Set(filteredExpenses.map((e) => e.id));
+    setExpenses((prev) =>
+      prev.map((e) =>
+        filteredIds.has(e.id) ? { ...e, selected: !allSelected } : e
+      )
+    );
+  };
+
+  const handleMarkAsCleared = () => {
+    setExpenses((prev) =>
+      prev.map((e) => (e.selected ? { ...e, status: "CLEARED" } : e))
+    );
+  };
+
+  return (
+    <div className="space-y-6 pb-14">
+      {/* Page Header */}
+      <FadeUp delay={0.05}>
+        <PageHeader
+          title="Expenses"
+          subtitle="Track Trading Expenses, Logistics, Handling Overhead, And Business-Level Allocations."
+        />
+      </FadeUp>
+
+      {/* KPI Cards (3 Cards in StatCardGrid) */}
+      <FadeUp delay={0.1}>
+        <ExpenseKpiCards kpis={mockExpensesKPIs} />
+      </FadeUp>
 
       {/* Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="w-full sm:max-w-xs">
-          <SearchInput placeholder="Search..." />
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          <Select
-            options={[{ value: "all", label: "All Businesses" }]}
-            prefixLabel="Business"
-            className="w-40"
-          />
-          <Select
-            options={[{ value: "all", label: "All Status" }]}
-            prefixLabel="Status"
-            className="w-36"
-          />
-        </div>
-      </div>
+      <FadeUp delay={0.15}>
+        <ExpenseFilters
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          selectedBusiness={selectedBusiness}
+          onBusinessChange={setSelectedBusiness}
+          selectedStatus={selectedStatus}
+          onStatusChange={setSelectedStatus}
+          selectedProduct={selectedProduct}
+          onProductChange={setSelectedProduct}
+        />
+      </FadeUp>
 
-      {/* Module Placeholder */}
-      <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center bg-gray-50/50">
-        <h3 className="text-sm font-semibold text-gray-700">
-          Expenses & Operational Logistics Ledger
-        </h3>
-        <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
-          Trading expense classification, freight allocations, and audit trail ready for Phase 2.
-        </p>
-      </div>
+      {/* Expenses Table */}
+      <FadeUp delay={0.2}>
+        <ExpenseTableView
+          expenses={filteredExpenses}
+          selectedExpenseId={selectedExpenseId}
+          onSelectExpense={handleSelectExpense}
+          onToggleSelect={handleToggleSelect}
+          onSelectAll={handleSelectAll}
+          onMarkAsCleared={handleMarkAsCleared}
+          onExportSelected={() => {}}
+        />
+      </FadeUp>
+
+      {/* Cross-Module Expense & Profit Impact Lineage */}
+      <FadeUp delay={0.22}>
+        <ExpenseLineageBanner cycleId={activeExpense?.cycle || "TR-0248"} />
+      </FadeUp>
+
+      {/* Expense Details Panel */}
+      {activeExpense && (
+        <FadeUp delay={0.25}>
+          <ExpenseDetailsPanel
+            expense={activeExpense}
+            onClose={() => setSelectedExpenseId("")}
+          />
+        </FadeUp>
+      )}
     </div>
   );
 }
