@@ -12,7 +12,7 @@ import {
   mockReportsKPIs,
   mockQuickDeskTabs,
   mockReportCards,
-} from "@/components/reports";
+} from "@/components/admin/reports";
 
 export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("");

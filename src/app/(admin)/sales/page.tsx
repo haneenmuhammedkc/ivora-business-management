@@ -9,7 +9,7 @@ import {
   SalesTableView,
   mockSalesKPIs,
   mockSalesList,
-} from "@/components/sales";
+} from "@/components/admin/sales";
 import { SaleRecord } from "@/types/sales";
 
 export default function SalesPage() {

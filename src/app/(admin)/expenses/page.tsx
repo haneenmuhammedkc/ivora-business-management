@@ -11,7 +11,7 @@ import {
   ExpenseDetailsPanel,
   mockExpensesKPIs,
   mockExpensesList,
-} from "@/components/expenses";
+} from "@/components/admin/expenses";
 import { ExpenseRecord } from "@/types/expenses";
 
 export default function ExpensesPage() {

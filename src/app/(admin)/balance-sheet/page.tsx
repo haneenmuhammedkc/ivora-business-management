@@ -15,7 +15,7 @@ import {
   mockBusinessPositionsList,
   mockAssetCompositionLegend,
   mockCapitalLiabilitiesLegend,
-} from "@/components/balance-sheet";
+} from "@/components/admin/balance-sheet";
 
 export default function BalanceSheetPage() {
   const [searchTerm, setSearchTerm] = useState("");

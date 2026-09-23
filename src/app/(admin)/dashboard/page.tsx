@@ -4,10 +4,12 @@ import { StatCard } from "@/components/ui/stat-card";
 import { StatCardGrid } from "@/components/ui/stat-card-grid";
 import { Select } from "@/components/ui/select";
 import { FadeUp, StaggerItem } from "@/components/ui/motion";
-import { PhysicalTradingLifecycle } from "@/components/dashboard/trading-lifecycle";
-import { BusinessPerformance } from "@/components/dashboard/business-performance";
-import { TradingPerformance } from "@/components/dashboard/trading-performance";
-import { InvestorOverview } from "@/components/dashboard/investor-overview";
+import {
+  PhysicalTradingLifecycle,
+  BusinessPerformance,
+  TradingPerformance,
+  InvestorOverview,
+} from "@/components/admin/dashboard";
 
 interface DashboardKPI {
   id: string;

@@ -16,7 +16,7 @@ import {
   mockUserRbacList,
   mockPartnerProfitShareList,
   mockActiveSessions,
-} from "@/components/settings";
+} from "@/components/admin/settings";
 import { ActiveDeviceSession } from "@/types/settings";
 
 export default function SettingsPage() {
@@ -70,9 +70,6 @@ export default function SettingsPage() {
             <DataExportArchival />
           </div>
         );
-
-      case "profile":
-        return <UserManagementRbac users={mockUserRbacList} />;
 
       case "audit":
         return <DataExportArchival />;

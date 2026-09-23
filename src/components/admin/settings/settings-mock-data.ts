@@ -14,7 +14,6 @@ export const mockDeskModules: DeskModuleItem[] = [
   { id: "currency", name: "Currency & FX Hedging", iconName: "currency", badge: "AED Base", badgeVariant: "gray" },
   { id: "notifications", name: "Notification Triggers", iconName: "notifications" },
   { id: "security", name: "Security & 2FA", iconName: "security", badge: "TIER-1", badgeVariant: "solid" },
-  { id: "profile", name: "My Profile", iconName: "profile", badge: "A. Vane", badgeVariant: "gray" },
   { id: "audit", name: "Audit & Compliance", iconName: "audit", badge: "SHA-256", badgeVariant: "gray" },
   { id: "danger", name: "Danger Zone", iconName: "danger", badge: "ROOT", badgeVariant: "outline", isDanger: true },
 ];

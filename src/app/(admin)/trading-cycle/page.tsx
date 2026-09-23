@@ -10,7 +10,7 @@ import {
   TradingCycleDetailsPanel,
   mockTradingCycleKPIs,
   mockTradingCycleList,
-} from "@/components/trading-cycle";
+} from "@/components/admin/trading-cycle";
 import { TradingCycleRecord } from "@/types/trading-cycle";
 
 export default function TradingCyclePage() {

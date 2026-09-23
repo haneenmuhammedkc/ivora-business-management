@@ -10,7 +10,7 @@ import {
   InvestorDetailsPanel,
   mockInvestorsKPIs,
   mockInvestorsList,
-} from "@/components/investors";
+} from "@/components/admin/investors";
 import { InvestorRecord } from "@/types/investors";
 
 export default function InvestorsPage() {
