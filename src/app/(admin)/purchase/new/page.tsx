@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { FadeUp } from "@/components/ui/motion";
-import { NewPurchaseEntry } from "@/components/purchase";
+import { NewPurchaseEntry } from "@/components/admin/purchase";
 
 export const metadata = {
   title: "New Purchase Entry - Ivora",

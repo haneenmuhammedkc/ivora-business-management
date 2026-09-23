@@ -17,7 +17,7 @@ import {
   mockBusinessProfitabilityList,
   mockTradingCyclePLList,
   mockProfitLossStatement,
-} from "@/components/profit-loss";
+} from "@/components/admin/profit-loss";
 
 export default function ProfitLossPage() {
   const [searchTerm, setSearchTerm] = useState("");

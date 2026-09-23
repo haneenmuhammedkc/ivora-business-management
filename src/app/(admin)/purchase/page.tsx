@@ -9,7 +9,7 @@ import {
   PurchaseTableView,
   mockPurchaseKPIs,
   mockPurchasesList,
-} from "@/components/purchase";
+} from "@/components/admin/purchase";
 import { PurchaseRecord } from "@/types/purchase";
 
 export default function PurchasePage() {

@@ -11,7 +11,7 @@ import {
   CreateBusinessModal,
   mockBusinessesKPIs,
   mockBusinessesList,
-} from "@/components/businesses";
+} from "@/components/admin/businesses";
 import { BusinessEntity } from "@/types/business";
 
 export default function BusinessesPage() {

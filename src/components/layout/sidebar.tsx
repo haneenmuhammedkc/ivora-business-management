@@ -106,24 +106,45 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
 
       {/* User Profile Footer */}
       <div className="border-t border-gray-100 p-4">
-        <div className="flex items-center justify-between rounded-lg p-2 hover:bg-gray-50 transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0c0d12] text-[11px] font-bold text-white tracking-wider">
+        <div
+          className={`flex items-center justify-between rounded-lg p-2 transition-colors ${
+            pathname === "/profile"
+              ? "bg-gray-100/90 border border-gray-200/90 shadow-2xs"
+              : "hover:bg-gray-50 border border-transparent"
+          }`}
+        >
+          <Link
+            href="/profile"
+            onClick={onClose}
+            className="flex items-center gap-3 flex-1 min-w-0 group"
+            aria-label="View Admin Profile"
+          >
+            <div
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white tracking-wider transition-all ${
+                pathname === "/profile"
+                  ? "bg-[#0c0d12] ring-2 ring-gray-950 ring-offset-1"
+                  : "bg-[#0c0d12] group-hover:scale-105"
+              }`}
+            >
               AV
               <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-white border border-gray-200" />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="truncate text-xs font-bold text-gray-900">
+              <span
+                className={`truncate text-xs font-bold transition-colors ${
+                  pathname === "/profile" ? "text-black" : "text-gray-900 group-hover:text-black"
+                }`}
+              >
                 Alexander Vane
               </span>
               <span className="truncate text-[10px] text-gray-400 font-medium">
                 Main Admin A • Root
               </span>
             </div>
-          </div>
+          </Link>
           <Link
             href="/login"
-            className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors"
+            className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors shrink-0 ml-1"
             title="Sign out"
             aria-label="Sign out"
           >
