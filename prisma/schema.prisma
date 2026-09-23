@@ -16,14 +16,20 @@ generator client {
 // ==========================================
 
 enum UserRole {
-  ROOT_ADMIN
-  PARTNER_RESTRICTED
+  ADMIN
+  PARTNER
 }
 
 enum UserStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+  PENDING_ACTIVATION
+}
+
+enum AuthTokenType {
+  ACCOUNT_ACTIVATION
+  PASSWORD_RESET
 }
 
 enum BusinessStatus {
@@ -88,35 +94,55 @@ enum PaymentMethod {
 // ==========================================
 
 model User {
-  id               String     @id @default(cuid())
-  email            String     @unique
-  passwordHash     String
-  name             String
-  role             UserRole   @default(PARTNER_RESTRICTED)
-  status           UserStatus @default(ACTIVE)
-  twoFactorEnabled Boolean    @default(false)
-  lastLoginAt      DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  id                 String     @id @default(cuid())
+  email              String     @unique
+  passwordHash       String
+  name               String
+  role               UserRole   @default(PARTNER)
+  status             UserStatus @default(ACTIVE)
+  mustChangePassword Boolean    @default(false)
+  passwordChangedAt  DateTime?
+  twoFactorEnabled   Boolean    @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
-  businessUsers BusinessUser[]
-  auditLogs     AuditLog[]
+  businesses Business[]
+  auditLogs  AuditLog[]
 
   @@index([email])
   @@index([role])
   @@index([status])
 }
 
-model Business {
-  id          String         @id @default(cuid())
-  name        String
-  code        String         @unique
-  description String?
-  status      BusinessStatus @default(ACTIVE)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+model AuthToken {
+  id          String        @id @default(cuid())
+  email       String
+  tokenHash   String
+  type        AuthTokenType
+  attempts    Int           @default(0)
+  maxAttempts Int           @default(5)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime      @default(now())
 
-  businessUsers BusinessUser[]
+  @@index([email])
+  @@index([type])
+  @@index([expiresAt])
+}
+
+model Business {
+  id               String         @id @default(cuid())
+  name             String
+  code             String         @unique
+  description      String?
+  partnerId        String
+  partnerEquityPct Decimal        @db.Decimal(5, 2)
+  status           BusinessStatus @default(ACTIVE)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  partner       User           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   investors     Investor[]
   investments   Investment[]
   tradingCycles TradingCycle[]
@@ -127,22 +153,7 @@ model Business {
 
   @@index([code])
   @@index([status])
-}
-
-model BusinessUser {
-  id             String   @id @default(cuid())
-  businessId     String
-  userId         String
-  equitySharePct Decimal  @db.Decimal(5, 2)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  @@unique([businessId, userId])
-  @@index([businessId])
-  @@index([userId])
+  @@index([partnerId])
 }
 
 model Investor {
