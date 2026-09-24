@@ -33,7 +33,6 @@ export function BusinessKpiCards({ kpis }: BusinessKpiCardsProps) {
     },
     {
       id: "combined-net-profit",
-      variant: "highlight",
       label: "COMBINED NET PROFIT",
       currency: "AED",
       value: kpis.combinedNetProfitAED.toLocaleString(),
