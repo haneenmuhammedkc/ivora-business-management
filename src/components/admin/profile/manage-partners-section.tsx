@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRightIcon, PlusIcon } from "@/components/ui/icons";
@@ -12,6 +12,8 @@ export interface PartnerItem {
   corporateEmail: string;
   phone: string;
   role: string;
+  status?: string;
+  businessCount?: number;
 }
 
 export const mockPartners: PartnerItem[] = [
@@ -38,10 +40,62 @@ export interface ManagePartnersSectionProps {
 }
 
 export function ManagePartnersSection({
-  partners = mockPartners,
+  partners,
 }: ManagePartnersSectionProps) {
-  const [partnerList] = useState<PartnerItem[]>(partners);
+  const [partnerList, setPartnerList] = useState<PartnerItem[]>(partners || []);
   const [selectedPartner, setSelectedPartner] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (partners) {
+      return;
+    }
+
+    let isSubscribed = true;
+
+    fetch("/api/partners", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isSubscribed && data?.success && Array.isArray(data.partners)) {
+          interface RawPartner {
+            id: string;
+            name: string;
+            email: string;
+            role: string;
+            status?: string;
+            businesses?: unknown[];
+          }
+          const mapped: PartnerItem[] = data.partners.map((p: RawPartner) => ({
+            id: p.id,
+            fullName: p.name,
+            initials: p.name
+              .split(" ")
+              .map((n: string) => n[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase(),
+            corporateEmail: p.email,
+            phone: "—",
+            role: p.role,
+            status: p.status,
+            businessCount: p.businesses?.length || 0,
+          }));
+          setPartnerList(mapped);
+        }
+      })
+      .catch((err) => {
+        console.error("[ManagePartnersSection] Failed to load partners:", err);
+      });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [partners]);
 
   return (
     <div className="rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden">

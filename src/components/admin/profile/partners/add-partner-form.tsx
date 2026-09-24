@@ -93,8 +93,8 @@ export function AddPartnerForm() {
       newErrors.temporaryPassword = "Temporary password is required.";
     } else if (pw.length < 8) {
       newErrors.temporaryPassword = "Password must be at least 8 characters long.";
-    } else if (!/[a-zA-Z]/.test(pw) || !/\d/.test(pw)) {
-      newErrors.temporaryPassword = "Password must contain both letters and numbers.";
+    } else if (!/[A-Z]/.test(pw) || !/[a-z]/.test(pw) || !/\d/.test(pw)) {
+      newErrors.temporaryPassword = "Password must include uppercase, lowercase letters, and at least one number.";
     }
 
     if (!loginAccess.confirmTemporaryPassword) {
@@ -107,18 +107,59 @@ export function AddPartnerForm() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError(null);
 
     if (!validateForm()) {
       return;
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+
+    try {
+      const effectiveLoginEmail = (
+        loginAccess.loginEmail.trim() || partnerDetails.corporateEmail.trim()
+      ).toLowerCase();
+
+      const res = await fetch("/api/partners", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: partnerDetails.fullName.trim(),
+          email: effectiveLoginEmail,
+          temporaryPassword: loginAccess.temporaryPassword,
+        }),
+        credentials: "include",
+      });
+
+      const data = await res.json().catch(() => ({
+        success: false,
+        error: "Failed to parse server response",
+      }));
+
+      if (res.ok && data.success) {
+        setIsSuccess(true);
+      } else {
+        const errorMsg = data.error || "Failed to create partner account";
+        if (errorMsg.toLowerCase().includes("email") || errorMsg.toLowerCase().includes("user account")) {
+          setErrors((prev) => ({
+            ...prev,
+            corporateEmail: errorMsg,
+            loginEmail: errorMsg,
+          }));
+        }
+        setApiError(errorMsg);
+      }
+    } catch {
+      setApiError("Network error occurred while creating partner. Please try again.");
+    } finally {
       setIsSubmitting(false);
-      setIsSuccess(true);
-    }, 450);
+    }
   };
 
   const handleResetForm = () => {
@@ -134,6 +175,7 @@ export function AddPartnerForm() {
     });
     setHasCustomLoginEmail(false);
     setErrors({});
+    setApiError(null);
     setIsSuccess(false);
   };
 
@@ -247,6 +289,14 @@ export function AddPartnerForm() {
           confirmTemporaryPassword: errors.confirmTemporaryPassword,
         }}
       />
+
+      {/* API Error Notification */}
+      {apiError && (
+        <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
+          <span className="font-bold">Error:</span>
+          <span>{apiError}</span>
+        </div>
+      )}
 
       {/* Form Action Controls */}
       <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-3">

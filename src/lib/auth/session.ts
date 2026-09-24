@@ -2,8 +2,9 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { UserRole } from "@prisma/client";
 
-export const SESSION_COOKIE_NAME = "ivora_session";
-const SESSION_DURATION_SECONDS = 30 * 24 * 60 * 60; // 30 days
+export const AUTH_COOKIE_NAME = "ivora_access_token";
+export const SESSION_COOKIE_NAME = AUTH_COOKIE_NAME;
+export const SESSION_DURATION_SECONDS = 24 * 60 * 60; // 1 day = 86,400 seconds
 
 export interface SessionPayload {
   userId: string;
@@ -75,7 +76,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
  */
 export async function setSessionCookie(token: string): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, token, {
+  cookieStore.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -89,7 +90,7 @@ export async function setSessionCookie(token: string): Promise<void> {
  */
 export async function clearSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, "", {
+  cookieStore.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -104,7 +105,7 @@ export async function clearSessionCookie(): Promise<void> {
 export async function getSessionToken(): Promise<string | null> {
   try {
     const cookieStore = await cookies();
-    const cookie = cookieStore.get(SESSION_COOKIE_NAME);
+    const cookie = cookieStore.get(AUTH_COOKIE_NAME);
     return cookie?.value || null;
   } catch {
     return null;

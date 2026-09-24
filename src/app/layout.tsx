@@ -12,6 +12,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+import { AuthProvider } from "@/context/auth-context";
+
 export const metadata: Metadata = {
   title: "Ivora - Business Management",
   description: "Enterprise Business Management and Physical Bullion Trading Platform",
@@ -28,7 +30,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-white text-gray-900 selection:bg-black selection:text-white">
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

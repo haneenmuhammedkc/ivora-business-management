@@ -177,3 +177,71 @@ export async function listPartners() {
 
   return partners;
 }
+
+/**
+ * Get Partner details by ID.
+ */
+export async function getPartnerById(partnerId: string) {
+  const partner = await prisma.user.findFirst({
+    where: { id: partnerId, role: UserRole.PARTNER },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      mustChangePassword: true,
+      lastLoginAt: true,
+      createdAt: true,
+      updatedAt: true,
+      businesses: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          partnerEquityPct: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  return partner;
+}
+
+/**
+ * Update Partner account status (ACTIVE, INACTIVE, SUSPENDED).
+ */
+export async function updatePartnerStatus(params: {
+  adminUserId: string;
+  partnerId: string;
+  status: UserStatus;
+  ipAddress?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { adminUserId, partnerId, status, ipAddress } = params;
+
+  const partner = await prisma.user.findFirst({
+    where: { id: partnerId, role: UserRole.PARTNER },
+  });
+
+  if (!partner) {
+    return { success: false, error: "Partner account not found" };
+  }
+
+  await prisma.user.update({
+    where: { id: partnerId },
+    data: { status },
+  });
+
+  await logAuditEvent({
+    userId: adminUserId,
+    action: "PARTNER_STATUS_CHANGED",
+    entity: "User",
+    entityId: partnerId,
+    oldValues: { status: partner.status },
+    newValues: { status },
+    ipAddress,
+  });
+
+  return { success: true };
+}

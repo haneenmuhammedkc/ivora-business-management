@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { useAuth } from "@/context/auth-context";
 import {
   IvoraLogo,
   DashboardIcon,
@@ -50,6 +51,26 @@ export interface SidebarProps {
 export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
   const pathname = usePathname();
   const shouldReduceMotion = useReducedMotion();
+  const { user, logout } = useAuth();
+
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : "AV";
+
+  const userDisplayName = user?.name || "Administrator";
+  const userRoleLabel =
+    user?.role === "ADMIN" ? "Main Admin • Root" : "Partner Workspace";
+
+  const handleLogout = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onClose) onClose();
+    await logout();
+  };
 
   const sidebarContent = (
     <div className="flex h-full w-full flex-col bg-white">
@@ -126,7 +147,7 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
                   : "bg-[#0c0d12] group-hover:scale-105"
               }`}
             >
-              AV
+              {userInitials}
               <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-white border border-gray-200" />
             </div>
             <div className="flex flex-col min-w-0">
@@ -135,21 +156,22 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
                   pathname === "/profile" ? "text-black" : "text-gray-900 group-hover:text-black"
                 }`}
               >
-                Alexander Vane
+                {userDisplayName}
               </span>
               <span className="truncate text-[10px] text-gray-400 font-medium">
-                Main Admin A • Root
+                {userRoleLabel}
               </span>
             </div>
           </Link>
-          <Link
-            href="/login"
-            className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors shrink-0 ml-1"
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors shrink-0 ml-1 cursor-pointer"
             title="Sign out"
             aria-label="Sign out"
           >
             <LogOutIcon size={15} />
-          </Link>
+          </button>
         </div>
       </div>
     </div>

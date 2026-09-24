@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,10 +18,45 @@ import {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState("admin@ivora.trade");
-  const [password, setPassword] = useState("DemoSecurePass123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim() || !password) {
+      setError("Email and password are required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const res = await login(email.trim(), password);
+
+      if (res.success) {
+        if (res.requiresActivationOtp) {
+          router.push(`/verify-otp?email=${encodeURIComponent(email.trim())}`);
+        } else if (res.requiresPasswordChange) {
+          router.push("/reset-password");
+        } else {
+          router.push("/dashboard");
+        }
+      } else {
+        setError(res.error || "Invalid email or password");
+        setIsSubmitting(false);
+      }
+    } catch {
+      setError("An unexpected error occurred during login. Please try again.");
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-white px-4 py-12 sm:px-6 lg:px-8">
@@ -46,13 +82,14 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form
-          className="space-y-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            router.push("/dashboard");
-          }}
-        >
+        {error && (
+          <div className="mb-5 p-3 rounded-lg bg-red-50/90 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
+            <span className="font-bold">Error:</span>
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form className="space-y-5" onSubmit={handleSubmit}>
           <div>
             <label
               htmlFor="email"
@@ -62,13 +99,17 @@ export default function LoginPage() {
             </label>
             <Input
               id="email"
-              type="text"
+              type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (error) setError("");
+              }}
               icon={<MailIcon size={16} />}
               iconPosition="left"
               placeholder="name@company.com"
               className="bg-white py-2.5"
+              autoFocus
               required
             />
           </div>
@@ -93,7 +134,10 @@ export default function LoginPage() {
                 id="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError("");
+                }}
                 icon={<LockIcon size={16} />}
                 iconPosition="left"
                 placeholder="Enter password"
@@ -127,11 +171,12 @@ export default function LoginPage() {
             type="submit"
             variant="primary"
             size="lg"
-            className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2 py-3.5 bg-[#0c0d12] hover:bg-[#1f2430] rounded-lg"
+            disabled={isSubmitting}
+            className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2 py-3.5 bg-[#0c0d12] hover:bg-[#1f2430] rounded-lg cursor-pointer"
             icon={<ArrowRightIcon size={15} />}
             iconPosition="right"
           >
-            Sign In
+            {isSubmitting ? "Signing In..." : "Sign In"}
           </Button>
         </form>
       </div>

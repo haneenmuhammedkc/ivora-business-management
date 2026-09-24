@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useAuth } from "@/context/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +20,8 @@ export interface AdminProfileData {
 }
 
 export const initialAdminProfile: AdminProfileData = {
-  fullName: "Alexander Vane",
-  email: "admin@ivora.trade",
+  fullName: "Ivora Admin",
+  email: "ivorageneraltrading@gmail.com",
   phone: "+971 50 892 4410",
   role: "Sovereign Administrator (Root)",
   status: "ACTIVE",
@@ -31,14 +32,33 @@ export const initialAdminProfile: AdminProfileData = {
 };
 
 export function AdminDetailsCard() {
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [profile, setProfile] = useState<AdminProfileData>(initialAdminProfile);
+  const [overrides, setOverrides] = useState<Partial<AdminProfileData>>({});
   const [formData, setFormData] = useState<AdminProfileData>(initialAdminProfile);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const profile: AdminProfileData = {
+    ...initialAdminProfile,
+    ...(user
+      ? {
+          fullName: user.name || initialAdminProfile.fullName,
+          email: user.email || initialAdminProfile.email,
+          status: user.status === "ACTIVE" ? "ACTIVE" : "INACTIVE",
+          role: user.role === "ADMIN" ? "Sovereign Administrator (Root)" : "Partner Workspace",
+        }
+      : {}),
+    ...overrides,
+  };
+
+  const handleStartEdit = () => {
+    setFormData(profile);
+    setIsEditing(true);
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    setProfile(formData);
+    setOverrides(formData);
     setIsEditing(false);
     setSuccessMessage("Profile details updated successfully.");
     setTimeout(() => {
@@ -47,7 +67,6 @@ export function AdminDetailsCard() {
   };
 
   const handleCancel = () => {
-    setFormData(profile);
     setIsEditing(false);
   };
 
@@ -69,7 +88,7 @@ export function AdminDetailsCard() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setIsEditing(true)}
+              onClick={handleStartEdit}
               className="text-xs font-semibold shadow-2xs"
             >
               Edit Profile

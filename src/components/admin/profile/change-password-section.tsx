@@ -19,7 +19,7 @@ export function ChangePasswordSection() {
   const hasLetter = /[a-zA-Z]/.test(newPassword);
   const passwordsMatch = newPassword && confirmPassword && newPassword === confirmPassword;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -39,7 +39,7 @@ export function ChangePasswordSection() {
     }
 
     if (!hasLetter || !hasNumber) {
-      setError("New password must contain both letters and numbers.");
+      setError("New password must contain uppercase, lowercase letters, and at least one number.");
       return;
     }
 
@@ -49,16 +49,41 @@ export function ChangePasswordSection() {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+        credentials: "include",
+      });
+
+      const data = await res.json().catch(() => ({
+        success: false,
+        error: "Failed to parse server response",
+      }));
+
+      if (res.ok && data.success) {
+        setSuccessMessage(data.message || "Password updated successfully.");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setTimeout(() => {
+          setSuccessMessage(null);
+        }, 5000);
+      } else {
+        setError(data.error || "Failed to update password. Please check your current password.");
+      }
+    } catch {
+      setError("Network error occurred while updating password. Please try again.");
+    } finally {
       setIsSubmitting(false);
-      setSuccessMessage("Password change request ready. Updated in current session.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setTimeout(() => {
-        setSuccessMessage(null);
-      }, 5000);
-    }, 400);
+    }
   };
 
   return (
