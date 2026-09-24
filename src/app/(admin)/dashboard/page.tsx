@@ -55,7 +55,6 @@ const DASHBOARD_KPIS: DashboardKPI[] = [
     currency: "AED",
     value: "37,350",
     description: "After all cleared expenses",
-    variant: "highlight",
   },
   {
     id: "investor-share",

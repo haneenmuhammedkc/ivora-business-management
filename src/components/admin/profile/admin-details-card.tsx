@@ -3,8 +3,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { CheckIcon, MailIcon } from "@/components/ui/icons";
+import { CheckIcon } from "@/components/ui/icons";
 
 export interface AdminProfileData {
   fullName: string;
@@ -99,35 +98,6 @@ export function AdminDetailsCard() {
       <div className="p-5">
         {!isEditing ? (
           <div className="space-y-6">
-            {/* Top Identity Block */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-gray-50/80 border border-gray-200/80 gap-4">
-              <div className="flex items-center gap-3.5">
-                <div className="relative flex h-13 w-13 shrink-0 items-center justify-center rounded-xl bg-[#0c0d12] text-sm font-black text-white tracking-widest shadow-xs">
-                  AV
-                  <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-white" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm sm:text-base font-bold text-gray-950">
-                      {profile.fullName}
-                    </h3>
-                    <Badge variant="active" className="px-1.5 py-0.2 text-[9px]">
-                      {profile.status}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5 font-medium flex items-center gap-1.5">
-                    <MailIcon size={13} className="text-gray-400" />
-                    <span>{profile.email}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 sm:self-center">
-                <span className="px-2.5 py-1 rounded-md bg-[#0c0d12] text-white text-[10px] font-bold uppercase tracking-wider">
-                  ROOT ADMIN
-                </span>
-              </div>
-            </div>
 
             {/* Profile Field Details Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">

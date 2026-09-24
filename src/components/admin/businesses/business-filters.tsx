@@ -1,4 +1,7 @@
+"use client";
+
 import React from "react";
+import Link from "next/link";
 import { SearchInput } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -13,7 +16,7 @@ export interface BusinessFiltersProps {
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
-  onCreateBusinessClick: () => void;
+  onCreateBusinessClick?: () => void;
 }
 
 export function BusinessFilters({
@@ -84,14 +87,26 @@ export function BusinessFilters({
           />
         </div>
 
-        <Button
-          onClick={onCreateBusinessClick}
-          variant="primary"
-          icon={<PlusIcon size={15} />}
-          className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
-        >
-          Create Business
-        </Button>
+        {onCreateBusinessClick ? (
+          <Button
+            onClick={onCreateBusinessClick}
+            variant="primary"
+            icon={<PlusIcon size={15} />}
+            className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
+          >
+            Add Business
+          </Button>
+        ) : (
+          <Link href="/businesses/new" className="w-full sm:w-auto">
+            <Button
+              variant="primary"
+              icon={<PlusIcon size={15} />}
+              className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
+            >
+              Add Business
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );

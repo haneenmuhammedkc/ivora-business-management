@@ -8,20 +8,18 @@ import {
   BusinessFilters,
   BusinessTableView,
   BusinessCardsView,
-  CreateBusinessModal,
   mockBusinessesKPIs,
   mockBusinessesList,
 } from "@/components/admin/businesses";
 import { BusinessEntity } from "@/types/business";
 
 export default function BusinessesPage() {
-  const [businesses, setBusinesses] = useState<BusinessEntity[]>(mockBusinessesList);
+  const [businesses] = useState<BusinessEntity[]>(mockBusinessesList);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState("all");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // Filtered businesses
   const filteredBusinesses = useMemo(() => {
@@ -57,10 +55,6 @@ export default function BusinessesPage() {
     });
   }, [businesses, searchTerm, selectedBusiness, selectedStatus, selectedProduct]);
 
-  const handleCreateBusiness = (newBusiness: BusinessEntity) => {
-    setBusinesses((prev) => [newBusiness, ...prev]);
-  };
-
   return (
     <div className="space-y-6 pb-12">
       {/* Page Header */}
@@ -87,7 +81,6 @@ export default function BusinessesPage() {
           onStatusChange={setSelectedStatus}
           selectedProduct={selectedProduct}
           onProductChange={setSelectedProduct}
-          onCreateBusinessClick={() => setIsCreateModalOpen(true)}
         />
       </FadeUp>
 
@@ -107,13 +100,6 @@ export default function BusinessesPage() {
           />
         )}
       </FadeUp>
-
-      {/* Create Business Modal */}
-      <CreateBusinessModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onCreateBusiness={handleCreateBusiness}
-      />
     </div>
   );
 }

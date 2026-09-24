@@ -81,6 +81,7 @@ export function NewInvestorEntry({ onRecordInvestor }: NewInvestorEntryProps) {
 
   return (
     <div className="w-full rounded-xl border border-gray-200/90 bg-white p-6 sm:p-7 shadow-2xs space-y-6">
+
       {/* Header */}
       <div className="flex items-start justify-between pb-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
@@ -117,14 +118,14 @@ export function NewInvestorEntry({ onRecordInvestor }: NewInvestorEntryProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Investor / Firm Name"
+              label="Investor Name"
               placeholder="e.g. Partner D / Alpha Capital"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
             <Input
-              label="Contact Email / Reference"
+              label="Contact Email"
               placeholder="e.g. partner@ivora-trade.ae"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -134,7 +135,7 @@ export function NewInvestorEntry({ onRecordInvestor }: NewInvestorEntryProps) {
         </div>
 
         {/* 02. BUSINESS ALLOCATION & TERMS */}
-        <div className="space-y-3.5 pt-2 border-t border-gray-100">
+        <div className="space-y-3.5 pt-5 border-t border-gray-100">
           <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500 block">
             02. BUSINESS ALLOCATION & EQUITY TERMS
           </span>
@@ -176,65 +177,6 @@ export function NewInvestorEntry({ onRecordInvestor }: NewInvestorEntryProps) {
               className="text-right font-semibold"
               required
             />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
-              label="Contract Governance"
-              value={contractType}
-              onChange={(e) => setContractType(e.target.value)}
-              options={[
-                {
-                  value: "Standard Contract (Escrow Protected)",
-                  label: "Standard Contract (Escrow Protected)",
-                },
-                {
-                  value: "Manual Contract (Special Split)",
-                  label: "Manual Contract (Special Split)",
-                },
-                {
-                  value: "Institutional Syndicate Agreement",
-                  label: "Institutional Syndicate Agreement",
-                },
-              ]}
-            />
-            <Select
-              label="Escrow & Settlement Account"
-              value={escrowAccount}
-              onChange={(e) => setEscrowAccount(e.target.value)}
-              options={[
-                {
-                  value: "Direct Bank Wire (ENBD - DXB Operating Escrow)",
-                  label: "Direct Bank Wire (ENBD - DXB Operating Escrow)",
-                },
-                {
-                  value: "ADCB Escrow Account #49281",
-                  label: "ADCB Escrow Account #49281",
-                },
-              ]}
-            />
-          </div>
-        </div>
-
-        {/* 03. SUMMARY LEDGER PREVIEW */}
-        <div className="rounded-xl border border-[#d6e3ed] bg-[#edf4f8]/70 p-5 space-y-3">
-          <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-700 block">
-            03. ALLOCATION SUMMARY PREVIEW
-          </span>
-
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center justify-between text-gray-700">
-              <span>Committed Capital:</span>
-              <span className="font-bold text-gray-950">
-                AED {investNum.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-gray-700">
-              <span>Arbitrage Profit Share:</span>
-              <span className="font-bold text-gray-950">
-                {shareNum}% Contracted
-              </span>
-            </div>
           </div>
         </div>
 
