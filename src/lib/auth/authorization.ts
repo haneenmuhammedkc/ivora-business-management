@@ -77,11 +77,14 @@ export async function getAuthorizedBusinessIds(session: SessionPayload): Promise
 /**
  * Enforce that the authenticated user has access to a specific Business ID.
  */
-export async function requireBusinessAccess(businessId: string): Promise<{
+export async function requireBusinessAccess(
+  businessId: string,
+  currentSession?: SessionPayload
+): Promise<{
   session: SessionPayload;
   isGlobalAdmin: boolean;
 }> {
-  const session = await requireActiveSession();
+  const session = currentSession || (await requireActiveSession());
 
   if (session.role === UserRole.ADMIN) {
     return { session, isGlobalAdmin: true };
@@ -173,9 +176,10 @@ export interface ResourceResolution<T = Record<string, unknown>> {
 export async function requireResourceAccess<T = Record<string, unknown>>(
   resourceType: DomainResourceType,
   resourceId: string,
-  operation: "READ" | "WRITE" | "DELETE" = "READ"
+  operation: "READ" | "WRITE" | "DELETE" = "READ",
+  currentSession?: SessionPayload
 ): Promise<ResourceResolution<T>> {
-  const session = await requireActiveSession();
+  const session = currentSession || (await requireActiveSession());
 
   let resource: Record<string, unknown> | null = null;
   let businessId: string | null = null;

@@ -17,9 +17,9 @@ export async function GET(
       if (error.statusCode === 404) {
         return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });
       }
-      return error.statusCode === 401
-        ? unauthorizedResponse(error.message)
-        : forbiddenErrorResponse(error.message);
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
     }
     console.error("[Get Business API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
@@ -46,9 +46,9 @@ export async function PATCH(
       if (error.statusCode === 404) {
         return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });
       }
-      return error.statusCode === 401
-        ? unauthorizedResponse(error.message)
-        : forbiddenErrorResponse(error.message);
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      return NextResponse.json({ success: false, error: "VALIDATION_ERROR", message: error.message }, { status: error.statusCode });
     }
     console.error("[Update Business API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });

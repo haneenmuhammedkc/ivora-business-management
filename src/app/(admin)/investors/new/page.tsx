@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import Link from "next/link";
 import { FadeUp } from "@/components/ui/motion";
 import { NewInvestorEntry } from "@/components/admin/investors";
@@ -25,7 +25,15 @@ export default function NewInvestorPage() {
 
       {/* Main New Investor Form */}
       <FadeUp delay={0.1}>
-        <NewInvestorEntry />
+        <Suspense
+          fallback={
+            <div className="w-full p-12 text-center text-xs text-gray-500 bg-white rounded-xl border border-gray-200">
+              Loading registration form...
+            </div>
+          }
+        >
+          <NewInvestorEntry />
+        </Suspense>
       </FadeUp>
     </div>
   );

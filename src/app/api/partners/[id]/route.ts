@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPartnerById, updatePartnerStatus } from "@/services/partner/partner.service";
-import { requireAdmin, errorResponse, forbiddenResponse, unauthorizedResponse } from "@/lib/auth/guards";
+import {
+  getPartnerById,
+  updatePartnerProfile,
+  updatePartnerStatus,
+} from "@/services/partner/partner.service";
+import {
+  requireAdmin,
+  errorResponse,
+  forbiddenResponse,
+  unauthorizedResponse,
+} from "@/lib/auth/guards";
 import { getClientIp } from "@/lib/auth/rate-limiter";
 import { UserStatus } from "@prisma/client";
 
@@ -53,40 +62,83 @@ export async function PATCH(
     const ip = getClientIp(req.headers);
     const body = await req.json().catch(() => null);
 
-    if (!body || !body.status) {
-      return errorResponse("Status field is required", 400);
+    if (!body) {
+      return errorResponse("Request payload is required", 400);
     }
 
-    const validStatuses = Object.values(UserStatus);
-    if (!validStatuses.includes(body.status)) {
-      return errorResponse(`Invalid status. Must be one of: ${validStatuses.join(", ")}`, 400);
+    // 1. Profile Update (Name + Phone)
+    if (body.name !== undefined || body.phone !== undefined) {
+      if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
+        return errorResponse("Partner name is required", 400);
+      }
+      if (!body.phone || typeof body.phone !== "string" || !body.phone.trim()) {
+        return errorResponse("Partner phone number is required", 400);
+      }
+
+      const result = await updatePartnerProfile({
+        adminUserId: adminSession.userId,
+        partnerId: id,
+        name: body.name.trim(),
+        phone: body.phone.trim(),
+        ipAddress: ip,
+      });
+
+      if (!result.success) {
+        return errorResponse(result.error || "Failed to update partner profile", 400);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Partner profile updated successfully",
+        partner: result.partner,
+      });
     }
 
-    const result = await updatePartnerStatus({
-      adminUserId: adminSession.userId,
-      partnerId: id,
-      status: body.status,
-      ipAddress: ip,
-    });
+    // 2. Status Update
+    if (body.status !== undefined) {
+      const rawStatus =
+        typeof body.status === "string" ? body.status.trim().toUpperCase() : body.status;
+      const normalizedStatus = rawStatus === "DEACTIVE" ? UserStatus.INACTIVE : rawStatus;
 
-    if (!result.success) {
-      return errorResponse(result.error || "Failed to update partner status", 400);
+      const validStatuses = Object.values(UserStatus);
+      if (!validStatuses.includes(normalizedStatus)) {
+        return errorResponse(
+          `Invalid status. Must be one of: ${validStatuses.join(", ")}, DEACTIVE`,
+          400
+        );
+      }
+
+      const result = await updatePartnerStatus({
+        adminUserId: adminSession.userId,
+        partnerId: id,
+        status: normalizedStatus as UserStatus,
+        ipAddress: ip,
+      });
+
+      if (!result.success) {
+        return errorResponse(result.error || "Failed to update partner status", 400);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Partner status updated successfully",
+      });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: "Partner status updated successfully",
-    });
+    return errorResponse(
+      "Valid update fields ('name' and 'phone', or 'status') are required",
+      400
+    );
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "UNAUTHORIZED") {
         return unauthorizedResponse("Authentication required");
       }
       if (error.message === "FORBIDDEN") {
-        return forbiddenResponse("Admin role required to update partner status");
+        return forbiddenResponse("Admin role required to update partner");
       }
     }
-    console.error("[Update Partner Status API Error]", error);
-    return errorResponse("An unexpected error occurred while updating partner status", 500);
+    console.error("[Update Partner API Error]", error);
+    return errorResponse("An unexpected error occurred while updating partner", 500);
   }
 }

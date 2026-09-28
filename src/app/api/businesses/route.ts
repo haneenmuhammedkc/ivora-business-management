@@ -10,9 +10,9 @@ export async function GET() {
     return NextResponse.json({ success: true, businesses });
   } catch (error) {
     if (error instanceof AuthError) {
-      return error.statusCode === 401
-        ? unauthorizedResponse(error.message)
-        : forbiddenErrorResponse(error.message);
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
     }
     console.error("[List Businesses API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
@@ -32,9 +32,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, business }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) {
-      return error.statusCode === 401
-        ? unauthorizedResponse(error.message)
-        : forbiddenErrorResponse(error.message);
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      if (error.statusCode === 409) {
+        return NextResponse.json({ success: false, error: "CONFLICT", message: error.message }, { status: 409 });
+      }
+      return NextResponse.json({ success: false, error: "VALIDATION_ERROR", message: error.message }, { status: error.statusCode });
     }
     console.error("[Create Business API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });

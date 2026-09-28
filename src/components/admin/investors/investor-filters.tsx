@@ -1,3 +1,5 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
 import { SearchInput } from "@/components/ui/input";
@@ -7,30 +9,32 @@ import { PlusIcon } from "@/components/ui/icons";
 export interface InvestorFiltersProps {
   searchTerm: string;
   onSearchChange: (value: string) => void;
-  selectedBusiness: string;
-  onBusinessChange: (value: string) => void;
   selectedStatus: string;
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
+  defaultBusinessId?: string;
 }
 
 export function InvestorFilters({
   searchTerm,
   onSearchChange,
-  selectedBusiness,
-  onBusinessChange,
   selectedStatus,
   onStatusChange,
   selectedProduct,
   onProductChange,
+  defaultBusinessId,
 }: InvestorFiltersProps) {
+  const addInvestorHref = defaultBusinessId
+    ? `/investors/new?businessId=${encodeURIComponent(defaultBusinessId)}`
+    : "/investors/new";
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
       {/* Search Input */}
       <div className="w-full lg:max-w-md">
         <SearchInput
-          placeholder="Search..."
+          placeholder="Search business, code, or type..."
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
           className="h-10"
@@ -39,21 +43,6 @@ export function InvestorFilters({
 
       {/* Select Dropdowns and Action Button */}
       <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-        <div className="w-full sm:w-auto min-w-[170px]">
-          <Select
-            value={selectedBusiness}
-            onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "Business 01", label: "Business 01" },
-              { value: "Business 02", label: "Business 02" },
-              { value: "Business 03", label: "Business 03" },
-            ]}
-            prefixLabel="Business"
-            className="h-10 text-xs"
-          />
-        </div>
-
         <div className="w-full sm:w-auto min-w-[145px]">
           <Select
             value={selectedStatus}
@@ -61,8 +50,7 @@ export function InvestorFilters({
             options={[
               { value: "all", label: "All Status" },
               { value: "ACTIVE", label: "Active" },
-              { value: "PENDING", label: "Pending" },
-              { value: "CLEARED", label: "Cleared" },
+              { value: "INACTIVE", label: "Inactive" },
             ]}
             prefixLabel="Status"
             className="h-10 text-xs"
@@ -75,6 +63,8 @@ export function InvestorFilters({
             onChange={(e) => onProductChange(e.target.value)}
             options={[
               { value: "all", label: "All Products" },
+              { value: "Trading", label: "Trading" },
+              { value: "Gold Bullion", label: "Gold Bullion" },
               { value: "999.9 Bullion", label: "999.9 Bullion" },
               { value: "Gold Grain 995", label: "Gold Grain 995" },
             ]}
@@ -84,7 +74,7 @@ export function InvestorFilters({
         </div>
 
         <Link
-          href="/investors/new"
+          href={addInvestorHref}
           className="inline-flex items-center justify-center font-semibold transition-colors bg-[#0c0d12] text-white hover:bg-[#1e222d] shadow-xs h-10 px-4 text-xs gap-2 rounded-lg shrink-0 w-full sm:w-auto"
         >
           <PlusIcon size={15} />

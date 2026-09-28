@@ -1,93 +1,99 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
 import {
   InvestorKpiCards,
   InvestorFilters,
   InvestorTableView,
-  InvestorDetailsPanel,
-  mockInvestorsKPIs,
-  mockInvestorsList,
 } from "@/components/admin/investors";
-import { InvestorRecord } from "@/types/investors";
+import { BusinessInvestorRow, InvestorSummaryKPIs } from "@/types/investors";
+
+const defaultKPIs: InvestorSummaryKPIs = {
+  totalInvestors: 0,
+  totalInvestmentAED: 0,
+  profitPaid: 0,
+  netRealizedProfitAED: 0,
+};
 
 export default function InvestorsPage() {
-  const [investors, setInvestors] = useState<InvestorRecord[]>(mockInvestorsList);
-  const [selectedInvestorId, setSelectedInvestorId] = useState<string>("INV-002");
+  const [businesses, setBusinesses] = useState<BusinessInvestorRow[]>([]);
+  const [kpis, setKpis] = useState<InvestorSummaryKPIs>(defaultKPIs);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedBusiness, setSelectedBusiness] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Filtered investors
-  const filteredInvestors = useMemo(() => {
-    return investors.filter((inv) => {
+  // Load business-centric investor records
+  useEffect(() => {
+    let isMounted = true;
+    async function loadBusinesses() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const res = await fetch("/api/investors");
+        const json = await res.json().catch(() => ({}));
+
+        if (isMounted) {
+          if (res.ok && json.success && Array.isArray(json.businesses)) {
+            setBusinesses(json.businesses);
+            if (json.kpis) {
+              setKpis(json.kpis);
+            }
+          } else {
+            setError(json.message || json.error || "Failed to load businesses");
+          }
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : "Failed to load businesses");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadBusinesses();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Filtered businesses
+  const filteredBusinesses = useMemo(() => {
+    return businesses.filter((b) => {
       // Search filter
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
-        const matchesId = inv.id.toLowerCase().includes(query);
-        const matchesName = inv.name.toLowerCase().includes(query);
-        const matchesSubtitle = inv.emailOrSubtitle.toLowerCase().includes(query);
-        const matchesBusiness = inv.business.toLowerCase().includes(query);
-        const matchesEntity = inv.businessEntity.toLowerCase().includes(query);
-        if (
-          !matchesId &&
-          !matchesName &&
-          !matchesSubtitle &&
-          !matchesBusiness &&
-          !matchesEntity
-        ) {
+        const matchesName = b.name.toLowerCase().includes(query);
+        const matchesCode = b.code.toLowerCase().includes(query);
+        const matchesPartner = b.partnerName.toLowerCase().includes(query);
+        const matchesType = b.businessType.toLowerCase().includes(query);
+        if (!matchesName && !matchesCode && !matchesPartner && !matchesType) {
           return false;
         }
       }
 
-      // Business filter
-      if (selectedBusiness !== "all" && inv.business !== selectedBusiness) {
+      // Status filter
+      if (selectedStatus !== "all" && b.status !== selectedStatus) {
         return false;
       }
 
-      // Status filter
-      if (selectedStatus !== "all" && inv.status !== selectedStatus) {
-        return false;
+      // Product filter
+      if (selectedProduct !== "all") {
+        const prod = selectedProduct.toLowerCase();
+        if (!b.businessType.toLowerCase().includes(prod)) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [investors, searchTerm, selectedBusiness, selectedStatus]);
-
-  // Active selected investor for details panel
-  const activeInvestor = useMemo(() => {
-    return (
-      investors.find((inv) => inv.id === selectedInvestorId) ||
-      filteredInvestors[0] ||
-      investors[0]
-    );
-  }, [investors, selectedInvestorId, filteredInvestors]);
-
-  // Selection handlers
-  const handleSelectInvestor = (investor: InvestorRecord) => {
-    setSelectedInvestorId(investor.id);
-  };
-
-  const handleToggleSelect = (id: string) => {
-    setInvestors((prev) =>
-      prev.map((inv) =>
-        inv.id === id ? { ...inv, selected: !inv.selected } : inv
-      )
-    );
-  };
-
-  const handleSelectAll = () => {
-    const allSelected = filteredInvestors.length > 0 && filteredInvestors.every((inv) => inv.selected);
-    const filteredIds = new Set(filteredInvestors.map((inv) => inv.id));
-    setInvestors((prev) =>
-      prev.map((inv) =>
-        filteredIds.has(inv.id) ? { ...inv, selected: !allSelected } : inv
-      )
-    );
-  };
+  }, [businesses, searchTerm, selectedStatus, selectedProduct]);
 
   return (
     <div className="space-y-6 pb-14">
@@ -95,51 +101,41 @@ export default function InvestorsPage() {
       <FadeUp delay={0.05}>
         <PageHeader
           title="Investors"
-          subtitle="Track Investor Capital, Profit Allocation And Settlement Across Trading Businesses."
+          subtitle="Track Investor Capital, Partner Equity, And Treasury Allocation Across Trading Businesses."
         />
       </FadeUp>
 
       {/* KPI Cards */}
       <FadeUp delay={0.1}>
-        <InvestorKpiCards kpis={mockInvestorsKPIs} />
+        <InvestorKpiCards kpis={kpis} />
       </FadeUp>
 
-      {/* Filters and Actions */}
+      {/* Filters and Actions (Business dropdown removed, original UI preserved) */}
       <FadeUp delay={0.15}>
         <InvestorFilters
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
-          selectedBusiness={selectedBusiness}
-          onBusinessChange={setSelectedBusiness}
           selectedStatus={selectedStatus}
           onStatusChange={setSelectedStatus}
           selectedProduct={selectedProduct}
           onProductChange={setSelectedProduct}
+          defaultBusinessId={businesses[0]?.id}
         />
       </FadeUp>
 
-      {/* Investor Register Table */}
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-xs text-red-700 font-medium">
+          {error}
+        </div>
+      )}
+
+      {/* Business-centric Table (One Business = One Row) */}
       <FadeUp delay={0.2}>
         <InvestorTableView
-          investors={filteredInvestors}
-          selectedInvestorId={selectedInvestorId}
-          onSelectInvestor={handleSelectInvestor}
-          onToggleSelect={handleToggleSelect}
-          onSelectAll={handleSelectAll}
-          onExportSelected={() => {}}
-          onBatchNotice={() => {}}
+          businesses={filteredBusinesses}
+          isLoading={isLoading}
         />
       </FadeUp>
-
-      {/* Selected Investor Details Panel */}
-      {activeInvestor && (
-        <FadeUp delay={0.25}>
-          <InvestorDetailsPanel
-            investor={activeInvestor}
-            onClose={() => setSelectedInvestorId("")}
-          />
-        </FadeUp>
-      )}
     </div>
   );
 }

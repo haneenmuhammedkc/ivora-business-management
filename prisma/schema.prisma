@@ -37,6 +37,12 @@ enum BusinessStatus {
   INACTIVE
 }
 
+enum InvestorType {
+  ADMIN
+  PARTNER
+  INVESTOR
+}
+
 enum TradingCycleStatus {
   DRAFT
   IN_PROGRESS
@@ -98,6 +104,7 @@ model User {
   email              String     @unique
   passwordHash       String
   name               String
+  phone              String?
   role               UserRole   @default(PARTNER)
   status             UserStatus @default(ACTIVE)
   mustChangePassword Boolean    @default(false)
@@ -132,15 +139,19 @@ model AuthToken {
 }
 
 model Business {
-  id               String         @id @default(cuid())
-  name             String
-  code             String         @unique
-  description      String?
-  partnerId        String
-  partnerEquityPct Decimal        @db.Decimal(5, 2)
-  status           BusinessStatus @default(ACTIVE)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                   String         @id @default(cuid())
+  name                 String
+  code                 String         @unique
+  businessType         String
+  description          String?
+  totalInvestmentAED   Decimal        @db.Decimal(18, 2)
+  adminInvestmentAED   Decimal        @db.Decimal(18, 2)
+  partnerInvestmentAED Decimal        @db.Decimal(18, 2)
+  partnerId            String
+  partnerEquityPct     Decimal        @db.Decimal(5, 2)
+  status               BusinessStatus @default(ACTIVE)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   partner       User           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   investors     Investor[]
@@ -157,16 +168,17 @@ model Business {
 }
 
 model Investor {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   name            String
-  code            String   @unique
+  code            String       @unique
   email           String?
   phone           String?
-  defaultSharePct Decimal? @db.Decimal(5, 2)
-  status          String   @default("ACTIVE")
+  type            InvestorType @default(INVESTOR)
+  defaultSharePct Decimal?     @db.Decimal(5, 2)
+  status          String       @default("ACTIVE")
   businessId      String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   business          Business?          @relation(fields: [businessId], references: [id], onDelete: Restrict)
   investments       Investment[]
@@ -175,6 +187,7 @@ model Investor {
 
   @@index([code])
   @@index([status])
+  @@index([type])
   @@index([businessId])
 }
 

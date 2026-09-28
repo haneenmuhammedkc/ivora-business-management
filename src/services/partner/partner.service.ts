@@ -157,6 +157,7 @@ export async function listPartners() {
       id: true,
       email: true,
       name: true,
+      phone: true,
       role: true,
       status: true,
       mustChangePassword: true,
@@ -188,6 +189,7 @@ export async function getPartnerById(partnerId: string) {
       id: true,
       email: true,
       name: true,
+      phone: true,
       role: true,
       status: true,
       mustChangePassword: true,
@@ -210,6 +212,82 @@ export async function getPartnerById(partnerId: string) {
 }
 
 /**
+ * Update Partner profile details (name and phone).
+ */
+export async function updatePartnerProfile(params: {
+  adminUserId: string;
+  partnerId: string;
+  name: string;
+  phone: string;
+  ipAddress?: string;
+}): Promise<{ success: boolean; partner?: SafeUser & { phone?: string | null }; error?: string }> {
+  const { adminUserId, partnerId, name, phone, ipAddress } = params;
+
+  const partner = await prisma.user.findFirst({
+    where: { id: partnerId, role: UserRole.PARTNER },
+  });
+
+  if (!partner) {
+    return { success: false, error: "Partner account not found" };
+  }
+
+  const cleanName = typeof name === "string" ? name.trim() : "";
+  const cleanPhone = typeof phone === "string" ? phone.trim() : "";
+
+  if (!cleanName) {
+    return { success: false, error: "Partner name is required" };
+  }
+
+  if (!cleanPhone) {
+    return { success: false, error: "Partner phone number is required" };
+  }
+
+  const oldValues = {
+    name: partner.name,
+    phone: partner.phone,
+  };
+
+  const updatedPartner = await prisma.user.update({
+    where: { id: partnerId },
+    data: {
+      name: cleanName,
+      phone: cleanPhone,
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      phone: true,
+      role: true,
+      status: true,
+      mustChangePassword: true,
+      passwordChangedAt: true,
+      lastLoginAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  await logAuditEvent({
+    userId: adminUserId,
+    action: "PARTNER_PROFILE_UPDATED",
+    entity: "User",
+    entityId: partnerId,
+    oldValues,
+    newValues: {
+      name: cleanName,
+      phone: cleanPhone,
+    },
+    ipAddress,
+  });
+
+  return {
+    success: true,
+    partner: updatedPartner,
+  };
+}
+
+/**
  * Update Partner account status (ACTIVE, INACTIVE, SUSPENDED).
  */
 export async function updatePartnerStatus(params: {
@@ -226,6 +304,33 @@ export async function updatePartnerStatus(params: {
 
   if (!partner) {
     return { success: false, error: "Partner account not found" };
+  }
+
+  // Prevent manually activating a partner whose status is PENDING_ACTIVATION without completing email OTP verification
+  if (partner.status === UserStatus.PENDING_ACTIVATION && status === UserStatus.ACTIVE) {
+    return {
+      success: false,
+      error: "Cannot activate partner account while pending verification. Partner must complete account activation via OTP.",
+    };
+  }
+
+  // Allowed target statuses for partner management
+  const allowedStatuses: UserStatus[] = [
+    UserStatus.ACTIVE,
+    UserStatus.INACTIVE,
+    UserStatus.SUSPENDED,
+  ];
+
+  if (!allowedStatuses.includes(status)) {
+    return {
+      success: false,
+      error: `Invalid status for partner. Allowed statuses: ${allowedStatuses.join(", ")}`,
+    };
+  }
+
+  // If status is unchanged, return success directly
+  if (partner.status === status) {
+    return { success: true };
   }
 
   await prisma.user.update({

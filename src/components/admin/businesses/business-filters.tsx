@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { SearchInput } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PlusIcon } from "@/components/ui/icons";
 
@@ -16,6 +16,7 @@ export interface BusinessFiltersProps {
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
+  businessOptions?: SelectOption[];
   onCreateBusinessClick?: () => void;
 }
 
@@ -28,8 +29,13 @@ export function BusinessFilters({
   onStatusChange,
   selectedProduct,
   onProductChange,
+  businessOptions,
   onCreateBusinessClick,
 }: BusinessFiltersProps) {
+  const defaultBusinessOptions: SelectOption[] = businessOptions || [
+    { value: "all", label: "All Businesses" },
+  ];
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
       {/* Search Input */}
@@ -48,11 +54,7 @@ export function BusinessFilters({
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "b1", label: "Business 01" },
-              { value: "b2", label: "Business 02" },
-            ]}
+            options={defaultBusinessOptions}
             prefixLabel="Business"
             className="h-10 text-xs"
           />
@@ -66,7 +68,6 @@ export function BusinessFilters({
               { value: "all", label: "All Status" },
               { value: "ACTIVE", label: "Active" },
               { value: "INACTIVE", label: "Inactive" },
-              { value: "PENDING", label: "Pending" },
             ]}
             prefixLabel="Status"
             className="h-10 text-xs"

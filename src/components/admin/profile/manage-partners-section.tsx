@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { PlusIcon } from "@/components/ui/icons";
+import { PlusIcon, ArrowRightIcon } from "@/components/ui/icons";
 
 export type PartnerStatus = "ACTIVE" | "DEACTIVE";
 
@@ -49,23 +49,62 @@ export function ManagePartnersSection({
   const [partnerList, setPartnerList] = useState<PartnerItem[]>(
     partners || []
   );
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleToggleStatus = (id: string) => {
-    setPartnerList((prev) =>
-      prev.map((partner) => {
-        if (partner.id === id) {
-          const nextStatus: PartnerStatus =
-            partner.status === "ACTIVE" ? "DEACTIVE" : "ACTIVE";
+  const handleToggleStatus = async (id: string) => {
+    const currentPartner = partnerList.find((p) => p.id === id);
+    if (!currentPartner || updatingId) return;
 
-          return {
-            ...partner,
-            status: nextStatus,
-          };
-        }
+    setActionError(null);
+    setUpdatingId(id);
 
-        return partner;
-      })
-    );
+    const nextBackendStatus =
+      currentPartner.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    const nextUiStatus: PartnerStatus =
+      currentPartner.status === "ACTIVE" ? "DEACTIVE" : "ACTIVE";
+
+    try {
+      const res = await fetch(`/api/partners/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: nextBackendStatus,
+        }),
+        credentials: "include",
+      });
+
+      const data = await res.json().catch(() => ({
+        success: false,
+        error: "Failed to parse server response",
+      }));
+
+      if (res.ok && data.success) {
+        setPartnerList((prev) =>
+          prev.map((partner) => {
+            if (partner.id === id) {
+              return {
+                ...partner,
+                status: nextUiStatus,
+              };
+            }
+            return partner;
+          })
+        );
+      } else {
+        setActionError(
+          data.error || "Failed to update partner status. Please try again."
+        );
+      }
+    } catch {
+      setActionError(
+        "Network error occurred while updating partner status. Please try again."
+      );
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   useEffect(() => {
@@ -157,7 +196,24 @@ export function ManagePartnersSection({
         </Link>
       </div>
 
-      <div className="p-5">
+      <div className="p-5 space-y-4">
+        {/* Action Error Notification */}
+        {actionError && (
+          <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center justify-between gap-2">
+            <div>
+              <span className="font-bold">Error: </span>
+              <span>{actionError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionError(null)}
+              className="text-red-500 hover:text-red-800 text-xs font-bold cursor-pointer px-1.5 py-0.5"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Partners Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -179,6 +235,7 @@ export function ManagePartnersSection({
             <tbody className="divide-y divide-gray-100 bg-white">
               {partnerList.map((partner) => {
                 const isActive = partner.status === "ACTIVE";
+                const isUpdating = updatingId === partner.id;
 
                 return (
                   <tr
@@ -234,11 +291,22 @@ export function ManagePartnersSection({
 
                     {/* Action */}
                     <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center">
+                      <div className="flex items-center justify-center gap-3">
+                        <Link
+                          href={`/profile/partners/${partner.id}`}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-900 hover:text-black hover:underline transition-colors cursor-pointer"
+                        >
+                          <span>Manage</span>
+                          <ArrowRightIcon size={11} />
+                        </Link>
+
+                        <div className="h-3.5 w-px bg-gray-200" />
+
                         <button
                           type="button"
                           role="switch"
                           aria-checked={isActive}
+                          disabled={isUpdating}
                           aria-label={
                             isActive
                               ? `Deactivate ${partner.fullName}`
@@ -248,6 +316,8 @@ export function ManagePartnersSection({
                             handleToggleStatus(partner.id)
                           }
                           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 ${
+                            isUpdating ? "opacity-50 cursor-not-allowed" : ""
+                          } ${
                             isActive
                               ? "bg-[#0c0d12]"
                               : "bg-gray-200 border border-gray-300/80"

@@ -7,9 +7,14 @@ export interface BusinessEntity {
   id: string;
   name: string;
   code: string;
+  businessType?: string;
+  description?: string | null;
   subtitle: string;
   partners: PartnerShare[];
   partnersSummary: string;
+  totalInvestmentAED?: number;
+  adminInvestmentAED?: number;
+  partnerInvestmentAED?: number;
   investmentAED: number;
   purchaseCostAED: number;
   salesIndiaAED: number;

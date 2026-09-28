@@ -1,12 +1,23 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PlusIcon, CheckIcon, ArrowRightIcon } from "@/components/ui/icons";
 import { BusinessDetailsSection } from "./business-details-section";
 import { BusinessPartnerSection } from "./business-partner-section";
 import { InitialContributionsSection } from "./initial-contributions-section";
+
+interface CreatedBusinessInfo {
+  id: string;
+  name: string;
+  code: string;
+  partner?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
 
 export function CreateBusinessForm() {
   const router = useRouter();
@@ -20,10 +31,87 @@ export function CreateBusinessForm() {
   const [adminInvestment, setAdminInvestment] = useState("");
   const [partnerInvestment, setPartnerInvestment] = useState("");
 
+  // Dynamic Partners state
+  const [partnerOptions, setPartnerOptions] = useState<{ value: string; label: string }[]>([]);
+  const [isLoadingPartners, setIsLoadingPartners] = useState(true);
+  const [partnersError, setPartnersError] = useState<string | null>(null);
+
   // Validation & Submission states
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [createdBusiness, setCreatedBusiness] = useState<CreatedBusinessInfo | null>(null);
+
+  // Manual retry handler
+  const handleRetryPartners = () => {
+    setIsLoadingPartners(true);
+    setPartnersError(null);
+    fetch("/api/partners", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.partners)) {
+          const validPartners = data.partners.filter(
+            (p: { id: string; name: string; role?: string }) => p.role === "PARTNER"
+          );
+          const options = validPartners.map((p: { id: string; name: string }) => ({
+            value: p.id,
+            label: p.name,
+          }));
+          setPartnerOptions(options);
+        } else {
+          setPartnersError(data.message || data.error || "Unable to load partners. Please try again.");
+        }
+        setIsLoadingPartners(false);
+      })
+      .catch(() => {
+        setPartnersError("Unable to load partners. Please try again.");
+        setIsLoadingPartners(false);
+      });
+  };
+
+  // Fetch real partners on component mount
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch("/api/partners", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted) {
+          if (data.success && Array.isArray(data.partners)) {
+            const validPartners = data.partners.filter(
+              (p: { id: string; name: string; role?: string }) => p.role === "PARTNER"
+            );
+            const options = validPartners.map((p: { id: string; name: string }) => ({
+              value: p.id,
+              label: p.name,
+            }));
+            setPartnerOptions(options);
+          } else {
+            setPartnersError(data.message || data.error || "Unable to load partners. Please try again.");
+          }
+          setIsLoadingPartners(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setPartnersError("Unable to load partners. Please try again.");
+          setIsLoadingPartners(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Form validation
   const validateForm = () => {
@@ -64,16 +152,43 @@ export function CreateBusinessForm() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError(null);
     if (!validateForm()) return;
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/businesses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: businessName.trim(),
+          businessType: businessType.trim(),
+          totalInvestment: parseFloat(totalInvestment),
+          description: description.trim(),
+          partnerId: partnerId.trim(),
+          adminInvestment: adminInvestment ? parseFloat(adminInvestment) : undefined,
+          partnerInvestment: partnerInvestment ? parseFloat(partnerInvestment) : undefined,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        setCreatedBusiness(data.business);
+        setIsSuccess(true);
+      } else {
+        const errorMsg = data.message || data.error || "Failed to create business entity.";
+        setApiError(errorMsg);
+      }
+    } catch {
+      setApiError("A network error occurred while creating the business. Please try again.");
+    } finally {
       setIsSubmitting(false);
-      setIsSuccess(true);
-    }, 400);
+    }
   };
 
   const handleResetForm = () => {
@@ -85,10 +200,16 @@ export function CreateBusinessForm() {
     setAdminInvestment("");
     setPartnerInvestment("");
     setErrors({});
+    setApiError(null);
+    setCreatedBusiness(null);
     setIsSuccess(false);
   };
 
-  if (isSuccess) {
+  if (isSuccess && createdBusiness) {
+    const selectedOption = partnerOptions.find((p) => p.value === partnerId);
+    const partnerDisplay =
+      createdBusiness.partner?.name || selectedOption?.label || partnerId;
+
     return (
       <div className="rounded-xl border border-gray-200/90 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
         <div className="flex items-center gap-3">
@@ -100,7 +221,7 @@ export function CreateBusinessForm() {
               Business Created Successfully
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              The new business entity has been configured with local parameters.
+              The new business entity &quot;{createdBusiness.code}&quot; has been configured and saved in the database.
             </p>
           </div>
         </div>
@@ -111,16 +232,16 @@ export function CreateBusinessForm() {
               Business Name
             </span>
             <span className="font-bold text-gray-950 mt-1 block">
-              {businessName}
+              {createdBusiness.name}
             </span>
           </div>
 
           <div>
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block">
-              Business Type
+              Business Code
             </span>
-            <span className="font-bold text-gray-950 mt-1 block">
-              {businessType}
+            <span className="font-bold text-gray-950 font-mono mt-1 block">
+              {createdBusiness.code}
             </span>
           </div>
 
@@ -137,12 +258,8 @@ export function CreateBusinessForm() {
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block">
               Partner Assigned
             </span>
-            <span className="font-bold text-gray-950 mt-1 block">
-              {partnerId === "partner-b"
-                ? "Partner B"
-                : partnerId === "partner-c"
-                ? "Partner C"
-                : partnerId}
+            <span className="font-bold text-gray-950 mt-1 block truncate">
+              {partnerDisplay}
             </span>
           </div>
         </div>
@@ -172,6 +289,14 @@ export function CreateBusinessForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* API Error Notification */}
+      {apiError && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2.5">
+          <span className="font-bold uppercase tracking-wider text-[11px] text-red-800">Error:</span>
+          <span>{apiError}</span>
+        </div>
+      )}
+
       {/* 1. Business Details (Name, Type, Total Investment, Description) */}
       <BusinessDetailsSection
         data={{ businessName, businessType, totalInvestment, description }}
@@ -190,6 +315,10 @@ export function CreateBusinessForm() {
       {/* 2. Business Partner */}
       <BusinessPartnerSection
         data={{ partnerId }}
+        partnerOptions={partnerOptions}
+        isLoading={isLoadingPartners}
+        fetchError={partnersError}
+        onRetry={handleRetryPartners}
         onChange={(_, value) => {
           setPartnerId(value);
           if (errors.partnerId) {
