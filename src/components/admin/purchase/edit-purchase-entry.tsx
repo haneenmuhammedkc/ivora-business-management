@@ -1,22 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PurchaseIcon, ChevronDownIcon, CheckIcon } from "@/components/ui/icons";
+import { PurchaseIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PurchaseRecord } from "@/types/purchase";
+import { Select } from "@/components/ui/select";
 
 interface BusinessOption {
   id: string;
   name: string;
   code: string;
-  createdAt: string;
 }
 
-export interface NewPurchaseEntryProps {
-  onRecordPurchase?: (purchase: PurchaseRecord) => void;
+export interface EditPurchaseEntryProps {
+  purchaseId: string;
 }
 
 function inferUnitFromProduct(name: string): "GRAM" | "PIECE" | null {
@@ -48,26 +47,31 @@ function inferUnitFromProduct(name: string): "GRAM" | "PIECE" | null {
   return null;
 }
 
-function getTodayString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+function formatDateForInput(dateVal: string | Date | undefined): string {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
+export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
   const router = useRouter();
 
   // Businesses state
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
   const [loadingBusinesses, setLoadingBusinesses] = useState(true);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Existing record state
+  const [loadingRecord, setLoadingRecord] = useState(true);
+  const [purchaseCode, setPurchaseCode] = useState("");
+  const [isLocked, setIsLocked] = useState(false);
 
   // Form state
   const [businessId, setBusinessId] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(getTodayString());
+  const [purchaseDate, setPurchaseDate] = useState("");
   const [productType, setProductType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
@@ -77,30 +81,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Close dropdown on click outside or Escape
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsDropdownOpen(false);
-      }
-    }
-
-    if (isDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleKeyDown);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isDropdownOpen]);
-
-  // Load real businesses from database and sort newest-first by createdAt
+  // Load real businesses from database
   useEffect(() => {
     let isMounted = true;
     async function loadBusinesses() {
@@ -112,25 +93,13 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         }
         const data = await res.json();
         if (isMounted && data.success && Array.isArray(data.businesses)) {
-          const mapped: BusinessOption[] = data.businesses.map(
-            (b: { id: string; name: string; code: string; createdAt?: string }) => ({
+          setBusinesses(
+            data.businesses.map((b: { id: string; name: string; code: string }) => ({
               id: b.id,
               name: b.name,
               code: b.code,
-              createdAt: b.createdAt || "",
-            })
+            }))
           );
-
-          // Strictly sort NEWEST -> OLDEST using createdAt timestamp
-          mapped.sort((a, b) => {
-            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            const validTimeA = isNaN(timeA) ? 0 : timeA;
-            const validTimeB = isNaN(timeB) ? 0 : timeB;
-            return validTimeB - validTimeA;
-          });
-
-          setBusinesses(mapped);
         }
       } catch (err) {
         console.error("Error fetching businesses:", err);
@@ -143,6 +112,50 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       isMounted = false;
     };
   }, []);
+
+  // Load existing purchase record
+  useEffect(() => {
+    let isMounted = true;
+    async function loadPurchase() {
+      try {
+        setLoadingRecord(true);
+        setErrorMessage(null);
+        const res = await fetch(`/api/purchases/${purchaseId}`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || data.error || "Failed to load purchase details");
+        }
+
+        const p = data.purchase;
+        if (isMounted && p) {
+          setPurchaseCode(p.purchaseCode || "");
+          if (p.status === "CLEARED") {
+            setIsLocked(true);
+          }
+          setBusinessId(p.businessId || "");
+          setPurchaseDate(formatDateForInput(p.purchaseDate));
+          setProductType(p.productType || "");
+          setQuantity(p.quantity !== undefined && p.quantity !== null ? String(p.quantity) : "");
+          setQuantityUnit(p.quantityUnit === "PIECE" ? "PIECE" : "GRAM");
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setErrorMessage(err instanceof Error ? err.message : "Failed to load purchase details");
+        }
+      } finally {
+        if (isMounted) setLoadingRecord(false);
+      }
+    }
+
+    if (purchaseId) {
+      loadPurchase();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [purchaseId]);
 
   // Safe unit switcher
   const handleUnitChange = (newUnit: "GRAM" | "PIECE") => {
@@ -171,6 +184,8 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
+
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -213,8 +228,8 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         quantityUnit,
       };
 
-      const response = await fetch("/api/purchases", {
-        method: "POST",
+      const response = await fetch(`/api/purchases/${purchaseId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -222,41 +237,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || result.error || "Failed to record purchase.");
+        throw new Error(result.message || result.error || "Failed to update purchase.");
       }
 
-      setSuccessMessage(`Purchase ${result.purchase.purchaseCode} created successfully!`);
+      setSuccessMessage("Purchase updated successfully! Returning to purchase list...");
 
-      if (onRecordPurchase) {
-        const created = result.purchase;
-        onRecordPurchase({
-          id: created.purchaseCode,
-          rawId: created.id,
-          businessId: created.businessId,
-          business: created.business?.name || "Business",
-          businessCode: created.business?.code,
-          businessEntities: created.business?.code || "",
-          date: new Intl.DateTimeFormat("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          }).format(new Date(created.purchaseDate)),
-          product: created.productType,
-          locationVault: null,
-          quantity: Number(created.quantity),
-          quantityUnit: created.quantityUnit,
-          quantityGms: created.quantityGms ? Number(created.quantityGms) : null,
-          basePriceAED: null,
-          freightAED: null,
-          labourAED: null,
-          totalLandedAED: null,
-          status: created.status || "DRAFT",
-          selected: false,
-        });
-      }
-
-      router.push("/purchase");
-      router.refresh();
+      setTimeout(() => {
+        router.push("/purchase");
+        router.refresh();
+      }, 700);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
       setErrorMessage(msg);
@@ -264,7 +253,21 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
     }
   };
 
-  const selectedBusiness = businesses.find((b) => b.id === businessId);
+  const businessOptions = [
+    { value: "", label: loadingBusinesses ? "Loading businesses..." : "Select Business" },
+    ...businesses.map((b) => ({
+      value: b.id,
+      label: `${b.name} (${b.code})`,
+    })),
+  ];
+
+  if (loadingRecord) {
+    return (
+      <div className="w-full rounded-xl border border-gray-200/90 bg-white p-12 text-center text-xs text-gray-500 shadow-2xs">
+        Loading purchase details...
+      </div>
+    );
+  }
 
   return (
     <div className="w-full rounded-xl border border-gray-200/90 bg-white p-6 sm:p-7 shadow-2xs space-y-6">
@@ -276,10 +279,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
           </div>
           <div>
             <h2 className="text-base sm:text-lg font-bold text-gray-950 flex items-center gap-2">
-              New Purchase Entry
+              <span>Edit Purchase Entry</span>
+              {purchaseCode && (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                  {purchaseCode}
+                </span>
+              )}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Record physical acquisition by assigning entity, date, product, and quantity.
+              Update physical acquisition details: entity, date, product, and quantity.
             </p>
           </div>
         </div>
@@ -302,93 +310,16 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {/* 1. Assigned Business Entity */}
           <div className="space-y-1 sm:col-span-2">
-            <label
-              id="assigned-business-entity-label"
-              className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-1.5"
-            >
-              ASSIGNED BUSINESS ENTITY
-            </label>
-            <div className="relative w-full" ref={dropdownRef}>
-              <button
-                id="assigned-business-entity-trigger"
-                type="button"
-                aria-haspopup="listbox"
-                aria-expanded={isDropdownOpen}
-                aria-labelledby="assigned-business-entity-label"
-                onClick={() => {
-                  if (!loadingBusinesses && !submitting && businesses.length > 0) {
-                    setIsDropdownOpen((prev) => !prev);
-                  }
-                }}
-                disabled={loadingBusinesses || submitting || businesses.length === 0}
-                className={`w-full flex items-center justify-between rounded-md border bg-white px-3 py-2 text-xs font-medium transition-colors cursor-pointer text-left ${
-                  isDropdownOpen
-                    ? "border-gray-900 ring-1 ring-gray-900"
-                    : "border-gray-200 hover:border-gray-300"
-                } ${
-                  loadingBusinesses || submitting || businesses.length === 0
-                    ? "bg-gray-50 text-gray-400 cursor-not-allowed"
-                    : businessId
-                    ? "text-gray-900"
-                    : "text-gray-700"
-                }`}
-              >
-                <span className="truncate">
-                  {loadingBusinesses
-                    ? "Loading businesses..."
-                    : businesses.length === 0
-                    ? "No businesses available"
-                    : selectedBusiness
-                    ? `${selectedBusiness.name} (${selectedBusiness.code})`
-                    : "Select Business"}
-                </span>
-                <span
-                  className={`text-gray-500 shrink-0 ml-2 transition-transform duration-150 ${
-                    isDropdownOpen ? "rotate-180" : ""
-                  }`}
-                >
-                  <ChevronDownIcon size={13} />
-                </span>
-              </button>
-
-              {isDropdownOpen && businesses.length > 0 && (
-                <ul
-                  role="listbox"
-                  aria-labelledby="assigned-business-entity-label"
-                  className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg focus:outline-none"
-                >
-                  {businesses.map((b) => {
-                    const isSelected = b.id === businessId;
-                    return (
-                      <li
-                        key={b.id}
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          setBusinessId(b.id);
-                          setErrorMessage(null);
-                          setIsDropdownOpen(false);
-                        }}
-                        className={`flex items-center justify-between px-3 py-2 text-xs cursor-pointer transition-colors ${
-                          isSelected
-                            ? "bg-gray-100 font-semibold text-gray-950"
-                            : "text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        <span className="truncate">
-                          {b.name} ({b.code})
-                        </span>
-                        {isSelected && (
-                          <span className="text-gray-900 shrink-0 ml-2">
-                            <CheckIcon size={13} />
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            <Select
+              label="ASSIGNED BUSINESS ENTITY"
+              value={businessId}
+              onChange={(e) => {
+                setBusinessId(e.target.value);
+                setErrorMessage(null);
+              }}
+              options={businessOptions}
+              disabled={loadingBusinesses || submitting || isLocked}
+            />
           </div>
 
           {/* 2. Purchase Date */}
@@ -401,7 +332,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
                 setPurchaseDate(e.target.value);
                 setErrorMessage(null);
               }}
-              disabled={submitting}
+              disabled={submitting || isLocked}
               required
             />
           </div>
@@ -413,7 +344,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
               placeholder="Enter product type"
               value={productType}
               onChange={(e) => handleProductTypeChange(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || isLocked}
               required
             />
           </div>
@@ -435,8 +366,8 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
                     setQuantity(e.target.value);
                     setErrorMessage(null);
                   }}
-                  disabled={submitting}
-                  className="w-full h-10 px-3 text-xs bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black font-medium transition-colors"
+                  disabled={submitting || isLocked}
+                  className="w-full h-10 px-3 text-xs bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black font-medium transition-colors disabled:bg-gray-50 disabled:text-gray-500"
                   required
                 />
               </div>
@@ -446,24 +377,24 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
                 <button
                   type="button"
                   onClick={() => handleUnitChange("GRAM")}
-                  disabled={submitting}
+                  disabled={submitting || isLocked}
                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                     quantityUnit === "GRAM"
                       ? "bg-white text-gray-950 shadow-2xs border border-gray-200/80"
                       : "text-gray-500 hover:text-gray-800"
-                  }`}
+                  } disabled:cursor-not-allowed`}
                 >
                   GRAMS
                 </button>
                 <button
                   type="button"
                   onClick={() => handleUnitChange("PIECE")}
-                  disabled={submitting}
+                  disabled={submitting || isLocked}
                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
                     quantityUnit === "PIECE"
                       ? "bg-white text-gray-950 shadow-2xs border border-gray-200/80"
                       : "text-gray-500 hover:text-gray-800"
-                  }`}
+                  } disabled:cursor-not-allowed`}
                 >
                   PIECES
                 </button>
@@ -485,14 +416,16 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
           >
             Cancel
           </Link>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={submitting || loadingBusinesses}
-            className="px-6 text-xs font-bold"
-          >
-            {submitting ? "Recording..." : "Record Purchase"}
-          </Button>
+          {!isLocked && (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={submitting || loadingBusinesses}
+              className="px-6 text-xs font-bold"
+            >
+              {submitting ? "Saving..." : "Save Changes"}
+            </Button>
+          )}
         </div>
       </form>
     </div>

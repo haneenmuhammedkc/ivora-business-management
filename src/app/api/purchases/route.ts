@@ -35,9 +35,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, purchase }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) {
-      return error.statusCode === 401
-        ? unauthorizedResponse(error.message)
-        : forbiddenErrorResponse(error.message);
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      return NextResponse.json(
+        { success: false, error: error.statusCode === 400 ? "VALIDATION_ERROR" : "ERROR", message: error.message },
+        { status: error.statusCode }
+      );
     }
     console.error("[Create Purchase API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });

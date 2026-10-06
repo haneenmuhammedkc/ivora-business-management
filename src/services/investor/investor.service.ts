@@ -279,10 +279,7 @@ export async function listBusinessInvestorRows(session: SessionPayload) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Ensure database participant records exist for each business
-  for (const b of businesses) {
-    await ensureBusinessParticipants(b.id);
-  }
+  // Ensured participant records exist via write-time synchronization (createBusiness/updateBusiness)
 
   let totalInvestmentSum = 0;
   let totalNetRealizedProfit = 0;
@@ -355,7 +352,6 @@ export async function getBusinessInvestorDetails(
   businessId: string
 ): Promise<{ business: BusinessInvestorDetails; kpis: InvestorSummaryKPIs }> {
   await requireBusinessAccess(businessId, session);
-  await ensureBusinessParticipants(businessId);
 
   const b = await prisma.business.findUnique({
     where: { id: businessId },

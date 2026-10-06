@@ -32,6 +32,8 @@ export interface VerifyOtpResult {
   message?: string;
   error?: string;
   remainingAttempts?: number;
+  user?: SafeUser;
+  requiresPasswordChange?: boolean;
 }
 
 /**
@@ -296,6 +298,17 @@ export async function verifyOtpToken(params: {
   });
 
   if (user) {
+    if (type === AuthTokenType.ACCOUNT_ACTIVATION) {
+      // Issue restricted session token with mustChangePassword flag so partner can directly set new password
+      const token = await createSessionToken({
+        userId: user.id,
+        role: user.role,
+        email: user.email,
+        mustChangePassword: user.mustChangePassword,
+      });
+      await setSessionCookie(token);
+    }
+
     await logAuditEvent({
       userId: user.id,
       action: type === AuthTokenType.ACCOUNT_ACTIVATION ? "EMAIL_VERIFIED" : "OTP_VERIFIED",
@@ -308,6 +321,8 @@ export async function verifyOtpToken(params: {
   return {
     success: true,
     message: "Verification successful.",
+    user: user ? sanitizeUser(user) : undefined,
+    requiresPasswordChange: user ? user.mustChangePassword : false,
   };
 }
 

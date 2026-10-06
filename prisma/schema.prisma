@@ -56,6 +56,11 @@ enum PurchaseStatus {
   CLEARED
 }
 
+enum QuantityUnit {
+  GRAM
+  PIECE
+}
+
 enum SaleStatus {
   PENDING
   CLEARED
@@ -245,15 +250,17 @@ model Purchase {
   businessId              String
   tradingCycleId          String?        @unique
   purchaseDate            DateTime
-  sourcingVault           String
+  sourcingVault           String?
   productType             String
-  quantityGms             Decimal        @db.Decimal(18, 3)
-  basePricePerGm          Decimal        @db.Decimal(18, 4)
-  baseAcquisitionValue    Decimal        @db.Decimal(18, 2)
-  transitInsuranceFreight Decimal        @default(0) @db.Decimal(18, 2)
-  vaultHandlingLabour     Decimal        @default(0) @db.Decimal(18, 2)
-  customsSecurity         Decimal        @default(0) @db.Decimal(18, 2)
-  totalLandedCost         Decimal        @db.Decimal(18, 2)
+  quantity                Decimal        @db.Decimal(18, 3)
+  quantityUnit            QuantityUnit   @default(GRAM)
+  quantityGms             Decimal?       @db.Decimal(18, 3)
+  basePricePerGm          Decimal?       @db.Decimal(18, 4)
+  baseAcquisitionValue    Decimal?       @db.Decimal(18, 2)
+  transitInsuranceFreight Decimal?       @default(0) @db.Decimal(18, 2)
+  vaultHandlingLabour     Decimal?       @default(0) @db.Decimal(18, 2)
+  customsSecurity         Decimal?       @default(0) @db.Decimal(18, 2)
+  totalLandedCost         Decimal?       @db.Decimal(18, 2)
   status                  PurchaseStatus @default(DRAFT)
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt

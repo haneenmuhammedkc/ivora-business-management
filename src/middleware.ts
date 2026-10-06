@@ -91,6 +91,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Authenticated user with mustChangePassword=true trying to access protected routes
+  if (isProtectedRoute && isAuthenticated && sessionPayload?.mustChangePassword) {
+    return NextResponse.redirect(new URL("/reset-password", req.url));
+  }
+
   // Authenticated user trying to access auth pages
   if (isAuthPage && isAuthenticated) {
     if (sessionPayload?.mustChangePassword) {

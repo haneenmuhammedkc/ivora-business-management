@@ -14,7 +14,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -30,10 +30,24 @@ export default function ForgotPasswordPage() {
     }
 
     setIsSubmitting(true);
-    // Simulate brief interaction before navigating to Verify OTP
-    setTimeout(() => {
-      router.push("/verify-otp");
-    }, 400);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        router.push(`/verify-otp?email=${encodeURIComponent(email.trim())}&type=PASSWORD_RESET`);
+      } else {
+        setError(data.error || "Failed to process request. Please try again.");
+      }
+    } catch {
+      setError("A network error occurred. Please check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -78,7 +92,7 @@ export default function ForgotPasswordPage() {
           variant="primary"
           size="lg"
           disabled={isSubmitting}
-          className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2 py-3.5 bg-[#0c0d12] hover:bg-[#1f2430] rounded-lg"
+          className="w-full justify-center text-xs tracking-wider uppercase font-bold mt-2 py-3.5 bg-[#0c0d12] hover:bg-[#1f2430] rounded-lg cursor-pointer"
           icon={<ArrowRightIcon size={15} />}
           iconPosition="right"
         >

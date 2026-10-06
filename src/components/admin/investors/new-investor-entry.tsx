@@ -47,8 +47,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
           setBusinesses(json.businesses);
           if (queryBusinessId) {
             setSelectedBusinessId(queryBusinessId);
-          } else if (json.businesses.length > 0) {
-            setSelectedBusinessId(json.businesses[0].id);
+          } else {
+            setSelectedBusinessId("");
           }
         }
       } catch (err) {
@@ -65,7 +65,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
 
   // Find the selected business record
   const selectedBusiness = useMemo(() => {
-    return businesses.find((b) => b.id === selectedBusinessId) || businesses[0] || null;
+    if (!selectedBusinessId) return null;
+    return businesses.find((b) => b.id === selectedBusinessId) || null;
   }, [businesses, selectedBusinessId]);
 
   // Total investment base of the selected business
@@ -89,8 +90,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!selectedBusiness) {
-      setErrorMessage("No valid business entity selected. Please select a business first.");
+    if (!selectedBusiness || !selectedBusiness.id) {
+      setErrorMessage("No valid business entity selected. Please select a business from the Investors page first.");
       return;
     }
 
@@ -227,8 +228,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
                   </span>
                 </>
               ) : (
-                <span className="text-amber-600 font-medium">
-                  No business available. Please create a business first.
+                <span className="text-amber-700 font-medium">
+                  No business selected. Please return to the Investors page and select a business first.
                 </span>
               )}
             </div>

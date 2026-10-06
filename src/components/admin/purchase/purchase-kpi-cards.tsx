@@ -15,18 +15,18 @@ export function PurchaseKpiCards({ kpis }: PurchaseKpiCardsProps) {
       label: "TOTAL PURCHASE",
       value: kpis.totalPurchase.toString().padStart(2, "0"),
     },
-    {
-      id: "total-sourcing-cost",
-      label: "TOTAL SOURCING COST",
-      currency: "AED",
-      value: kpis.totalSourcingCostAED.toLocaleString(),
-    },
-    {
-      id: "logistics-overhead",
-      label: "LOGISTICS & OVERHEAD",
-      currency: "AED",
-      value: kpis.logisticsOverheadAED.toLocaleString(),
-    },
+    // {
+    //   id: "total-sourcing-cost",
+    //   label: "TOTAL SOURCING COST",
+    //   currency: "AED",
+    //   value: kpis.totalSourcingCostAED.toLocaleString(),
+    // },
+    // {
+    //   id: "logistics-overhead",
+    //   label: "LOGISTICS & OVERHEAD",
+    //   currency: "AED",
+    //   value: kpis.logisticsOverheadAED.toLocaleString(),
+    // },
   ];
 
   return (
