@@ -19,6 +19,7 @@ const defaultKPIs: InvestorSummaryKPIs = {
 
 export default function InvestorsPage() {
   const [businesses, setBusinesses] = useState<BusinessInvestorRow[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
   const [kpis, setKpis] = useState<InvestorSummaryKPIs>(defaultKPIs);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
@@ -110,7 +111,7 @@ export default function InvestorsPage() {
         <InvestorKpiCards kpis={kpis} />
       </FadeUp>
 
-      {/* Filters and Actions (Business dropdown removed, original UI preserved) */}
+      {/* Filters and Actions */}
       <FadeUp delay={0.15}>
         <InvestorFilters
           searchTerm={searchTerm}
@@ -119,7 +120,7 @@ export default function InvestorsPage() {
           onStatusChange={setSelectedStatus}
           selectedProduct={selectedProduct}
           onProductChange={setSelectedProduct}
-          defaultBusinessId={businesses[0]?.id}
+          selectedBusinessId={selectedBusinessId}
         />
       </FadeUp>
 
@@ -133,6 +134,8 @@ export default function InvestorsPage() {
       <FadeUp delay={0.2}>
         <InvestorTableView
           businesses={filteredBusinesses}
+          selectedBusinessId={selectedBusinessId}
+          onSelectBusiness={(b) => setSelectedBusinessId(b.id)}
           isLoading={isLoading}
         />
       </FadeUp>

@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: result.message || "Verification successful",
+      user: result.user,
+      requiresPasswordChange: result.requiresPasswordChange ?? false,
     });
   } catch (error) {
     console.error("[Verify OTP API Error]", error);

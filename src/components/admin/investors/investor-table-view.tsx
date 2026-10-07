@@ -70,8 +70,10 @@ export function InvestorTableView({
                   <tr
                     key={b.id}
                     onClick={() => onSelectBusiness && onSelectBusiness(b)}
-                    className={`transition-colors hover:bg-gray-50/70 ${
-                      isCurrent ? "bg-gray-50/60" : ""
+                    className={`transition-colors cursor-pointer ${
+                      isCurrent
+                        ? "bg-gray-100/90 ring-1 ring-inset ring-gray-900/15 shadow-2xs"
+                        : "hover:bg-gray-50/70"
                     }`}
                   >
                     {/* Business */}
@@ -140,6 +142,7 @@ export function InvestorTableView({
                     <td className="px-5 py-4 text-center">
                       <Link
                         href={`/investors/business/${encodeURIComponent(b.id)}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded-md hover:bg-gray-50 hover:text-gray-950 transition-colors shadow-2xs"
                       >
                         <span>View</span>

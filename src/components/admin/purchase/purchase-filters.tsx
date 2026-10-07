@@ -9,10 +9,10 @@ export interface PurchaseFiltersProps {
   onSearchChange: (value: string) => void;
   selectedBusiness: string;
   onBusinessChange: (value: string) => void;
-  selectedStatus: string;
-  onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
+  businessOptions?: { value: string; label: string }[];
+  productOptions?: { value: string; label: string }[];
 }
 
 export function PurchaseFilters({
@@ -20,10 +20,10 @@ export function PurchaseFilters({
   onSearchChange,
   selectedBusiness,
   onBusinessChange,
-  selectedStatus,
-  onStatusChange,
   selectedProduct,
   onProductChange,
+  businessOptions = [{ value: "all", label: "All Businesses" }],
+  productOptions = [{ value: "all", label: "All Products" }],
 }: PurchaseFiltersProps) {
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
@@ -38,32 +38,13 @@ export function PurchaseFilters({
       </div>
 
       {/* Select Dropdowns and Action Button */}
-      <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+      <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 w-full lg:w-auto">
         <div className="w-full sm:w-auto min-w-[170px]">
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "Business 01", label: "Business 01" },
-              { value: "Business 02", label: "Business 02" },
-            ]}
+            options={businessOptions}
             prefixLabel="Business"
-            className="h-10 text-xs"
-          />
-        </div>
-
-        <div className="w-full sm:w-auto min-w-[145px]">
-          <Select
-            value={selectedStatus}
-            onChange={(e) => onStatusChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Status" },
-              { value: "CLEARED", label: "Cleared" },
-              { value: "IN PROGRESS", label: "In Progress" },
-              { value: "DRAFT", label: "Draft" },
-            ]}
-            prefixLabel="Status"
             className="h-10 text-xs"
           />
         </div>
@@ -72,12 +53,7 @@ export function PurchaseFilters({
           <Select
             value={selectedProduct}
             onChange={(e) => onProductChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Products" },
-              { value: "999.9 Physical Bullion", label: "999.9 Bullion" },
-              { value: "Gold Grain 995", label: "Gold Grain 995" },
-              { value: "Pure Bullion Bar", label: "Pure Bullion Bar" },
-            ]}
+            options={productOptions}
             prefixLabel="Product"
             className="h-10 text-xs"
           />

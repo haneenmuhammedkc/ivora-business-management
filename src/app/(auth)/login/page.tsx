@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +12,22 @@ import {
   ArrowRightIcon,
   ShieldCheckIcon,
   HelpCircleIcon,
+  CheckIcon,
+  LockIcon,
+  EyeOffIcon,
+  EyeIcon,
 } from "@/components/ui/icons";
 import { validateLoginInput, LoginFieldErrors } from "@/validators/auth.validator";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activatedParam = searchParams.get("activated") === "true";
+  const emailParam = searchParams.get("email") || "";
+
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState(emailParam);
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [errors, setErrors] = useState<LoginFieldErrors>({});
@@ -92,6 +101,13 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {activatedParam && (
+          <div className="mb-5 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center gap-2">
+            <CheckIcon size={16} className="text-emerald-600 shrink-0" />
+            <span>Account activated successfully! Please sign in with your temporary credentials.</span>
+          </div>
+        )}
+
         {error && (
           <div className="mb-5 p-3 rounded-lg bg-red-50/90 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
             <span className="font-bold">Error:</span>
@@ -130,31 +146,44 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <PasswordInput
-              ref={passwordInputRef}
-              id="password"
-              label="PASSWORD"
-              labelRight={
-                <Link
-                  href="/forgot-password"
-                  className="text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
-                >
-                  Forgot password?
-                </Link>
-              }
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                if (errors.password) {
-                  setErrors((prev) => ({ ...prev, password: undefined }));
-                }
-                if (error) setError("");
-              }}
-              placeholder="Enter password"
-              error={errors.password}
-              className="bg-white py-2.5"
-              required
-            />
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="password"
+                className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider"
+              >
+                PASSWORD
+              </label>
+              <Link
+                href="/forgot-password"
+                className="text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError("");
+                }}
+                icon={<LockIcon size={16} />}
+                iconPosition="left"
+                placeholder="Enter password"
+                className="bg-white py-2.5"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 cursor-pointer select-none"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center justify-between pt-1">
@@ -189,5 +218,13 @@ export default function LoginPage() {
         <span>Bank-grade 256-bit SSL encryption. Authorized access only.</span>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

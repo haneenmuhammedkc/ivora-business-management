@@ -13,7 +13,7 @@ export interface InvestorFiltersProps {
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
-  defaultBusinessId?: string;
+  selectedBusinessId?: string | null;
 }
 
 export function InvestorFilters({
@@ -23,11 +23,12 @@ export function InvestorFilters({
   onStatusChange,
   selectedProduct,
   onProductChange,
-  defaultBusinessId,
+  selectedBusinessId,
 }: InvestorFiltersProps) {
-  const addInvestorHref = defaultBusinessId
-    ? `/investors/new?businessId=${encodeURIComponent(defaultBusinessId)}`
-    : "/investors/new";
+  const isBusinessSelected = Boolean(selectedBusinessId);
+  const addInvestorHref = selectedBusinessId
+    ? `/investors/new?businessId=${encodeURIComponent(selectedBusinessId)}`
+    : "#";
 
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
@@ -73,13 +74,25 @@ export function InvestorFilters({
           />
         </div>
 
-        <Link
-          href={addInvestorHref}
-          className="inline-flex items-center justify-center font-semibold transition-colors bg-[#0c0d12] text-white hover:bg-[#1e222d] shadow-xs h-10 px-4 text-xs gap-2 rounded-lg shrink-0 w-full sm:w-auto"
-        >
-          <PlusIcon size={15} />
-          <span>Add Investors</span>
-        </Link>
+        {isBusinessSelected ? (
+          <Link
+            href={addInvestorHref}
+            className="inline-flex items-center justify-center font-semibold transition-colors bg-[#0c0d12] text-white hover:bg-[#1e222d] shadow-xs h-10 px-4 text-xs gap-2 rounded-lg shrink-0 w-full sm:w-auto"
+          >
+            <PlusIcon size={15} />
+            <span>Add Investors</span>
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center justify-center font-semibold transition-colors bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed shadow-none h-10 px-4 text-xs gap-2 rounded-lg shrink-0 w-full sm:w-auto"
+            title="Please select a business to add investors"
+          >
+            <PlusIcon size={15} />
+            <span>Add Investors</span>
+          </button>
+        )}
       </div>
     </div>
   );

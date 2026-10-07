@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { SessionPayload } from "@/lib/auth/session";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
+import { ensureBusinessParticipants } from "@/services/investor/investor.service";
 import { Prisma, UserRole, BusinessStatus } from "@prisma/client";
 
 export interface CreateBusinessInput {
@@ -497,6 +498,9 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
     },
   });
 
+  // Synchronize Admin and Partner participant records on write
+  await ensureBusinessParticipants(business.id);
+
   await logAuditEvent({
     userId: session.userId,
     action: "BUSINESS_CREATED",
@@ -660,6 +664,9 @@ export async function updateBusiness(
       newValues: { partnerId: updated.partnerId },
     });
   }
+
+  // Synchronize Admin and Partner participant records on write
+  await ensureBusinessParticipants(updated.id);
 
   return updated;
 }

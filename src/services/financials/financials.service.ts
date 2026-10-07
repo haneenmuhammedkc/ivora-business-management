@@ -31,7 +31,7 @@ export async function getProfitLossSummary(session: SessionPayload, businessId?:
     }),
   ]);
 
-  const totalAcquisitionCostAed = purchases.reduce((acc: number, p: { totalLandedCost: Prisma.Decimal }) => acc + Number(p.totalLandedCost), 0);
+  const totalAcquisitionCostAed = purchases.reduce((acc: number, p: { totalLandedCost: Prisma.Decimal | null }) => acc + Number(p.totalLandedCost || 0), 0);
   const totalRevenueAed = sales.reduce((acc: number, s: { aedEquivalent: Prisma.Decimal }) => acc + Number(s.aedEquivalent), 0);
   const totalExpensesAed = expenses.reduce((acc: number, e: { amount: Prisma.Decimal }) => acc + Number(e.amount), 0);
 
