@@ -6,6 +6,23 @@ export interface PurchaseTableViewProps {
   purchases: PurchaseRecord[];
 }
 
+function formatBaseAmount(val: number | null | undefined, unit: "GRAM" | "PIECE"): string {
+  if (val === null || val === undefined || isNaN(val)) return "—";
+  const unitSuffix = unit === "PIECE" ? "PCS" : "GMS";
+  return `AED ${val.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })} / ${unitSuffix}`;
+}
+
+function formatTotalAmount(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return "—";
+  return `AED ${val.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export function PurchaseTableView({ purchases }: PurchaseTableViewProps) {
   return (
     <div className="w-full rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden">
@@ -32,19 +49,25 @@ export function PurchaseTableView({ purchases }: PurchaseTableViewProps) {
               <th className="px-4 py-3.5 font-bold">PRODUCT TYPE</th>
               <th className="px-4 py-3.5 font-bold text-right">QUANTITY</th>
               <th className="px-4 py-3.5 font-bold text-center">UNIT</th>
+              <th className="px-4 py-3.5 font-bold text-right">BASE AMOUNT</th>
+              <th className="px-4 py-3.5 font-bold text-right">TOTAL PURCHASE AMOUNT</th>
               <th className="px-5 py-3.5 font-bold text-center">ACTION</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {purchases.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-gray-500">
+                <td colSpan={9} className="py-12 text-center text-gray-500">
                   No purchases found.
                 </td>
               </tr>
             ) : (
               purchases.map((p) => {
                 const targetId = p.rawId || p.id;
+                const baseVal = p.baseAmount ?? p.basePricePerUnitAED ?? p.basePriceAED;
+                const totalVal = p.totalPurchaseAmount ?? p.baseAcquisitionValue;
+                const isGram = p.quantityUnit === "GRAM";
+
                 return (
                   <tr
                     key={p.id}
@@ -79,7 +102,7 @@ export function PurchaseTableView({ purchases }: PurchaseTableViewProps) {
                       <span className="font-bold text-gray-950 text-xs sm:text-[13px]">
                         {p.quantity !== undefined && p.quantity !== null
                           ? p.quantity.toLocaleString(undefined, {
-                              minimumFractionDigits: p.quantityUnit === "GRAM" && !Number.isInteger(p.quantity) ? 1 : 0,
+                              minimumFractionDigits: isGram && !Number.isInteger(p.quantity) ? 1 : 0,
                               maximumFractionDigits: 3,
                             })
                           : p.quantityGms !== undefined && p.quantityGms !== null
@@ -92,6 +115,20 @@ export function PurchaseTableView({ purchases }: PurchaseTableViewProps) {
                     <td className="px-4 py-4 text-center">
                       <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
                         {p.quantityUnit === "PIECE" ? "PCS" : "GMS"}
+                      </span>
+                    </td>
+
+                    {/* Base Amount */}
+                    <td className="px-4 py-4 text-right">
+                      <span className="font-semibold text-gray-800 text-xs whitespace-nowrap">
+                        {formatBaseAmount(baseVal, p.quantityUnit)}
+                      </span>
+                    </td>
+
+                    {/* Total Purchase Amount */}
+                    <td className="px-4 py-4 text-right">
+                      <span className="font-bold text-gray-950 text-xs sm:text-[13px] whitespace-nowrap">
+                        {formatTotalAmount(totalVal)}
                       </span>
                     </td>
 

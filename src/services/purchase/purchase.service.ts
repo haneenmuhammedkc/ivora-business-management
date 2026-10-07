@@ -4,7 +4,7 @@ import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authori
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, PurchaseStatus, QuantityUnit, UserRole } from "@prisma/client";
-import { createPurchaseSchema } from "@/validators/purchase.validator";
+import { createPurchaseSchema, updatePurchaseSchema } from "@/validators/purchase.validator";
 
 export interface CreatePurchaseInput {
   businessId: string;
@@ -12,10 +12,12 @@ export interface CreatePurchaseInput {
   productType: string;
   quantity: number | string;
   quantityUnit?: QuantityUnit | "GRAM" | "PIECE" | "GRAMS" | "PIECES";
+  baseAmount?: number | string;
+  basePricePerUnitAED?: number | string | null;
+  basePricePerGm?: number | string | null;
   purchaseCode?: string;
   sourcingVault?: string | null;
   tradingCycleId?: string | null;
-  basePricePerGm?: number | null;
   transitInsuranceFreight?: number | null;
   vaultHandlingLabour?: number | null;
   customsSecurity?: number | null;
@@ -28,9 +30,11 @@ export interface UpdatePurchaseInput {
   sourcingVault?: string | null;
   productType?: string;
   quantity?: number | string;
-  quantityUnit?: QuantityUnit;
+  quantityUnit?: QuantityUnit | "GRAM" | "PIECE" | "GRAMS" | "PIECES";
   quantityGms?: number | null;
-  basePricePerGm?: number | null;
+  baseAmount?: number | string;
+  basePricePerUnitAED?: number | string | null;
+  basePricePerGm?: number | string | null;
   transitInsuranceFreight?: number | null;
   vaultHandlingLabour?: number | null;
   customsSecurity?: number | null;
@@ -138,31 +142,36 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
   const quantityGms =
     validated.quantityUnit === QuantityUnit.GRAM ? quantityDecimal : null;
 
-  // 6. Optional Financial Fields Handling (Do not invent financial values)
-  let basePricePerGmDecimal: Prisma.Decimal | null = null;
-  let baseAcquisitionValueDecimal: Prisma.Decimal | null = null;
-  let tifDecimal: Prisma.Decimal | null = null;
-  let vhlDecimal: Prisma.Decimal | null = null;
-  let csDecimal: Prisma.Decimal | null = null;
-  let totalLandedCostDecimal: Prisma.Decimal | null = null;
-
-  if (input.basePricePerGm !== undefined && input.basePricePerGm !== null) {
-    const basePriceNum = Number(input.basePricePerGm);
-    if (!isNaN(basePriceNum) && basePriceNum > 0) {
-      basePricePerGmDecimal = new Prisma.Decimal(basePriceNum);
-      const baseAcq = Number(validated.quantity) * basePriceNum;
-      baseAcquisitionValueDecimal = new Prisma.Decimal(baseAcq);
-
-      const tif = Number(input.transitInsuranceFreight || 0);
-      const vhl = Number(input.vaultHandlingLabour || 0);
-      const cs = Number(input.customsSecurity || 0);
-
-      tifDecimal = new Prisma.Decimal(tif);
-      vhlDecimal = new Prisma.Decimal(vhl);
-      csDecimal = new Prisma.Decimal(cs);
-      totalLandedCostDecimal = new Prisma.Decimal(baseAcq + tif + vhl + cs);
-    }
+  // 6. Base Amount & Authoritative Total Purchase Amount Calculation (quantity × baseAmount)
+  const effectiveBase = validated.baseAmount ?? validated.basePricePerUnitAED ?? validated.basePricePerGm;
+  if (
+    effectiveBase === undefined ||
+    effectiveBase === null ||
+    isNaN(Number(effectiveBase)) ||
+    Number(effectiveBase) <= 0
+  ) {
+    throw new AuthError("Base amount must be a positive number greater than 0", 400);
   }
+
+  const baseAmountDecimal = new Prisma.Decimal(effectiveBase);
+  // Authoritative server-side calculation: totalPurchaseAmount = quantity × baseAmount
+  const baseAcquisitionValueDecimal = quantityDecimal
+    .mul(baseAmountDecimal)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  const basePricePerUnitAEDDecimal = baseAmountDecimal;
+  const basePricePerGmDecimal =
+    validated.quantityUnit === QuantityUnit.GRAM ? baseAmountDecimal : null;
+
+  const tifDecimal = new Prisma.Decimal(input.transitInsuranceFreight ?? 0);
+  const vhlDecimal = new Prisma.Decimal(input.vaultHandlingLabour ?? 0);
+  const csDecimal = new Prisma.Decimal(input.customsSecurity ?? 0);
+
+  const totalLandedCostDecimal = baseAcquisitionValueDecimal
+    .add(tifDecimal)
+    .add(vhlDecimal)
+    .add(csDecimal)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
   // 7. Persist to Database
   const purchase = await prisma.purchase.create({
@@ -176,6 +185,7 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
       quantity: quantityDecimal,
       quantityUnit: validated.quantityUnit,
       quantityGms,
+      basePricePerUnitAED: basePricePerUnitAEDDecimal,
       basePricePerGm: basePricePerGmDecimal,
       baseAcquisitionValue: baseAcquisitionValueDecimal,
       transitInsuranceFreight: tifDecimal,
@@ -199,6 +209,9 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
       productType: purchase.productType,
       quantity: Number(purchase.quantity),
       quantityUnit: purchase.quantityUnit,
+      basePricePerUnitAED: purchase.basePricePerUnitAED ? Number(purchase.basePricePerUnitAED) : null,
+      baseAcquisitionValue: purchase.baseAcquisitionValue ? Number(purchase.baseAcquisitionValue) : null,
+      totalLandedCost: purchase.totalLandedCost ? Number(purchase.totalLandedCost) : null,
     },
   });
 
@@ -206,6 +219,15 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
 }
 
 export async function updatePurchase(session: SessionPayload, purchaseId: string, input: UpdatePurchaseInput) {
+  // 1. Zod Validation for update
+  const validationResult = updatePurchaseSchema.safeParse(input);
+  if (!validationResult.success) {
+    const firstIssue = validationResult.error.issues[0];
+    throw new AuthError(firstIssue ? firstIssue.message : "Invalid purchase input data", 400);
+  }
+  const validated = validationResult.data;
+
+  // 2. Resource access & financial immutability check
   const { resource: existing } = await requireResourceAccess<Prisma.PurchaseGetPayload<Record<string, never>>>(
     "Purchase",
     purchaseId,
@@ -213,78 +235,86 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
   );
 
   const newQuantity =
-    input.quantity !== undefined ? Number(input.quantity) : Number(existing.quantity);
-  const newQuantityUnit = input.quantityUnit || existing.quantityUnit;
+    validated.quantity !== undefined
+      ? new Prisma.Decimal(validated.quantity)
+      : new Prisma.Decimal(existing.quantity);
+  const newQuantityUnit = validated.quantityUnit || existing.quantityUnit;
   const quantityGms =
-    newQuantityUnit === QuantityUnit.GRAM ? new Prisma.Decimal(newQuantity) : null;
+    newQuantityUnit === QuantityUnit.GRAM ? newQuantity : null;
 
-  // Preserve financial calculations if financial values are already present or being updated
-  const basePricePerGm =
-    input.basePricePerGm !== undefined
-      ? input.basePricePerGm !== null
-        ? Number(input.basePricePerGm)
-        : null
-      : existing.basePricePerGm !== null
-      ? Number(existing.basePricePerGm)
-      : null;
+  // Determine base amount
+  const inputBase = validated.baseAmount ?? validated.basePricePerUnitAED ?? validated.basePricePerGm;
+  let effectiveBaseDecimal: Prisma.Decimal | null = null;
+
+  if (inputBase !== undefined && inputBase !== null) {
+    effectiveBaseDecimal = new Prisma.Decimal(inputBase);
+  } else if (existing.basePricePerUnitAED !== null) {
+    effectiveBaseDecimal = new Prisma.Decimal(existing.basePricePerUnitAED);
+  } else if (existing.basePricePerGm !== null) {
+    effectiveBaseDecimal = new Prisma.Decimal(existing.basePricePerGm);
+  }
 
   const tif =
-    input.transitInsuranceFreight !== undefined
-      ? input.transitInsuranceFreight !== null
-        ? Number(input.transitInsuranceFreight)
-        : null
+    input.transitInsuranceFreight !== undefined && input.transitInsuranceFreight !== null
+      ? new Prisma.Decimal(input.transitInsuranceFreight)
       : existing.transitInsuranceFreight !== null
-      ? Number(existing.transitInsuranceFreight)
-      : null;
+      ? new Prisma.Decimal(existing.transitInsuranceFreight)
+      : new Prisma.Decimal(0);
 
   const vhl =
-    input.vaultHandlingLabour !== undefined
-      ? input.vaultHandlingLabour !== null
-        ? Number(input.vaultHandlingLabour)
-        : null
+    input.vaultHandlingLabour !== undefined && input.vaultHandlingLabour !== null
+      ? new Prisma.Decimal(input.vaultHandlingLabour)
       : existing.vaultHandlingLabour !== null
-      ? Number(existing.vaultHandlingLabour)
-      : null;
+      ? new Prisma.Decimal(existing.vaultHandlingLabour)
+      : new Prisma.Decimal(0);
 
   const cs =
-    input.customsSecurity !== undefined
-      ? input.customsSecurity !== null
-        ? Number(input.customsSecurity)
-        : null
+    input.customsSecurity !== undefined && input.customsSecurity !== null
+      ? new Prisma.Decimal(input.customsSecurity)
       : existing.customsSecurity !== null
-      ? Number(existing.customsSecurity)
-      : null;
+      ? new Prisma.Decimal(existing.customsSecurity)
+      : new Prisma.Decimal(0);
 
   let baseAcquisitionValue: Prisma.Decimal | null = null;
   let totalLandedCost: Prisma.Decimal | null = null;
+  let basePricePerGm: Prisma.Decimal | null = null;
+  let basePricePerUnitAED: Prisma.Decimal | null = null;
 
-  if (basePricePerGm !== null) {
-    const baseVal = newQuantity * basePricePerGm;
-    baseAcquisitionValue = new Prisma.Decimal(baseVal);
-    const landed = baseVal + (tif || 0) + (vhl || 0) + (cs || 0);
-    totalLandedCost = new Prisma.Decimal(landed);
+  if (effectiveBaseDecimal !== null) {
+    basePricePerUnitAED = effectiveBaseDecimal;
+    basePricePerGm = newQuantityUnit === QuantityUnit.GRAM ? effectiveBaseDecimal : null;
+    // Authoritative calculation: quantity × baseAmount
+    baseAcquisitionValue = newQuantity
+      .mul(effectiveBaseDecimal)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    totalLandedCost = baseAcquisitionValue
+      .add(tif)
+      .add(vhl)
+      .add(cs)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
   }
 
   // If businessId is changing, verify access to the destination business
-  if (input.businessId && input.businessId !== existing.businessId) {
-    await requireBusinessAccess(input.businessId, session);
+  if (validated.businessId && validated.businessId !== existing.businessId) {
+    await requireBusinessAccess(validated.businessId, session);
   }
 
   const updated = await prisma.purchase.update({
     where: { id: purchaseId },
     data: {
-      businessId: input.businessId || undefined,
-      purchaseDate: input.purchaseDate ? new Date(input.purchaseDate) : undefined,
+      businessId: validated.businessId || undefined,
+      purchaseDate: validated.purchaseDate ? new Date(validated.purchaseDate) : undefined,
       sourcingVault: input.sourcingVault !== undefined ? input.sourcingVault?.trim() || null : undefined,
-      productType: input.productType?.trim(),
-      quantity: input.quantity !== undefined ? new Prisma.Decimal(newQuantity) : undefined,
-      quantityUnit: input.quantityUnit || undefined,
+      productType: validated.productType?.trim(),
+      quantity: validated.quantity !== undefined ? newQuantity : undefined,
+      quantityUnit: validated.quantityUnit || undefined,
       quantityGms,
-      basePricePerGm: basePricePerGm !== null ? new Prisma.Decimal(basePricePerGm) : null,
+      basePricePerUnitAED,
+      basePricePerGm,
       baseAcquisitionValue,
-      transitInsuranceFreight: tif !== null ? new Prisma.Decimal(tif) : null,
-      vaultHandlingLabour: vhl !== null ? new Prisma.Decimal(vhl) : null,
-      customsSecurity: cs !== null ? new Prisma.Decimal(cs) : null,
+      transitInsuranceFreight: tif,
+      vaultHandlingLabour: vhl,
+      customsSecurity: cs,
       totalLandedCost,
       status: input.status,
     },
@@ -296,7 +326,12 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
     action: "PURCHASE_UPDATED",
     entity: "Purchase",
     entityId: updated.id,
-    newValues: { status: updated.status, totalLandedCost: updated.totalLandedCost ? Number(updated.totalLandedCost) : null },
+    newValues: {
+      status: updated.status,
+      basePricePerUnitAED: updated.basePricePerUnitAED ? Number(updated.basePricePerUnitAED) : null,
+      baseAcquisitionValue: updated.baseAcquisitionValue ? Number(updated.baseAcquisitionValue) : null,
+      totalLandedCost: updated.totalLandedCost ? Number(updated.totalLandedCost) : null,
+    },
   });
 
   return updated;

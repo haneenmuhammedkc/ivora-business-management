@@ -40,8 +40,21 @@ export const createPurchaseSchema = z
         }
         return QuantityUnit.GRAM;
       }),
+    baseAmount: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    basePricePerUnitAED: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    basePricePerGm: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
   })
   .superRefine((data, ctx) => {
+    // Unit-specific quantity rules
     if (data.quantityUnit === QuantityUnit.PIECE) {
       if (!Number.isInteger(data.quantity)) {
         ctx.addIssue({
@@ -50,6 +63,33 @@ export const createPurchaseSchema = z
           path: ["quantity"],
         });
       }
+    } else if (data.quantityUnit === QuantityUnit.GRAM) {
+      const str = String(data.quantity);
+      if (str.includes(".")) {
+        const decimals = str.split(".")[1];
+        if (decimals && decimals.length > 3) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Quantity in grams supports up to 3 decimal places",
+            path: ["quantity"],
+          });
+        }
+      }
+    }
+
+    // Base amount validation (required and positive)
+    const effectiveBase = data.baseAmount ?? data.basePricePerUnitAED ?? data.basePricePerGm;
+    if (
+      effectiveBase === undefined ||
+      effectiveBase === null ||
+      isNaN(effectiveBase) ||
+      effectiveBase <= 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Base amount is required and must be a positive number greater than 0",
+        path: ["baseAmount"],
+      });
     }
   });
 
@@ -94,14 +134,53 @@ export const updatePurchaseSchema = z
         return QuantityUnit.GRAM;
       })
       .optional(),
+    baseAmount: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    basePricePerUnitAED: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    basePricePerGm: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
   })
   .superRefine((data, ctx) => {
-    if (data.quantity !== undefined && data.quantityUnit === QuantityUnit.PIECE) {
-      if (!Number.isInteger(data.quantity)) {
+    // Quantity validation if provided
+    if (data.quantity !== undefined) {
+      if (data.quantityUnit === QuantityUnit.PIECE) {
+        if (!Number.isInteger(data.quantity)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Quantity in pieces must be a whole number (integer)",
+            path: ["quantity"],
+          });
+        }
+      } else if (data.quantityUnit === QuantityUnit.GRAM) {
+        const str = String(data.quantity);
+        if (str.includes(".")) {
+          const decimals = str.split(".")[1];
+          if (decimals && decimals.length > 3) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Quantity in grams supports up to 3 decimal places",
+              path: ["quantity"],
+            });
+          }
+        }
+      }
+    }
+
+    // Base amount validation if provided
+    const providedBase = data.baseAmount ?? data.basePricePerUnitAED ?? data.basePricePerGm;
+    if (providedBase !== undefined) {
+      if (providedBase === null || isNaN(providedBase) || providedBase <= 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Quantity in pieces must be a whole number (integer)",
-          path: ["quantity"],
+          message: "Base amount must be a positive number greater than 0",
+          path: ["baseAmount"],
         });
       }
     }

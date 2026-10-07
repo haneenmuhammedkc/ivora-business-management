@@ -75,6 +75,15 @@ export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
   const [productType, setProductType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
+  const [baseAmount, setBaseAmount] = useState("");
+
+  // Live client-side calculation for display
+  const calculatedTotal = React.useMemo(() => {
+    const q = parseFloat(quantity);
+    const b = parseFloat(baseAmount);
+    if (isNaN(q) || q <= 0 || isNaN(b) || b <= 0) return null;
+    return q * b;
+  }, [quantity, baseAmount]);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -138,6 +147,13 @@ export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
           setProductType(p.productType || "");
           setQuantity(p.quantity !== undefined && p.quantity !== null ? String(p.quantity) : "");
           setQuantityUnit(p.quantityUnit === "PIECE" ? "PIECE" : "GRAM");
+          const baseVal =
+            p.basePricePerUnitAED !== null && p.basePricePerUnitAED !== undefined
+              ? String(p.basePricePerUnitAED)
+              : p.basePricePerGm !== null && p.basePricePerGm !== undefined
+              ? String(p.basePricePerGm)
+              : "";
+          setBaseAmount(baseVal);
         }
       } catch (err: unknown) {
         if (isMounted) {
@@ -217,6 +233,12 @@ export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
       return;
     }
 
+    const baseNum = parseFloat(baseAmount);
+    if (isNaN(baseNum) || baseNum <= 0) {
+      setErrorMessage("Base Amount must be a positive number greater than 0.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -226,6 +248,7 @@ export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
         productType: trimmedProduct,
         quantity: qtyNum,
         quantityUnit,
+        baseAmount: baseNum,
       };
 
       const response = await fetch(`/api/purchases/${purchaseId}`, {
@@ -404,6 +427,60 @@ export function EditPurchaseEntry({ purchaseId }: EditPurchaseEntryProps) {
               {quantityUnit === "GRAM"
                 ? "Physical weight for precious metals and grain (supports decimal grams, e.g. 6200.500)."
                 : "Whole unit count for physical items and hardware (e.g. 25)."}
+            </p>
+          </div>
+
+          {/* 5. Base Amount */}
+          <div className="space-y-1">
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
+              BASE AMOUNT ({quantityUnit === "GRAM" ? "AED / GRAM" : "AED / PIECE"})
+            </label>
+            <input
+              type="number"
+              min="0.0001"
+              step="any"
+              placeholder={quantityUnit === "GRAM" ? "e.g. 31.50" : "e.g. 250.00"}
+              value={baseAmount}
+              onChange={(e) => {
+                setBaseAmount(e.target.value);
+                setErrorMessage(null);
+              }}
+              disabled={submitting || isLocked}
+              className="w-full h-10 px-3 text-xs bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black font-medium transition-colors disabled:bg-gray-50 disabled:text-gray-500"
+              required
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              {quantityUnit === "GRAM"
+                ? "Price in AED per physical gram."
+                : "Price in AED per individual piece."}
+            </p>
+          </div>
+
+          {/* 6. Total Purchase Amount (Read-Only) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                TOTAL PURCHASE AMOUNT
+              </label>
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                Read-only
+              </span>
+            </div>
+            <div className="w-full h-10 px-3 bg-gray-50/80 border border-gray-200 rounded-lg flex items-center justify-between text-gray-950 font-bold text-xs sm:text-sm select-none">
+              <span>
+                {calculatedTotal !== null
+                  ? `AED ${calculatedTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+                  : "—"}
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium">
+                Auto-calculated
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Automatically calculated as Quantity × Base Amount.
             </p>
           </div>
         </div>

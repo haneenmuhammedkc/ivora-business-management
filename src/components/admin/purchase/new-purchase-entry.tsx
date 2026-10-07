@@ -71,6 +71,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
   const [productType, setProductType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
+  const [baseAmount, setBaseAmount] = useState("");
+
+  // Live client-side calculation for display
+  const calculatedTotal = React.useMemo(() => {
+    const q = parseFloat(quantity);
+    const b = parseFloat(baseAmount);
+    if (isNaN(q) || q <= 0 || isNaN(b) || b <= 0) return null;
+    return q * b;
+  }, [quantity, baseAmount]);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -202,6 +211,12 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       return;
     }
 
+    const baseNum = parseFloat(baseAmount);
+    if (isNaN(baseNum) || baseNum <= 0) {
+      setErrorMessage("Base Amount must be a positive number greater than 0.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -211,6 +226,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         productType: trimmedProduct,
         quantity: qtyNum,
         quantityUnit,
+        baseAmount: baseNum,
       };
 
       const response = await fetch("/api/purchases", {
@@ -229,6 +245,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
 
       if (onRecordPurchase) {
         const created = result.purchase;
+        const effectiveBase = created.basePricePerUnitAED !== null && created.basePricePerUnitAED !== undefined
+          ? Number(created.basePricePerUnitAED)
+          : created.basePricePerGm !== null && created.basePricePerGm !== undefined
+          ? Number(created.basePricePerGm)
+          : null;
+        const effectiveTotal = created.baseAcquisitionValue !== null && created.baseAcquisitionValue !== undefined
+          ? Number(created.baseAcquisitionValue)
+          : null;
+
         onRecordPurchase({
           id: created.purchaseCode,
           rawId: created.id,
@@ -246,10 +271,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
           quantity: Number(created.quantity),
           quantityUnit: created.quantityUnit,
           quantityGms: created.quantityGms ? Number(created.quantityGms) : null,
-          basePriceAED: null,
-          freightAED: null,
-          labourAED: null,
-          totalLandedAED: null,
+          baseAmount: effectiveBase,
+          basePriceAED: effectiveBase,
+          basePricePerUnitAED: effectiveBase,
+          totalPurchaseAmount: effectiveTotal,
+          baseAcquisitionValue: effectiveTotal,
+          freightAED: created.transitInsuranceFreight ? Number(created.transitInsuranceFreight) : null,
+          labourAED: created.vaultHandlingLabour ? Number(created.vaultHandlingLabour) : null,
+          customsAED: created.customsSecurity ? Number(created.customsSecurity) : null,
+          totalLandedAED: created.totalLandedCost ? Number(created.totalLandedCost) : null,
           status: created.status || "DRAFT",
           selected: false,
         });
@@ -473,6 +503,60 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
               {quantityUnit === "GRAM"
                 ? "Physical weight for precious metals and grain (supports decimal grams, e.g. 6200.500)."
                 : "Whole unit count for physical items and hardware (e.g. 25)."}
+            </p>
+          </div>
+
+          {/* 5. Base Amount */}
+          <div className="space-y-1">
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
+              BASE AMOUNT ({quantityUnit === "GRAM" ? "AED / GRAM" : "AED / PIECE"})
+            </label>
+            <input
+              type="number"
+              min="0.0001"
+              step="any"
+              placeholder={quantityUnit === "GRAM" ? "e.g. 31.50" : "e.g. 250.00"}
+              value={baseAmount}
+              onChange={(e) => {
+                setBaseAmount(e.target.value);
+                setErrorMessage(null);
+              }}
+              disabled={submitting}
+              className="w-full h-10 px-3 text-xs bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black font-medium transition-colors"
+              required
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              {quantityUnit === "GRAM"
+                ? "Price in AED per physical gram."
+                : "Price in AED per individual piece."}
+            </p>
+          </div>
+
+          {/* 6. Total Purchase Amount (Read-Only) */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                TOTAL PURCHASE AMOUNT
+              </label>
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                Read-only
+              </span>
+            </div>
+            <div className="w-full h-10 px-3 bg-gray-50/80 border border-gray-200 rounded-lg flex items-center justify-between text-gray-950 font-bold text-xs sm:text-sm select-none">
+              <span>
+                {calculatedTotal !== null
+                  ? `AED ${calculatedTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+                  : "—"}
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium">
+                Auto-calculated
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Automatically calculated as Quantity × Base Amount.
             </p>
           </div>
         </div>

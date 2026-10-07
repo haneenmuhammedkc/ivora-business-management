@@ -14,7 +14,11 @@ export interface PurchaseRecord {
   quantity: number;
   quantityUnit: QuantityUnitType;
   quantityGms?: number | null;
+  baseAmount?: number | null;
   basePriceAED?: number | null;
+  basePricePerUnitAED?: number | null;
+  totalPurchaseAmount?: number | null;
+  baseAcquisitionValue?: number | null;
   freightAED?: number | null;
   labourAED?: number | null;
   customsAED?: number | null;

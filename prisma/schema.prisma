@@ -256,6 +256,7 @@ model Purchase {
   quantityUnit            QuantityUnit   @default(GRAM)
   quantityGms             Decimal?       @db.Decimal(18, 3)
   basePricePerGm          Decimal?       @db.Decimal(18, 4)
+  basePricePerUnitAED     Decimal?       @db.Decimal(18, 4)
   baseAcquisitionValue    Decimal?       @db.Decimal(18, 2)
   transitInsuranceFreight Decimal?       @default(0) @db.Decimal(18, 2)
   vaultHandlingLabour     Decimal?       @default(0) @db.Decimal(18, 2)

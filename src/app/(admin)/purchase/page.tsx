@@ -21,6 +21,8 @@ interface ApiPurchaseItem {
   quantityUnit: "GRAM" | "PIECE";
   quantityGms: number | string | null;
   basePricePerGm: number | string | null;
+  basePricePerUnitAED?: number | string | null;
+  baseAcquisitionValue?: number | string | null;
   transitInsuranceFreight: number | string | null;
   vaultHandlingLabour: number | string | null;
   customsSecurity: number | string | null;
@@ -55,6 +57,18 @@ export default function PurchasePage() {
       year: "numeric",
     }).format(new Date(p.purchaseDate));
 
+    const baseAmountNum =
+      p.basePricePerUnitAED !== null && p.basePricePerUnitAED !== undefined
+        ? Number(p.basePricePerUnitAED)
+        : p.basePricePerGm !== null && p.basePricePerGm !== undefined
+        ? Number(p.basePricePerGm)
+        : null;
+
+    const totalAcqNum =
+      p.baseAcquisitionValue !== null && p.baseAcquisitionValue !== undefined
+        ? Number(p.baseAcquisitionValue)
+        : null;
+
     return {
       id: p.purchaseCode,
       rawId: p.id,
@@ -68,7 +82,11 @@ export default function PurchasePage() {
       quantity: Number(p.quantity),
       quantityUnit: p.quantityUnit,
       quantityGms: p.quantityGms !== null ? Number(p.quantityGms) : null,
-      basePriceAED: p.basePricePerGm !== null ? Number(p.basePricePerGm) : null,
+      baseAmount: baseAmountNum,
+      basePriceAED: baseAmountNum,
+      basePricePerUnitAED: baseAmountNum,
+      totalPurchaseAmount: totalAcqNum,
+      baseAcquisitionValue: totalAcqNum,
       freightAED: p.transitInsuranceFreight !== null ? Number(p.transitInsuranceFreight) : null,
       labourAED: p.vaultHandlingLabour !== null ? Number(p.vaultHandlingLabour) : null,
       customsAED: p.customsSecurity !== null ? Number(p.customsSecurity) : null,
