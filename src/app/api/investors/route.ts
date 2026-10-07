@@ -6,6 +6,7 @@ import {
 } from "@/services/investor/investor.service";
 import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
 import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
+import { validateCreateInvestor } from "@/validators";
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,11 +46,32 @@ export async function POST(req: NextRequest) {
     const session = await requireActiveSession();
     const body = await req.json().catch(() => null);
 
-    if (!body) {
-      return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Validation failed",
+          errors: { general: "Invalid JSON payload" },
+        },
+        { status: 400 }
+      );
     }
 
-    const result = await createInvestor(session, body);
+    // 1. Centralized Investor Input Validation
+    const validationResult = validateCreateInvestor(body);
+    if (!validationResult.isValid || !validationResult.data) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Validation failed",
+          errors: validationResult.errors,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Delegate to Investor Service with Validated & Sanitized Data
+    const result = await createInvestor(session, validationResult.data);
     return NextResponse.json(
       {
         success: true,
@@ -63,9 +85,16 @@ export async function POST(req: NextRequest) {
     if (error instanceof AuthError) {
       if (error.statusCode === 401) return unauthorizedResponse(error.message);
       if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
-      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
+      if (error.statusCode === 404) {
+        return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });
+      }
+      if (error.statusCode === 409) {
+        return NextResponse.json({ success: false, error: "CONFLICT", message: error.message }, { status: 409 });
+      }
+      return NextResponse.json({ success: false, error: "VALIDATION_ERROR", message: error.message }, { status: error.statusCode });
     }
     console.error("[Create Investor API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
   }
 }
+

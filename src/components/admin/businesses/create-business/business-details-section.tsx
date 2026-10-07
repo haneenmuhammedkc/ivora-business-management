@@ -111,8 +111,17 @@ export function BusinessDetailsSection({
             placeholder="Describe the business, its activities, or trading purpose..."
             value={data.description}
             onChange={(e) => onChange("description", e.target.value)}
-            className="block w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900 shadow-2xs resize-y"
+            className={`block w-full rounded-md border bg-white px-3 py-2 text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 transition-colors focus:outline-hidden focus:ring-1 shadow-2xs resize-y ${
+              errors.description
+                ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                : "border-gray-200 focus:border-gray-900 focus:ring-gray-900"
+            }`}
           />
+          {errors.description && (
+            <p className="mt-1 text-[11px] text-red-600 font-medium">
+              {errors.description}
+            </p>
+          )}
         </div>
       </div>
     </div>

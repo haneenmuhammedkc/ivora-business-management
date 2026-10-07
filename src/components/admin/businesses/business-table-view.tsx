@@ -2,7 +2,6 @@ import React from "react";
 import { BusinessEntity } from "@/types/business";
 import {
   ArrowRightIcon,
-  MoreVerticalIcon,
   TableViewIcon,
   WorkspaceCardsIcon,
 } from "@/components/ui/icons";
@@ -68,7 +67,7 @@ export function BusinessTableView({
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50 text-[10px] font-bold uppercase tracking-wider text-gray-500">
               <th className="px-5 py-3.5 font-bold">BUSINESS</th>
-              <th className="px-4 py-3.5 font-bold">PARTNERS</th>
+              <th className="px-4 py-3.5 font-bold">PARTNER</th>
               <th className="px-4 py-3.5 font-bold text-right">INVESTMENT</th>
               <th className="px-4 py-3.5 font-bold text-right">PURCHASE COST</th>
               <th className="px-4 py-3.5 font-bold text-right">SALES (INDIA)</th>
@@ -108,7 +107,7 @@ export function BusinessTableView({
                   {/* Partners */}
                   <td className="px-4 py-4">
                     <span className="text-xs text-gray-700 font-medium">
-                      {b.partnersSummary}
+                      {b.partnerName || b.partnersSummary || "No partner"}
                     </span>
                   </td>
 
@@ -191,24 +190,16 @@ export function BusinessTableView({
                     {b.createdAt}
                   </td>
 
-                  {/* Actions */}
+                  {/* Workspace */}
                   <td className="px-5 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end">
                       <button
                         type="button"
                         onClick={() => onOpenWorkspace?.(b)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-gray-800 rounded-lg shadow-xs transition-colors"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-gray-800 rounded-lg shadow-xs transition-colors cursor-pointer"
                       >
                         <span>Open Workspace</span>
                         <ArrowRightIcon size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                        title="More options"
-                        aria-label="More options"
-                      >
-                        <MoreVerticalIcon size={16} />
                       </button>
                     </div>
                   </td>

@@ -15,9 +15,9 @@ import {
 export interface CreateInvestorInput {
   name: string;
   code?: string;
-  email?: string;
-  contactEmail?: string;
-  phone?: string;
+  email?: string | null;
+  contactEmail?: string | null;
+  phone?: string | null;
   businessId: string;
   investmentAmount?: number | string;
   investmentCapitalAED?: number | string;

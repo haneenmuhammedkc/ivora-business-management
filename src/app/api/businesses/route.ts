@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listBusinesses, createBusiness } from "@/services/business/business.service";
 import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
 import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
+import { validateCreateBusiness } from "@/validators";
 
 export async function GET() {
   try {
@@ -24,11 +25,32 @@ export async function POST(req: NextRequest) {
     const session = await requireActiveSession();
     const body = await req.json().catch(() => null);
 
-    if (!body) {
-      return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Validation failed",
+          errors: { general: "Invalid JSON payload" },
+        },
+        { status: 400 }
+      );
     }
 
-    const business = await createBusiness(session, body);
+    // 1. Centralized Business Input Validation
+    const validationResult = validateCreateBusiness(body);
+    if (!validationResult.isValid || !validationResult.data) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Validation failed",
+          errors: validationResult.errors,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2. Delegate to Business Service with Validated & Sanitized Data
+    const business = await createBusiness(session, validationResult.data);
     return NextResponse.json({ success: true, business }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -43,3 +65,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
   }
 }
+

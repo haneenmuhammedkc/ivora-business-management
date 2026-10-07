@@ -9,7 +9,7 @@ export interface CreateBusinessInput {
   name: string;
   code?: string;
   businessType: string;
-  description?: string;
+  description?: string | null;
   partnerId: string;
   partnerEquityPct?: number | string;
   totalInvestment: number | string;
@@ -115,7 +115,8 @@ export async function listBusinesses(session: SessionPayload) {
 
     const partnerEquity = Number(b.partnerEquityPct) || 0;
     const adminEquity = Math.max(0, 100 - partnerEquity);
-    const partnerName = b.partner?.name || "Partner";
+    const nonAdminPartnerName = b.partner?.name?.trim() || "";
+    const displayPartnerName = nonAdminPartnerName || "No partner";
 
     const totalInvestmentAED = Number(b.totalInvestmentAED) || 0;
     const effectiveInvestmentAED =
@@ -146,9 +147,10 @@ export async function listBusinesses(session: SessionPayload) {
       adminEquityPct: adminEquity,
       partners: [
         { name: "Admin", sharePercentage: adminEquity },
-        { name: partnerName, sharePercentage: partnerEquity },
+        { name: nonAdminPartnerName || "Partner", sharePercentage: partnerEquity },
       ],
-      partnersSummary: `Admin (${adminEquity}%) + ${partnerName} (${partnerEquity}%)`,
+      partnersSummary: displayPartnerName,
+      partnerName: displayPartnerName,
       investmentAED: effectiveInvestmentAED,
       purchaseCostAED: purchaseCost,
       salesIndiaAED: sales,
@@ -179,13 +181,117 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
           status: true,
         },
       },
-      investors: { select: { id: true, name: true, code: true, defaultSharePct: true } },
-      investments: { select: { id: true, committedAmount: true, profitSharePct: true, status: true } },
-      tradingCycles: { select: { id: true, cycleCode: true, status: true, startDate: true, netProfitAed: true } },
-      purchases: { select: { id: true, purchaseCode: true, totalLandedCost: true, status: true } },
-      sales: { select: { id: true, saleCode: true, aedEquivalent: true, status: true } },
-      expenses: { select: { id: true, expenseCode: true, amount: true, category: true } },
-      transactions: { select: { id: true, transactionCode: true, amount: true, type: true } },
+      investors: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          email: true,
+          phone: true,
+          type: true,
+          defaultSharePct: true,
+          status: true,
+        },
+      },
+      investments: {
+        select: {
+          id: true,
+          investorId: true,
+          committedAmount: true,
+          profitSharePct: true,
+          allocatedGrams: true,
+          depositDate: true,
+          status: true,
+          investor: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              type: true,
+            },
+          },
+        },
+        orderBy: { depositDate: "desc" },
+      },
+      tradingCycles: {
+        select: {
+          id: true,
+          cycleCode: true,
+          status: true,
+          startDate: true,
+          completionDate: true,
+          grossRealizationAed: true,
+          purchaseLandedCostAed: true,
+          directExpensesAed: true,
+          grossArbitrageSpreadAed: true,
+          netProfitAed: true,
+          investorShareTotalAed: true,
+          deskRetainedProfitAed: true,
+        },
+        orderBy: { startDate: "desc" },
+      },
+      purchases: {
+        select: {
+          id: true,
+          purchaseCode: true,
+          purchaseDate: true,
+          sourcingVault: true,
+          productType: true,
+          quantityGms: true,
+          basePricePerGm: true,
+          baseAcquisitionValue: true,
+          transitInsuranceFreight: true,
+          vaultHandlingLabour: true,
+          customsSecurity: true,
+          totalLandedCost: true,
+          status: true,
+        },
+        orderBy: { purchaseDate: "desc" },
+      },
+      sales: {
+        select: {
+          id: true,
+          saleCode: true,
+          saleDate: true,
+          liquidationDesk: true,
+          buyerFirm: true,
+          productType: true,
+          quantityGms: true,
+          sellingPricePerGm: true,
+          inrRealizationValue: true,
+          realizedFxRate: true,
+          aedEquivalent: true,
+          status: true,
+        },
+        orderBy: { saleDate: "desc" },
+      },
+      expenses: {
+        select: {
+          id: true,
+          expenseCode: true,
+          category: true,
+          description: true,
+          refNo: true,
+          amount: true,
+          expenseDate: true,
+          status: true,
+          isPurchaseLandedCost: true,
+        },
+        orderBy: { expenseDate: "desc" },
+      },
+      transactions: {
+        select: {
+          id: true,
+          transactionCode: true,
+          amount: true,
+          type: true,
+          paymentMethod: true,
+          bankReference: true,
+          escrowAccount: true,
+          transactionDate: true,
+        },
+        orderBy: { transactionDate: "desc" },
+      },
     },
   });
 
@@ -203,18 +309,59 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
     throw new AuthError("You do not have permission to access this business", 403);
   }
 
+  const totalExternalInvestments = business.investments.reduce(
+    (acc, inv) => acc + Number(inv.committedAmount),
+    0
+  );
+  const purchaseCost = business.purchases.reduce(
+    (acc, p) => acc + Number(p.totalLandedCost),
+    0
+  );
+  const sales = business.sales.reduce(
+    (acc, s) => acc + Number(s.aedEquivalent),
+    0
+  );
+  const expenses = business.expenses.reduce(
+    (acc, e) => acc + Number(e.amount),
+    0
+  );
+  const netProfit = sales - purchaseCost - expenses;
+  const margin = sales > 0 ? (netProfit / sales) * 100 : 0;
+
   const partnerEquity = Number(business.partnerEquityPct) || 0;
   const adminEquity = Math.max(0, 100 - partnerEquity);
   const totalInvestmentAED = Number(business.totalInvestmentAED) || 0;
+  const effectiveInvestmentAED =
+    totalInvestmentAED > 0 ? totalInvestmentAED : totalExternalInvestments;
   const adminInvestmentAED = Number(business.adminInvestmentAED) || 0;
   const partnerInvestmentAED = Number(business.partnerInvestmentAED) || 0;
 
+  const nonAdminPartnerName = business.partner?.name?.trim() || "";
+  const displayPartnerName = nonAdminPartnerName || "No partner";
+
+  const formattedDate = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(business.createdAt));
+
   return {
     ...business,
-    totalInvestmentAED,
+    totalInvestmentAED: effectiveInvestmentAED,
     adminInvestmentAED,
     partnerInvestmentAED,
+    partnerEquityPct: partnerEquity,
     adminEquityPct: adminEquity,
+    partnerName: displayPartnerName,
+    partnersSummary: displayPartnerName,
+    investmentAED: effectiveInvestmentAED,
+    purchaseCostAED: purchaseCost,
+    salesIndiaAED: sales,
+    expensesAED: expenses,
+    netProfitAED: netProfit,
+    marginPercentage: Number(margin.toFixed(2)),
+    createdAtFormatted: formattedDate,
+    subtitle: business.description || `${business.name} • ${business.code}`,
   };
 }
 
@@ -238,33 +385,24 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
     partnerInvestment,
   } = input;
 
-  // Validation: Required name
+  // Basic fallback defense-in-depth validation
   if (!name || !name.trim()) {
     throw new AuthError("Business name is required.", 400);
   }
-
-  // Validation: Required businessType
   if (!businessType || !businessType.trim()) {
     throw new AuthError("Business type is required.", 400);
   }
 
-  // Validation: Required totalInvestment
   const totalInvNum = Number(totalInvestment);
-  if (
-    totalInvestment === undefined ||
-    totalInvestment === null ||
-    isNaN(totalInvNum) ||
-    totalInvNum <= 0
-  ) {
+  if (isNaN(totalInvNum) || totalInvNum <= 0) {
     throw new AuthError("Please provide a valid total investment amount greater than 0.", 400);
   }
 
-  // Validation: Required partner selection
   if (!partnerId || !partnerId.trim()) {
     throw new AuthError("Please select a partner for this business.", 400);
   }
 
-  // Verify that partnerId belongs to a valid User with role PARTNER
+  // Verify that partnerId belongs to an existing User with role PARTNER
   const partnerUser = await prisma.user.findUnique({
     where: { id: partnerId.trim() },
   });
@@ -273,7 +411,6 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
     throw new AuthError("A business can only be assigned to a valid Partner user account.", 400);
   }
 
-  // Individual investment amount validations
   const adminInvNum =
     adminInvestment !== undefined &&
     adminInvestment !== null &&
@@ -297,14 +434,16 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
   if (partnerInvNum > totalInvNum) {
     throw new AuthError("Partner investment cannot exceed total investment.", 400);
   }
+  if (adminInvNum > totalInvNum) {
+    throw new AuthError("Admin investment cannot exceed total investment.", 400);
+  }
+  if (adminInvNum + partnerInvNum > totalInvNum) {
+    throw new AuthError("Sum of admin and partner investments cannot exceed total investment.", 400);
+  }
 
-  // Calculate Partner Equity % from Partner Investment relative to Total Investment
+  // Calculate Partner Equity % safely
   let calculatedEquity: number;
-  if (
-    partnerInvestment !== undefined &&
-    partnerInvestment !== null &&
-    partnerInvestment !== ""
-  ) {
+  if (partnerInvNum > 0 && totalInvNum > 0) {
     calculatedEquity = Number(((partnerInvNum / totalInvNum) * 100).toFixed(2));
   } else if (
     partnerEquityPct !== undefined &&
@@ -318,10 +457,6 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
     calculatedEquity = Number(pct.toFixed(2));
   } else {
     calculatedEquity = 0.0;
-  }
-
-  if (isNaN(calculatedEquity) || calculatedEquity < 0 || calculatedEquity > 100) {
-    throw new AuthError("Partner equity percentage must be between 0% and 100%.", 400);
   }
 
   // Code determination & uniqueness check

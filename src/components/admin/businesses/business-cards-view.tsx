@@ -2,7 +2,6 @@ import React from "react";
 import { BusinessEntity } from "@/types/business";
 import {
   ArrowRightIcon,
-  MoreVerticalIcon,
   TableViewIcon,
   WorkspaceCardsIcon,
 } from "@/components/ui/icons";
@@ -87,19 +86,12 @@ export function BusinessCardsView({
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{b.subtitle}</p>
                     </div>
-                    <button
-                      type="button"
-                      className="p-1.5 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100"
-                      aria-label="More options"
-                    >
-                      <MoreVerticalIcon size={16} />
-                    </button>
                   </div>
 
                   {/* Partners Pill */}
                   <div className="mt-3.5 inline-block rounded-md bg-gray-50 px-3 py-1.5 border border-gray-100 text-xs text-gray-700 font-medium">
                     <span className="text-gray-400 font-normal mr-1">Partners:</span>
-                    {b.partnersSummary}
+                    {b.partnerName || b.partnersSummary || "No partner"}
                   </div>
 
                   {/* Financial Grid */}

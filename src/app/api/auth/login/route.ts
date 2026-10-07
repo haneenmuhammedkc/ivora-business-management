@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authenticateUser } from "@/services/auth/auth.service";
 import { checkRateLimit, getClientIp } from "@/lib/auth/rate-limiter";
 import { errorResponse, rateLimitResponse } from "@/lib/auth/guards";
+import { validateLoginInput } from "@/validators/auth.validator";
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,18 +18,24 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => null);
-    if (!body || !body.email || !body.password) {
-      return errorResponse("Email and password are required", 400);
+    const validation = validateLoginInput(body);
+
+    if (!validation.isValid || !validation.data) {
+      const errorMessage =
+        validation.errors.email ||
+        validation.errors.password ||
+        "Please provide a valid email and password.";
+      return errorResponse(errorMessage, 400);
     }
 
     const result = await authenticateUser({
-      email: body.email,
-      password: body.password,
+      email: validation.data.email,
+      password: validation.data.password,
       ipAddress: ip,
     });
 
     if (!result.success) {
-      return errorResponse(result.error || "Invalid credentials", 401);
+      return errorResponse(result.error || "Invalid email or password", 401);
     }
 
     return NextResponse.json({

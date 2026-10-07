@@ -1,21 +1,23 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/auth";
 import {
   MailIcon,
-  LockIcon,
-  EyeIcon,
-  EyeOffIcon,
   ArrowRightIcon,
   ShieldCheckIcon,
   HelpCircleIcon,
   CheckIcon,
+  LockIcon,
+  EyeOffIcon,
+  EyeIcon,
 } from "@/components/ui/icons";
+import { validateLoginInput, LoginFieldErrors } from "@/validators/auth.validator";
 
 function LoginContent() {
   const router = useRouter();
@@ -28,26 +30,38 @@ function LoginContent() {
   const [email, setEmail] = useState(emailParam);
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [errors, setErrors] = useState<LoginFieldErrors>({});
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setErrors({});
 
-    if (!email.trim() || !password) {
-      setError("Email and password are required.");
+    const validation = validateLoginInput({ email, password });
+
+    if (!validation.isValid || !validation.data) {
+      setErrors(validation.errors);
+      if (validation.errors.email) {
+        emailInputRef.current?.focus();
+      } else if (validation.errors.password) {
+        passwordInputRef.current?.focus();
+      }
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const res = await login(email.trim(), password);
+      const res = await login(validation.data.email, validation.data.password);
 
       if (res.success) {
         if (res.requiresActivationOtp) {
-          router.push(`/verify-otp?email=${encodeURIComponent(email.trim())}`);
+          router.push(`/verify-otp?email=${encodeURIComponent(validation.data.email)}`);
         } else if (res.requiresPasswordChange) {
           router.push("/reset-password");
         } else {
@@ -101,7 +115,7 @@ function LoginContent() {
           </div>
         )}
 
-        <form className="space-y-5" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={handleSubmit} noValidate>
           <div>
             <label
               htmlFor="email"
@@ -110,16 +124,21 @@ function LoginContent() {
               EMAIL OR USERNAME
             </label>
             <Input
+              ref={emailInputRef}
               id="email"
               type="email"
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
+                if (errors.email) {
+                  setErrors((prev) => ({ ...prev, email: undefined }));
+                }
                 if (error) setError("");
               }}
               icon={<MailIcon size={16} />}
               iconPosition="left"
               placeholder="name@company.com"
+              error={errors.email}
               className="bg-white py-2.5"
               autoFocus
               required
