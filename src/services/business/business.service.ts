@@ -4,6 +4,9 @@ import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { ensureBusinessParticipants } from "@/services/investor/investor.service";
 import { Prisma, UserRole, BusinessStatus } from "@prisma/client";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidateBusinessFinancials } from "@/lib/redis/invalidation";
 
 export interface CreateBusinessInput {
   name: string;
@@ -60,108 +63,112 @@ async function generateUniqueBusinessCode(name: string): Promise<string> {
  * ADMIN: all businesses. PARTNER: only businesses assigned to caller.
  */
 export async function listBusinesses(session: SessionPayload) {
-  const where: Prisma.BusinessWhereInput =
-    session.role === UserRole.ADMIN
-      ? {}
-      : { partnerId: session.userId };
+  const cacheKey = CacheKeys.businesses.list(session.role, session.userId);
 
-  const rawBusinesses = await prisma.business.findMany({
-    where,
-    include: {
-      partner: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          status: true,
+  return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+    const where: Prisma.BusinessWhereInput =
+      session.role === UserRole.ADMIN
+        ? {}
+        : { partnerId: session.userId };
+
+    const rawBusinesses = await prisma.business.findMany({
+      where,
+      include: {
+        partner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
+          },
+        },
+        investments: {
+          select: { committedAmount: true },
+        },
+        purchases: {
+          select: { totalLandedCost: true },
+        },
+        sales: {
+          select: { aedEquivalent: true },
+        },
+        expenses: {
+          select: { amount: true },
         },
       },
-      investments: {
-        select: { committedAmount: true },
-      },
-      purchases: {
-        select: { totalLandedCost: true },
-      },
-      sales: {
-        select: { aedEquivalent: true },
-      },
-      expenses: {
-        select: { amount: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    });
 
-  return rawBusinesses.map((b) => {
-    const totalExternalInvestments = b.investments.reduce(
-      (acc, inv) => acc + Number(inv.committedAmount),
-      0
-    );
-    const purchaseCost = b.purchases.reduce(
-      (acc, p) => acc + Number(p.totalLandedCost),
-      0
-    );
-    const sales = b.sales.reduce(
-      (acc, s) => acc + Number(s.aedEquivalent),
-      0
-    );
-    const expenses = b.expenses.reduce(
-      (acc, e) => acc + Number(e.amount),
-      0
-    );
-    const netProfit = sales - purchaseCost - expenses;
-    const margin = sales > 0 ? (netProfit / sales) * 100 : 0;
+    return rawBusinesses.map((b) => {
+      const totalExternalInvestments = b.investments.reduce(
+        (acc, inv) => acc + Number(inv.committedAmount),
+        0
+      );
+      const purchaseCost = b.purchases.reduce(
+        (acc, p) => acc + Number(p.totalLandedCost),
+        0
+      );
+      const sales = b.sales.reduce(
+        (acc, s) => acc + Number(s.aedEquivalent),
+        0
+      );
+      const expenses = b.expenses.reduce(
+        (acc, e) => acc + Number(e.amount),
+        0
+      );
+      const netProfit = sales - purchaseCost - expenses;
+      const margin = sales > 0 ? (netProfit / sales) * 100 : 0;
 
-    const partnerEquity = Number(b.partnerEquityPct) || 0;
-    const adminEquity = Math.max(0, 100 - partnerEquity);
-    const nonAdminPartnerName = b.partner?.name?.trim() || "";
-    const displayPartnerName = nonAdminPartnerName || "No partner";
+      const partnerEquity = Number(b.partnerEquityPct) || 0;
+      const adminEquity = Math.max(0, 100 - partnerEquity);
+      const nonAdminPartnerName = b.partner?.name?.trim() || "";
+      const displayPartnerName = nonAdminPartnerName || "No partner";
 
-    const totalInvestmentAED = Number(b.totalInvestmentAED) || 0;
-    const effectiveInvestmentAED =
-      totalInvestmentAED > 0 ? totalInvestmentAED : totalExternalInvestments;
+      const totalInvestmentAED = Number(b.totalInvestmentAED) || 0;
+      const effectiveInvestmentAED =
+        totalInvestmentAED > 0 ? totalInvestmentAED : totalExternalInvestments;
 
-    const adminInvestmentAED = Number(b.adminInvestmentAED) || 0;
-    const partnerInvestmentAED = Number(b.partnerInvestmentAED) || 0;
+      const adminInvestmentAED = Number(b.adminInvestmentAED) || 0;
+      const partnerInvestmentAED = Number(b.partnerInvestmentAED) || 0;
 
-    const formattedDate = new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(b.createdAt));
+      const formattedDate = new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(new Date(b.createdAt));
 
-    return {
-      id: b.id,
-      name: b.name,
-      code: b.code,
-      businessType: b.businessType,
-      description: b.description,
-      subtitle: b.description || `${b.name} • ${b.code}`,
-      totalInvestmentAED: effectiveInvestmentAED,
-      adminInvestmentAED,
-      partnerInvestmentAED,
-      partnerId: b.partnerId,
-      partner: b.partner,
-      partnerEquityPct: partnerEquity,
-      adminEquityPct: adminEquity,
-      partners: [
-        { name: "Admin", sharePercentage: adminEquity },
-        { name: nonAdminPartnerName || "Partner", sharePercentage: partnerEquity },
-      ],
-      partnersSummary: displayPartnerName,
-      partnerName: displayPartnerName,
-      investmentAED: effectiveInvestmentAED,
-      purchaseCostAED: purchaseCost,
-      salesIndiaAED: sales,
-      expensesAED: expenses,
-      netProfitAED: netProfit,
-      marginPercentage: Number(margin.toFixed(2)),
-      status: b.status,
-      createdAt: formattedDate,
-      productType: b.businessType || "Gold Bullion",
-      locationRoute: "Dubai (DXB) → Mumbai (BOM)",
-    };
+      return {
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        businessType: b.businessType,
+        description: b.description,
+        subtitle: b.description || `${b.name} • ${b.code}`,
+        totalInvestmentAED: effectiveInvestmentAED,
+        adminInvestmentAED,
+        partnerInvestmentAED,
+        partnerId: b.partnerId,
+        partner: b.partner,
+        partnerEquityPct: partnerEquity,
+        adminEquityPct: adminEquity,
+        partners: [
+          { name: "Admin", sharePercentage: adminEquity },
+          { name: nonAdminPartnerName || "Partner", sharePercentage: partnerEquity },
+        ],
+        partnersSummary: displayPartnerName,
+        partnerName: displayPartnerName,
+        investmentAED: effectiveInvestmentAED,
+        purchaseCostAED: purchaseCost,
+        salesIndiaAED: sales,
+        expensesAED: expenses,
+        netProfitAED: netProfit,
+        marginPercentage: Number(margin.toFixed(2)),
+        status: b.status,
+        createdAt: formattedDate,
+        productType: b.businessType || "Gold Bullion",
+        locationRoute: "Dubai (DXB) → Mumbai (BOM)",
+      };
+    });
   });
 }
 
@@ -169,130 +176,176 @@ export async function listBusinesses(session: SessionPayload) {
  * Fetch a single Business by ID with ownership scope enforcement.
  */
 export async function getBusinessById(session: SessionPayload, businessId: string) {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      partner: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          status: true,
-        },
-      },
-      investors: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          email: true,
-          phone: true,
-          type: true,
-          defaultSharePct: true,
-          status: true,
-        },
-      },
-      investments: {
-        select: {
-          id: true,
-          investorId: true,
-          committedAmount: true,
-          profitSharePct: true,
-          allocatedGrams: true,
-          depositDate: true,
-          status: true,
-          investor: {
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              type: true,
-            },
+  const cacheKey = CacheKeys.businesses.detail(businessId);
+
+  const business = await getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+    const raw = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: {
+        partner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
           },
         },
-        orderBy: { depositDate: "desc" },
-      },
-      tradingCycles: {
-        select: {
-          id: true,
-          cycleCode: true,
-          status: true,
-          startDate: true,
-          completionDate: true,
-          grossRealizationAed: true,
-          purchaseLandedCostAed: true,
-          directExpensesAed: true,
-          grossArbitrageSpreadAed: true,
-          netProfitAed: true,
-          investorShareTotalAed: true,
-          deskRetainedProfitAed: true,
+        investors: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            email: true,
+            phone: true,
+            type: true,
+            defaultSharePct: true,
+            status: true,
+          },
         },
-        orderBy: { startDate: "desc" },
-      },
-      purchases: {
-        select: {
-          id: true,
-          purchaseCode: true,
-          purchaseDate: true,
-          sourcingVault: true,
-          productType: true,
-          quantityGms: true,
-          basePricePerGm: true,
-          baseAcquisitionValue: true,
-          transitInsuranceFreight: true,
-          vaultHandlingLabour: true,
-          customsSecurity: true,
-          totalLandedCost: true,
-          status: true,
+        investments: {
+          select: {
+            id: true,
+            investorId: true,
+            committedAmount: true,
+            profitSharePct: true,
+            allocatedGrams: true,
+            depositDate: true,
+            status: true,
+            investor: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                type: true,
+              },
+            },
+          },
+          orderBy: { depositDate: "desc" },
         },
-        orderBy: { purchaseDate: "desc" },
-      },
-      sales: {
-        select: {
-          id: true,
-          saleCode: true,
-          saleDate: true,
-          liquidationDesk: true,
-          buyerFirm: true,
-          productType: true,
-          quantityGms: true,
-          sellingPricePerGm: true,
-          inrRealizationValue: true,
-          realizedFxRate: true,
-          aedEquivalent: true,
-          status: true,
+        purchases: {
+          select: {
+            id: true,
+            purchaseCode: true,
+            purchaseDate: true,
+            sourcingVault: true,
+            productType: true,
+            quantityGms: true,
+            basePricePerGm: true,
+            baseAcquisitionValue: true,
+            transitInsuranceFreight: true,
+            vaultHandlingLabour: true,
+            customsSecurity: true,
+            totalLandedCost: true,
+            status: true,
+          },
+          orderBy: { purchaseDate: "desc" },
         },
-        orderBy: { saleDate: "desc" },
-      },
-      expenses: {
-        select: {
-          id: true,
-          expenseCode: true,
-          category: true,
-          description: true,
-          refNo: true,
-          amount: true,
-          expenseDate: true,
-          status: true,
-          isPurchaseLandedCost: true,
+        sales: {
+          select: {
+            id: true,
+            saleCode: true,
+            saleDate: true,
+            liquidationDesk: true,
+            buyerFirm: true,
+            productType: true,
+            quantityGms: true,
+            sellingPricePerGm: true,
+            inrRealizationValue: true,
+            realizedFxRate: true,
+            aedEquivalent: true,
+            status: true,
+          },
+          orderBy: { saleDate: "desc" },
         },
-        orderBy: { expenseDate: "desc" },
-      },
-      transactions: {
-        select: {
-          id: true,
-          transactionCode: true,
-          amount: true,
-          type: true,
-          paymentMethod: true,
-          bankReference: true,
-          escrowAccount: true,
-          transactionDate: true,
+        expenses: {
+          select: {
+            id: true,
+            expenseCode: true,
+            category: true,
+            description: true,
+            refNo: true,
+            amount: true,
+            expenseDate: true,
+            status: true,
+            isPurchaseLandedCost: true,
+          },
+          orderBy: { expenseDate: "desc" },
         },
-        orderBy: { transactionDate: "desc" },
+        transactions: {
+          select: {
+            id: true,
+            transactionCode: true,
+            amount: true,
+            type: true,
+            paymentMethod: true,
+            bankReference: true,
+            escrowAccount: true,
+            transactionDate: true,
+          },
+          orderBy: { transactionDate: "desc" },
+        },
       },
-    },
+    });
+
+    if (!raw) {
+      return null;
+    }
+
+    const totalExternalInvestments = raw.investments.reduce(
+      (acc, inv) => acc + Number(inv.committedAmount),
+      0
+    );
+    const purchaseCost = raw.purchases.reduce(
+      (acc, p) => acc + Number(p.totalLandedCost),
+      0
+    );
+    const sales = raw.sales.reduce(
+      (acc, s) => acc + Number(s.aedEquivalent),
+      0
+    );
+    const expenses = raw.expenses.reduce(
+      (acc, e) => acc + Number(e.amount),
+      0
+    );
+    const netProfit = sales - purchaseCost - expenses;
+    const margin = sales > 0 ? (netProfit / sales) * 100 : 0;
+
+    const partnerEquity = Number(raw.partnerEquityPct) || 0;
+    const adminEquity = Math.max(0, 100 - partnerEquity);
+    const totalInvestmentAED = Number(raw.totalInvestmentAED) || 0;
+    const effectiveInvestmentAED =
+      totalInvestmentAED > 0 ? totalInvestmentAED : totalExternalInvestments;
+    const adminInvestmentAED = Number(raw.adminInvestmentAED) || 0;
+    const partnerInvestmentAED = Number(raw.partnerInvestmentAED) || 0;
+
+    const nonAdminPartnerName = raw.partner?.name?.trim() || "";
+    const displayPartnerName = nonAdminPartnerName || "No partner";
+
+    const formattedDate = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(new Date(raw.createdAt));
+
+    return {
+      ...raw,
+      totalInvestmentAED: effectiveInvestmentAED,
+      adminInvestmentAED,
+      partnerInvestmentAED,
+      partnerEquityPct: partnerEquity,
+      adminEquityPct: adminEquity,
+      partnerName: displayPartnerName,
+      partnersSummary: displayPartnerName,
+      investmentAED: effectiveInvestmentAED,
+      purchaseCostAED: purchaseCost,
+      salesIndiaAED: sales,
+      expensesAED: expenses,
+      netProfitAED: netProfit,
+      marginPercentage: Number(margin.toFixed(2)),
+      createdAtFormatted: formattedDate,
+      subtitle: raw.description || `${raw.name} • ${raw.code}`,
+    };
   });
 
   if (!business) {
@@ -309,60 +362,7 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
     throw new AuthError("You do not have permission to access this business", 403);
   }
 
-  const totalExternalInvestments = business.investments.reduce(
-    (acc, inv) => acc + Number(inv.committedAmount),
-    0
-  );
-  const purchaseCost = business.purchases.reduce(
-    (acc, p) => acc + Number(p.totalLandedCost),
-    0
-  );
-  const sales = business.sales.reduce(
-    (acc, s) => acc + Number(s.aedEquivalent),
-    0
-  );
-  const expenses = business.expenses.reduce(
-    (acc, e) => acc + Number(e.amount),
-    0
-  );
-  const netProfit = sales - purchaseCost - expenses;
-  const margin = sales > 0 ? (netProfit / sales) * 100 : 0;
-
-  const partnerEquity = Number(business.partnerEquityPct) || 0;
-  const adminEquity = Math.max(0, 100 - partnerEquity);
-  const totalInvestmentAED = Number(business.totalInvestmentAED) || 0;
-  const effectiveInvestmentAED =
-    totalInvestmentAED > 0 ? totalInvestmentAED : totalExternalInvestments;
-  const adminInvestmentAED = Number(business.adminInvestmentAED) || 0;
-  const partnerInvestmentAED = Number(business.partnerInvestmentAED) || 0;
-
-  const nonAdminPartnerName = business.partner?.name?.trim() || "";
-  const displayPartnerName = nonAdminPartnerName || "No partner";
-
-  const formattedDate = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(business.createdAt));
-
-  return {
-    ...business,
-    totalInvestmentAED: effectiveInvestmentAED,
-    adminInvestmentAED,
-    partnerInvestmentAED,
-    partnerEquityPct: partnerEquity,
-    adminEquityPct: adminEquity,
-    partnerName: displayPartnerName,
-    partnersSummary: displayPartnerName,
-    investmentAED: effectiveInvestmentAED,
-    purchaseCostAED: purchaseCost,
-    salesIndiaAED: sales,
-    expensesAED: expenses,
-    netProfitAED: netProfit,
-    marginPercentage: Number(margin.toFixed(2)),
-    createdAtFormatted: formattedDate,
-    subtitle: business.description || `${business.name} • ${business.code}`,
-  };
+  return business;
 }
 
 /**
@@ -500,6 +500,9 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
 
   // Synchronize Admin and Partner participant records on write
   await ensureBusinessParticipants(business.id);
+
+  // Invalidate cache
+  await invalidateBusinessFinancials(business.id, business.partnerId);
 
   await logAuditEvent({
     userId: session.userId,
@@ -667,6 +670,12 @@ export async function updateBusiness(
 
   // Synchronize Admin and Partner participant records on write
   await ensureBusinessParticipants(updated.id);
+
+  // Invalidate Redis caches for active and prior partners
+  await invalidateBusinessFinancials(updated.id, updated.partnerId);
+  if (existing.partnerId && existing.partnerId !== updated.partnerId) {
+    await invalidateBusinessFinancials(updated.id, existing.partnerId);
+  }
 
   return updated;
 }

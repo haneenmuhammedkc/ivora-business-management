@@ -36,21 +36,6 @@ export interface BusinessesSummaryKPIs {
   combinedNetProfitAED: number;
 }
 
-export interface BusinessTradingCycleSummary {
-  id: string;
-  cycleCode: string;
-  status: string;
-  startDate: string | Date;
-  completionDate: string | Date | null;
-  grossRealizationAed: number | string | null;
-  purchaseLandedCostAed: number | string | null;
-  directExpensesAed: number | string | null;
-  grossArbitrageSpreadAed: number | string | null;
-  netProfitAed: number | string | null;
-  investorShareTotalAed: number | string | null;
-  deskRetainedProfitAed: number | string | null;
-}
-
 export interface BusinessPurchaseSummary {
   id: string;
   purchaseCode: string;
@@ -165,7 +150,6 @@ export interface BusinessWorkspaceDetail {
   };
   investors: BusinessInvestorSummary[];
   investments: BusinessInvestmentSummary[];
-  tradingCycles: BusinessTradingCycleSummary[];
   purchases: BusinessPurchaseSummary[];
   sales: BusinessSaleSummary[];
   expenses: BusinessExpenseSummary[];

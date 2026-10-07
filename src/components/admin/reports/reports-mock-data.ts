@@ -18,7 +18,6 @@ export const mockQuickDeskTabs: QuickDeskTabItem[] = [
   { id: "business", label: "Business Comparison" },
   { id: "investor", label: "Investor Summary" },
   { id: "expense", label: "Expense Analysis" },
-  { id: "trading", label: "Trading Cycle Summary" },
 ];
 
 export const mockReportCards: ReportCardItem[] = [
@@ -57,18 +56,6 @@ export const mockReportCards: ReportCardItem[] = [
     footerLeft: "₹5.36M Realized",
     routeHref: "/sales",
     category: "Sales",
-  },
-  {
-    id: "rep-04",
-    title: "Trading Cycle Report",
-    description:
-      "Review complete trading cycles TR-0248 to TR-0246 from purchase to final realization.",
-    iconType: "trading",
-    badge: "REAL-TIME",
-    badgeVariant: "solid",
-    footerLeft: "3 Cycles Active",
-    routeHref: "/trading-cycle",
-    category: "Trading Cycle",
   },
   {
     id: "rep-05",

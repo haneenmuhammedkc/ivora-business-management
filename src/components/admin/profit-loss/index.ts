@@ -4,7 +4,6 @@ export * from "./profit-loss-kpi-cards";
 export * from "./profit-loss-filters";
 export * from "./business-profitability-table";
 export * from "./audited-pl-statement";
-export * from "./trading-cycle-pl-table";
 export * from "./capital-waterfall-panel";
 export * from "./investor-allocations-panel";
 export * from "./expense-impact-panel";

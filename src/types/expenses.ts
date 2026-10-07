@@ -15,7 +15,6 @@ export interface ExpenseRecord {
   date: string;
   category: ExpenseCategory;
   description: string;
-  cycle: string;
   ref: string;
   amountAED: number;
   status: ExpenseStatus;
@@ -25,28 +24,11 @@ export interface ExpenseRecord {
     settlementCurrency: string;
     disbursedBy: string;
     expenseClassification: string;
-    cycleAllocation: string;
-    cycleCategoryDistribution: {
-      deliveryFreight: number;
-      labourVault: number;
-      processingAssaying: number;
-      indiaRealizationExp: number;
-      transferFxFees: number;
-    };
-    cycleMarginalImpact: {
-      cycleGrossSpread: number;
-      thisRecord: number;
-      totalCycleExpenses: number;
-      netCycleProfit: number;
-      netCycleMargin: number;
-    };
-    linkedContracts: {
-      purchaseId: string;
-      purchaseCostAED: number;
-      saleId: string;
-      saleRealizationAED: number;
-      cycleId: string;
-      cycleStatus: string;
+    linkedContracts?: {
+      purchaseId?: string;
+      purchaseCostAED?: number;
+      saleId?: string;
+      saleRealizationAED?: number;
     };
   };
 }

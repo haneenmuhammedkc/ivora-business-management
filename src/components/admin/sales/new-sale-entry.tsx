@@ -17,7 +17,6 @@ export function NewSaleEntry({ onRecordSale }: NewSaleEntryProps) {
   const router = useRouter();
 
   const [business, setBusiness] = useState("Business 01 (Entity A + B)");
-  const [tradingCycle, setTradingCycle] = useState("Cycle #TR-0248 (Linked to Dubai Purchase)");
   const [saleDate, setSaleDate] = useState("10 Sep 2026");
   const [liquidationDesk, setLiquidationDesk] = useState("Zaveri Bazaar, Mumbai");
   const [productType, setProductType] = useState("999.9 Fine Gold Bullion (Kilobars / Cast)");
@@ -56,9 +55,6 @@ export function NewSaleEntry({ onRecordSale }: NewSaleEntryProps) {
       business: business.split(" (")[0] || "Business 01",
       partnersShare,
       date: saleDate,
-      cycle: tradingCycle.includes("#")
-        ? tradingCycle.split("#")[1].split(" ")[0]
-        : "TR-0249",
       commodity: productType.split(" (")[0] || productType,
       locationDesk: liquidationDesk,
       quantityGms: qty,
@@ -102,11 +98,11 @@ export function NewSaleEntry({ onRecordSale }: NewSaleEntryProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* 01. CYCLE & PARTITIONING */}
+        {/* 01. BUSINESS & PARTITIONING */}
         <div className="space-y-3.5">
           <div className="flex items-center justify-between">
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500">
-              01. CYCLE & PARTITIONING
+              01. BUSINESS & PARTITIONING
             </span>
             <span className="text-xs font-mono font-bold text-gray-900">
               ID: SL-0249
@@ -137,22 +133,6 @@ export function NewSaleEntry({ onRecordSale }: NewSaleEntryProps) {
               </div>
             </div>
           </div>
-
-          <Select
-            label="Linked Trading Cycle"
-            value={tradingCycle}
-            onChange={(e) => setTradingCycle(e.target.value)}
-            options={[
-              {
-                value: "Cycle #TR-0248 (Linked to Dubai Purchase)",
-                label: "Cycle #TR-0248 (Linked to Dubai Purchase)",
-              },
-              {
-                value: "Cycle #TR-0247 (Linked to Dubai Purchase)",
-                label: "Cycle #TR-0247 (Linked to Dubai Purchase)",
-              },
-            ]}
-          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input

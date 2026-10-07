@@ -10,17 +10,6 @@ export interface BusinessProfitability {
   isConsolidated?: boolean;
 }
 
-export interface TradingCycleProfitability {
-  cycleRef: string;
-  entity: string;
-  purchaseAED: number;
-  realizationAED: number;
-  expensesAED: number;
-  grossAED: number;
-  netAED: number;
-  status: string;
-}
-
 export interface ProfitLossSummaryKPIs {
   totalSalesAED: number;
   purchaseCostAED: number;

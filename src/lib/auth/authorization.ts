@@ -8,8 +8,6 @@ import {
   PurchaseStatus,
   SaleStatus,
   ExpensePaymentStatus,
-  TradingCycleStatus,
-  ProfitAllocationStatus,
 } from "@prisma/client";
 
 export type DomainResourceType =
@@ -19,8 +17,6 @@ export type DomainResourceType =
   | "Purchase"
   | "Sale"
   | "Expense"
-  | "TradingCycle"
-  | "ProfitAllocation"
   | "Transaction"
   | "AuditLog";
 
@@ -147,20 +143,6 @@ export function assertResourceMutable(
       throw new AuthError("Cleared expenses are finalized and immutable. Modifications are prohibited.", 403);
     }
   }
-
-  // 6. Completed Trading Cycles are locked
-  if (resourceType === "TradingCycle") {
-    if (record.status === TradingCycleStatus.COMPLETED) {
-      throw new AuthError("Completed trading cycles are finalized and locked against modification.", 403);
-    }
-  }
-
-  // 7. Settled Profit Allocations are immutable
-  if (resourceType === "ProfitAllocation") {
-    if (record.status === ProfitAllocationStatus.SETTLED) {
-      throw new AuthError("Settled profit allocations are finalized and immutable.", 403);
-    }
-  }
 }
 
 export interface ResourceResolution<T = Record<string, unknown>> {
@@ -245,28 +227,6 @@ export async function requireResourceAccess<T = Record<string, unknown>>(
       if (item) {
         resource = item as unknown as Record<string, unknown>;
         businessId = item.businessId;
-      }
-      break;
-    }
-    case "TradingCycle": {
-      const item = await prisma.tradingCycle.findUnique({
-        where: { id: resourceId },
-        include: { business: { select: { id: true, partnerId: true } } },
-      });
-      if (item) {
-        resource = item as unknown as Record<string, unknown>;
-        businessId = item.businessId;
-      }
-      break;
-    }
-    case "ProfitAllocation": {
-      const item = await prisma.profitAllocation.findUnique({
-        where: { id: resourceId },
-        include: { tradingCycle: { select: { businessId: true } } },
-      });
-      if (item) {
-        resource = item as unknown as Record<string, unknown>;
-        businessId = item.tradingCycle.businessId;
       }
       break;
     }

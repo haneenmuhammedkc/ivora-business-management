@@ -4,6 +4,9 @@ import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authori
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, UserRole, InvestorType } from "@prisma/client";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidateInvestorCaches } from "@/lib/redis/invalidation";
 import {
   InvestorRecord,
   InvestorStatus,
@@ -234,113 +237,117 @@ export async function ensureBusinessParticipants(businessId: string) {
  * List Businesses for the main Investor page (One Row per Business).
  */
 export async function listBusinessInvestorRows(session: SessionPayload) {
-  let businessWhere: Prisma.BusinessWhereInput = {};
+  const cacheKey = CacheKeys.investors.overview(session.role, session.userId);
 
-  if (session.role !== UserRole.ADMIN) {
-    businessWhere = { partnerId: session.userId };
-  }
+  return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+    let businessWhere: Prisma.BusinessWhereInput = {};
 
-  const businesses = await prisma.business.findMany({
-    where: businessWhere,
-    include: {
-      partner: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
+    if (session.role !== UserRole.ADMIN) {
+      businessWhere = { partnerId: session.userId };
+    }
+
+    const businesses = await prisma.business.findMany({
+      where: businessWhere,
+      include: {
+        partner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
         },
-      },
-      investors: {
-        select: {
-          id: true,
-          type: true,
+        investors: {
+          select: {
+            id: true,
+            type: true,
+          },
         },
-      },
-      investments: {
-        include: {
-          investor: {
-            select: {
-              id: true,
-              type: true,
+        investments: {
+          include: {
+            investor: {
+              select: {
+                id: true,
+                type: true,
+              },
             },
           },
         },
+        sales: {
+          select: { aedEquivalent: true },
+        },
+        purchases: {
+          select: { totalLandedCost: true },
+        },
+        expenses: {
+          select: { amount: true },
+        },
       },
-      sales: {
-        select: { aedEquivalent: true },
-      },
-      purchases: {
-        select: { totalLandedCost: true },
-      },
-      expenses: {
-        select: { amount: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    });
 
-  // Ensured participant records exist via write-time synchronization (createBusiness/updateBusiness)
+    // Ensured participant records exist via write-time synchronization (createBusiness/updateBusiness)
 
-  let totalInvestmentSum = 0;
-  let totalNetRealizedProfit = 0;
-  let totalExternalInvestorsSum = 0;
+    let totalInvestmentSum = 0;
+    let totalNetRealizedProfit = 0;
+    let totalExternalInvestorsSum = 0;
 
-  const businessRows: BusinessInvestorRow[] = businesses.map((b) => {
-    const totalInv = Number(b.totalInvestmentAED) || 0;
-    const adminInv = Number(b.adminInvestmentAED) || 0;
-    const partnerInv = Number(b.partnerInvestmentAED) || 0;
-    const partnerEquity = Number(b.partnerEquityPct) || 0;
+    const businessRows: BusinessInvestorRow[] = businesses.map((b) => {
+      const totalInv = Number(b.totalInvestmentAED) || 0;
+      const adminInv = Number(b.adminInvestmentAED) || 0;
+      const partnerInv = Number(b.partnerInvestmentAED) || 0;
+      const partnerEquity = Number(b.partnerEquityPct) || 0;
 
-    totalInvestmentSum += totalInv;
+      totalInvestmentSum += totalInv;
 
-    const salesTotal = b.sales.reduce((acc, s) => acc + Number(s.aedEquivalent), 0);
-    const purchaseCost = b.purchases.reduce((acc, p) => acc + Number(p.totalLandedCost), 0);
-    const expensesCost = b.expenses.reduce((acc, e) => acc + Number(e.amount), 0);
-    const netProfit = salesTotal - purchaseCost - expensesCost;
-    if (netProfit > 0) {
-      totalNetRealizedProfit += netProfit;
-    }
+      const salesTotal = b.sales.reduce((acc, s) => acc + Number(s.aedEquivalent), 0);
+      const purchaseCost = b.purchases.reduce((acc, p) => acc + Number(p.totalLandedCost), 0);
+      const expensesCost = b.expenses.reduce((acc, e) => acc + Number(e.amount), 0);
+      const netProfit = salesTotal - purchaseCost - expensesCost;
+      if (netProfit > 0) {
+        totalNetRealizedProfit += netProfit;
+      }
 
-    // Count external investors only (type === INVESTOR with committedAmount > 0)
-    const externalInvestors = b.investments.filter(
-      (inv) => inv.investor.type === InvestorType.INVESTOR && Number(inv.committedAmount) > 0
-    );
-    const externalCount = externalInvestors.length;
-    totalExternalInvestorsSum += externalCount;
+      // Count external investors only (type === INVESTOR with committedAmount > 0)
+      const externalInvestors = b.investments.filter(
+        (inv) => inv.investor.type === InvestorType.INVESTOR && Number(inv.committedAmount) > 0
+      );
+      const externalCount = externalInvestors.length;
+      totalExternalInvestorsSum += externalCount;
 
-    const totalParticipantsCount =
-      (adminInv > 0 ? 1 : 0) + (partnerInv > 0 ? 1 : 0) + externalCount;
+      const totalParticipantsCount =
+        (adminInv > 0 ? 1 : 0) + (partnerInv > 0 ? 1 : 0) + externalCount;
+
+      return {
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        businessType: b.businessType || "Trading",
+        description: b.description,
+        totalInvestmentAED: totalInv,
+        adminInvestmentAED: adminInv,
+        partnerInvestmentAED: partnerInv,
+        partnerEquityPct: partnerEquity,
+        partnerId: b.partnerId,
+        partnerName: b.partner?.name || "Partner",
+        externalInvestorsCount: externalCount,
+        totalParticipantsCount,
+        status: b.status,
+        createdAt: formatDate(new Date(b.createdAt)),
+      };
+    });
+
+    const kpis: InvestorSummaryKPIs = {
+      totalInvestors: totalExternalInvestorsSum,
+      totalInvestmentAED: totalInvestmentSum,
+      profitPaid: 0,
+      netRealizedProfitAED: totalNetRealizedProfit,
+    };
 
     return {
-      id: b.id,
-      name: b.name,
-      code: b.code,
-      businessType: b.businessType || "Trading",
-      description: b.description,
-      totalInvestmentAED: totalInv,
-      adminInvestmentAED: adminInv,
-      partnerInvestmentAED: partnerInv,
-      partnerEquityPct: partnerEquity,
-      partnerId: b.partnerId,
-      partnerName: b.partner?.name || "Partner",
-      externalInvestorsCount: externalCount,
-      totalParticipantsCount,
-      status: b.status,
-      createdAt: formatDate(new Date(b.createdAt)),
+      businesses: businessRows,
+      kpis,
     };
   });
-
-  const kpis: InvestorSummaryKPIs = {
-    totalInvestors: totalExternalInvestorsSum,
-    totalInvestmentAED: totalInvestmentSum,
-    profitPaid: 0,
-    netRealizedProfitAED: totalNetRealizedProfit,
-  };
-
-  return {
-    businesses: businessRows,
-    kpis,
-  };
 }
 
 /**
@@ -353,215 +360,178 @@ export async function getBusinessInvestorDetails(
 ): Promise<{ business: BusinessInvestorDetails; kpis: InvestorSummaryKPIs }> {
   await requireBusinessAccess(businessId, session);
 
-  const b = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      partner: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-      investments: {
-        include: {
-          investor: true,
-          profitAllocations: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      investors: {
-        include: {
-          investments: true,
-          profitAllocations: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-      tradingCycles: {
-        select: {
-          id: true,
-          cycleCode: true,
-          status: true,
-          netProfitAed: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
-    },
-  });
+  const cacheKey = CacheKeys.investors.business(businessId);
 
-  if (!b) {
-    throw new AuthError("Business not found", 404);
-  }
-
-  const businessDateFormatted = formatDate(new Date(b.createdAt));
-  const adminInvestmentVal = Number(b.adminInvestmentAED) || 0;
-  const partnerInvestmentVal = Number(b.partnerInvestmentAED) || 0;
-  const partnerEquityVal = Number(b.partnerEquityPct) || 0;
-  const partnerName = b.partner?.name || "Partner";
-
-  const participants: InvestorRecord[] = [];
-
-  // 1. ADMIN PARTICIPANT (Only included if adminInvestmentVal > 0)
-  if (adminInvestmentVal > 0) {
-    participants.push({
-      id: `admin-${b.id}`,
-      participantType: "ADMIN",
-      name: "Ivora Admin",
-      code: `INV-ADM-${b.code}`,
-      emailOrSubtitle: "admin@ivora.trade",
-      businessId: b.id,
-      business: b.name,
-      businessEntity: `${b.code} • ${b.businessType || "Trading"}`,
-      entityLabel: `${b.name} (${b.code}) • ADMIN`,
-      investmentAED: adminInvestmentVal,
-      date: businessDateFormatted,
-      sharePercent: null, // Admin share percentage not defined as ratio in table
-      allocatedProfitAED: 0,
-      paidAED: 0,
-      outstandingAED: 0,
-      status: "ACTIVE" as InvestorStatus,
-      selected: false,
-      details: {
-        totalInvestmentAED: adminInvestmentVal,
-        profitShare: "—",
-        profitShareContract: "System Admin Capital Account",
-        allocatedProfit: 0,
-        outstandingBalance: 0,
-        paidAmount: 0,
-        cycleAllocation: {
-          cycleId: b.tradingCycles[0]?.cycleCode || "—",
-          netCycleProfitAED: 0,
-          contractedRatio: "—",
-          investorProfitCreditAED: 0,
-          allocationDate: businessDateFormatted,
-          status: "Cleared",
-        },
-        recentTransactions: [
-          {
-            id: `CAP-ADM-${b.code}`,
-            title: "Admin Initial Capital",
-            date: businessDateFormatted,
-            reference: `Direct Treasury (${b.code})`,
-            amountFormatted: `AED ${adminInvestmentVal.toLocaleString()} Cleared`,
-            type: "INWARD REMITTANCE",
+  return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+    const b = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: {
+        partner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
-        ],
+        },
+        investments: {
+          include: {
+            investor: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        investors: {
+          include: {
+            investments: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
-  }
 
-  // 2. PARTNER PARTICIPANT (Only included if partnerInvestmentVal > 0)
-  if (partnerInvestmentVal > 0) {
-    participants.push({
-      id: `partner-${b.id}-${b.partnerId}`,
-      participantType: "PARTNER",
-      name: partnerName,
-      code: `INV-PTR-${b.code}`,
-      emailOrSubtitle: b.partner?.email ? b.partner.email : "PARTNER • Operating Stake",
-      businessId: b.id,
-      business: b.name,
-      businessEntity: `${b.code} • Partner Equity`,
-      entityLabel: `${b.name} (${b.code}) • PARTNER`,
-      investmentAED: partnerInvestmentVal,
-      date: businessDateFormatted,
-      sharePercent: partnerEquityVal,
-      allocatedProfitAED: 0,
-      paidAED: 0,
-      outstandingAED: 0,
-      status: "ACTIVE" as InvestorStatus,
-      selected: false,
-      details: {
-        totalInvestmentAED: partnerInvestmentVal,
-        profitShare: `${partnerEquityVal}%`,
-        profitShareContract: `Partner Equity (${partnerEquityVal}%)`,
-        allocatedProfit: 0,
-        outstandingBalance: 0,
-        paidAmount: 0,
-        cycleAllocation: {
-          cycleId: b.tradingCycles[0]?.cycleCode || "—",
-          netCycleProfitAED: 0,
-          contractedRatio: `× ${partnerEquityVal}%`,
-          investorProfitCreditAED: 0,
-          allocationDate: businessDateFormatted,
-          status: "Active Allocation",
+    if (!b) {
+      throw new AuthError("Business not found", 404);
+    }
+
+    const businessDateFormatted = formatDate(new Date(b.createdAt));
+    const adminInvestmentVal = Number(b.adminInvestmentAED) || 0;
+    const partnerInvestmentVal = Number(b.partnerInvestmentAED) || 0;
+    const partnerEquityVal = Number(b.partnerEquityPct) || 0;
+    const partnerName = b.partner?.name || "Partner";
+
+    const participants: InvestorRecord[] = [];
+
+    // 1. ADMIN PARTICIPANT (Only included if adminInvestmentVal > 0)
+    if (adminInvestmentVal > 0) {
+      participants.push({
+        id: `admin-${b.id}`,
+        participantType: "ADMIN",
+        name: "Ivora Admin",
+        code: `INV-ADM-${b.code}`,
+        emailOrSubtitle: "admin@ivora.trade",
+        businessId: b.id,
+        business: b.name,
+        businessEntity: `${b.code} • ${b.businessType || "Trading"}`,
+        entityLabel: `${b.name} (${b.code}) • ADMIN`,
+        investmentAED: adminInvestmentVal,
+        date: businessDateFormatted,
+        sharePercent: null, // Admin share percentage not defined as ratio in table
+        allocatedProfitAED: 0,
+        paidAED: 0,
+        outstandingAED: 0,
+        status: "ACTIVE" as InvestorStatus,
+        selected: false,
+        details: {
+          totalInvestmentAED: adminInvestmentVal,
+          profitShare: "—",
+          profitShareContract: "System Admin Capital Account",
+          allocatedProfit: 0,
+          outstandingBalance: 0,
+          paidAmount: 0,
+          recentTransactions: [
+            {
+              id: `CAP-ADM-${b.code}`,
+              title: "Admin Initial Capital",
+              date: businessDateFormatted,
+              reference: `Direct Treasury (${b.code})`,
+              amountFormatted: `AED ${adminInvestmentVal.toLocaleString()} Cleared`,
+              type: "INWARD REMITTANCE",
+            },
+          ],
         },
-        recentTransactions: [
-          {
-            id: `CAP-PTR-${b.code}`,
-            title: "Partner Capital Contribution",
-            date: businessDateFormatted,
-            reference: `Partner Escrow (${b.code})`,
-            amountFormatted: `AED ${partnerInvestmentVal.toLocaleString()} Cleared`,
-            type: "INWARD REMITTANCE",
-          },
-        ],
-      },
-    });
-  }
+      });
+    }
 
-  // 3. EXTERNAL INVESTORS (Only included if committedAmount > 0)
-  let totalExternalInvestmentVal = 0;
-
-  for (const inv of b.investments) {
-    if (inv.investor.type !== InvestorType.INVESTOR) continue;
-    const amountVal = Number(inv.committedAmount) || 0;
-    if (amountVal <= 0) continue;
-
-    const invDateFormatted = formatDate(new Date(inv.depositDate || inv.createdAt));
-    const shareVal = Number(inv.profitSharePct) || 0;
-    totalExternalInvestmentVal += amountVal;
-
-    const allocatedTotal = inv.profitAllocations.reduce(
-      (acc, pa) => acc + Number(pa.allocatedAmount),
-      0
-    );
-
-    participants.push({
-      id: inv.investor.id,
-      participantType: "INVESTOR",
-      name: inv.investor.name,
-      code: inv.investor.code,
-      emailOrSubtitle: `${inv.investor.code} • ${inv.investor.email || "investor@ivora-trade.ae"}`,
-      businessId: b.id,
-      business: b.name,
-      businessEntity: `${b.code} • External Capital`,
-      entityLabel: `${b.name} (${b.code}) • ${inv.investor.code}`,
-      investmentAED: amountVal,
-      date: invDateFormatted,
-      sharePercent: shareVal,
-      allocatedProfitAED: allocatedTotal,
-      paidAED: 0,
-      outstandingAED: allocatedTotal,
-      status: (inv.status || inv.investor.status || "ACTIVE") as InvestorStatus,
-      selected: false,
-      details: {
-        totalInvestmentAED: amountVal,
-        profitShare: `${shareVal}%`,
-        profitShareContract: `Standard Contract (${shareVal}%)`,
-        allocatedProfit: allocatedTotal,
-        outstandingBalance: allocatedTotal,
-        paidAmount: 0,
-        cycleAllocation: {
-          cycleId: b.tradingCycles[0]?.cycleCode || "TR-0250",
-          netCycleProfitAED: 0,
-          contractedRatio: `× ${shareVal}%`,
-          investorProfitCreditAED: 0,
-          allocationDate: invDateFormatted,
-          status: "Active Allocation",
+    // 2. PARTNER PARTICIPANT (Only included if partnerInvestmentVal > 0)
+    if (partnerInvestmentVal > 0) {
+      participants.push({
+        id: `partner-${b.id}-${b.partnerId}`,
+        participantType: "PARTNER",
+        name: partnerName,
+        code: `INV-PTR-${b.code}`,
+        emailOrSubtitle: b.partner?.email ? b.partner.email : "PARTNER • Operating Stake",
+        businessId: b.id,
+        business: b.name,
+        businessEntity: `${b.code} • Partner Equity`,
+        entityLabel: `${b.name} (${b.code}) • PARTNER`,
+        investmentAED: partnerInvestmentVal,
+        date: businessDateFormatted,
+        sharePercent: partnerEquityVal,
+        allocatedProfitAED: 0,
+        paidAED: 0,
+        outstandingAED: 0,
+        status: "ACTIVE" as InvestorStatus,
+        selected: false,
+        details: {
+          totalInvestmentAED: partnerInvestmentVal,
+          profitShare: `${partnerEquityVal}%`,
+          profitShareContract: `Partner Equity (${partnerEquityVal}%)`,
+          allocatedProfit: 0,
+          outstandingBalance: 0,
+          paidAmount: 0,
+          recentTransactions: [
+            {
+              id: `CAP-PTR-${b.code}`,
+              title: "Partner Capital Contribution",
+              date: businessDateFormatted,
+              reference: `Partner Escrow (${b.code})`,
+              amountFormatted: `AED ${partnerInvestmentVal.toLocaleString()} Cleared`,
+              type: "INWARD REMITTANCE",
+            },
+          ],
         },
-        recentTransactions: [
-          {
-            id: `CAP-${inv.investor.code}`,
-            title: "External Investment Capital",
-            date: invDateFormatted,
-            reference: `Escrow Account (${b.code})`,
-            amountFormatted: `AED ${amountVal.toLocaleString()} Cleared`,
-            type: "INWARD REMITTANCE",
-          },
-        ],
-      },
-    });
-  }
+      });
+    }
+
+    // 3. EXTERNAL INVESTORS (Only included if committedAmount > 0)
+    let totalExternalInvestmentVal = 0;
+
+    for (const inv of b.investments) {
+      if (inv.investor.type !== InvestorType.INVESTOR) continue;
+      const amountVal = Number(inv.committedAmount) || 0;
+      if (amountVal <= 0) continue;
+
+      const invDateFormatted = formatDate(new Date(inv.depositDate || inv.createdAt));
+      const shareVal = Number(inv.profitSharePct) || 0;
+      totalExternalInvestmentVal += amountVal;
+
+      participants.push({
+        id: inv.investor.id,
+        participantType: "INVESTOR",
+        name: inv.investor.name,
+        code: inv.investor.code,
+        emailOrSubtitle: `${inv.investor.code} • ${inv.investor.email || "investor@ivora-trade.ae"}`,
+        businessId: b.id,
+        business: b.name,
+        businessEntity: `${b.code} • External Capital`,
+        entityLabel: `${b.name} (${b.code}) • ${inv.investor.code}`,
+        investmentAED: amountVal,
+        date: invDateFormatted,
+        sharePercent: shareVal,
+        allocatedProfitAED: 0,
+        paidAED: 0,
+        outstandingAED: 0,
+        status: (inv.status || inv.investor.status || "ACTIVE") as InvestorStatus,
+        selected: false,
+        details: {
+          totalInvestmentAED: amountVal,
+          profitShare: `${shareVal}%`,
+          profitShareContract: `Standard Contract (${shareVal}%)`,
+          allocatedProfit: 0,
+          outstandingBalance: 0,
+          paidAmount: 0,
+          recentTransactions: [
+            {
+              id: `CAP-${inv.investor.code}`,
+              title: "External Investment Capital",
+              date: invDateFormatted,
+              reference: `Escrow Account (${b.code})`,
+              amountFormatted: `AED ${amountVal.toLocaleString()} Cleared`,
+              type: "INWARD REMITTANCE",
+            },
+          ],
+        },
+      });
+    }
 
   const businessDetails: BusinessInvestorDetails = {
     id: b.id,
@@ -591,10 +561,11 @@ export async function getBusinessInvestorDetails(
     netRealizedProfitAED: 0,
   };
 
-  return {
-    business: businessDetails,
-    kpis,
-  };
+    return {
+      business: businessDetails,
+      kpis,
+    };
+  });
 }
 
 /**
@@ -806,6 +777,9 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
     },
   });
 
+  // Invalidate Redis caches
+  await invalidateInvestorCaches(business.id);
+
   return {
     investor,
     investment,
@@ -838,6 +812,11 @@ export async function updateInvestor(session: SessionPayload, investorId: string
     entityId: updated.id,
     newValues: input as Record<string, unknown>,
   });
+
+  // Invalidate Redis caches
+  if (updated.businessId) {
+    await invalidateInvestorCaches(updated.businessId);
+  }
 
   return updated;
 }

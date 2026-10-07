@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
 import {
@@ -9,6 +9,7 @@ import {
   InvestorTableView,
 } from "@/components/admin/investors";
 import { BusinessInvestorRow, InvestorSummaryKPIs } from "@/types/investors";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 const defaultKPIs: InvestorSummaryKPIs = {
   totalInvestors: 0,
@@ -18,51 +19,32 @@ const defaultKPIs: InvestorSummaryKPIs = {
 };
 
 export default function InvestorsPage() {
-  const [businesses, setBusinesses] = useState<BusinessInvestorRow[]>([]);
+  const { data, error: fetchError, isLoading } = useCachedFetch<{
+    success: boolean;
+    businesses: BusinessInvestorRow[];
+    kpis?: InvestorSummaryKPIs;
+    message?: string;
+    error?: string;
+  }>("/api/investors");
+
+  const businesses = useMemo(() => {
+    return Array.isArray(data?.businesses) ? data.businesses : [];
+  }, [data]);
+
+  const kpis = useMemo(() => {
+    return data?.kpis || defaultKPIs;
+  }, [data]);
+
+  const error = fetchError
+    ? fetchError.message
+    : data && !data.success
+    ? data.message || data.error || "Failed to load businesses"
+    : null;
+
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
-  const [kpis, setKpis] = useState<InvestorSummaryKPIs>(defaultKPIs);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState("all");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Load business-centric investor records
-  useEffect(() => {
-    let isMounted = true;
-    async function loadBusinesses() {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const res = await fetch("/api/investors");
-        const json = await res.json().catch(() => ({}));
-
-        if (isMounted) {
-          if (res.ok && json.success && Array.isArray(json.businesses)) {
-            setBusinesses(json.businesses);
-            if (json.kpis) {
-              setKpis(json.kpis);
-            }
-          } else {
-            setError(json.message || json.error || "Failed to load businesses");
-          }
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          setError(err instanceof Error ? err.message : "Failed to load businesses");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadBusinesses();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Filtered businesses
   const filteredBusinesses = useMemo(() => {

@@ -5,7 +5,6 @@ import { StatCardGrid } from "@/components/ui/stat-card-grid";
 import { Select } from "@/components/ui/select";
 import { FadeUp, StaggerItem } from "@/components/ui/motion";
 import {
-  PhysicalTradingLifecycle,
   BusinessPerformance,
   TradingPerformance,
   InvestorOverview,
@@ -112,13 +111,8 @@ export default function DashboardPage() {
         ))}
       </StatCardGrid>
 
-      {/* 3. Physical Trading Lifecycle Section */}
+      {/* 3. Business Performance Section */}
       <FadeUp delay={0.12} duration={0.35}>
-        <PhysicalTradingLifecycle />
-      </FadeUp>
-
-      {/* 4. Business Performance Section */}
-      <FadeUp delay={0.18} duration={0.35}>
         <BusinessPerformance />
       </FadeUp>
 

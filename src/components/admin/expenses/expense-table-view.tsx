@@ -74,7 +74,6 @@ export function ExpenseTableView({
               <th className="px-3.5 py-3.5 font-bold">DATE</th>
               <th className="px-3.5 py-3.5 font-bold">CATEGORY</th>
               <th className="px-3.5 py-3.5 font-bold">DESCRIPTION</th>
-              <th className="px-3.5 py-3.5 font-bold text-center">CYCLE</th>
               <th className="px-3.5 py-3.5 font-bold">REF</th>
               <th className="px-3.5 py-3.5 font-bold text-right">AMOUNT (AED)</th>
               <th className="px-3.5 py-3.5 font-bold text-center">STATUS</th>
@@ -84,7 +83,7 @@ export function ExpenseTableView({
           <tbody className="divide-y divide-gray-100 bg-white">
             {expenses.length === 0 ? (
               <tr>
-                <td colSpan={11} className="py-12 text-center text-gray-500">
+                <td colSpan={10} className="py-12 text-center text-gray-500">
                   No expenses found matching your filters.
                 </td>
               </tr>
@@ -151,13 +150,6 @@ export function ExpenseTableView({
                     <td className="px-3.5 py-4">
                       <span className="text-xs text-gray-800 font-medium truncate block max-w-[180px]">
                         {exp.description}
-                      </span>
-                    </td>
-
-                    {/* Cycle */}
-                    <td className="px-3.5 py-4 text-center whitespace-nowrap">
-                      <span className="font-bold text-gray-900 text-xs">
-                        {exp.cycle}
                       </span>
                     </td>
 

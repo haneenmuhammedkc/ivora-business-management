@@ -1,6 +1,5 @@
 import {
   BusinessProfitability,
-  TradingCycleProfitability,
   ProfitLossSummaryKPIs,
   ProfitLossStatementData,
 } from "@/types/profit-loss";
@@ -47,33 +46,10 @@ export const mockBusinessProfitabilityList: BusinessProfitability[] = [
   },
 ];
 
-export const mockTradingCyclePLList: TradingCycleProfitability[] = [
-  {
-    cycleRef: "TR-0248",
-    entity: "Business 01",
-    purchaseAED: 112000,
-    realizationAED: 142000,
-    expensesAED: 6000,
-    grossAED: 30000,
-    netAED: 24000,
-    status: "COMPLETED",
-  },
-  {
-    cycleRef: "TR-0247",
-    entity: "Business 02",
-    purchaseAED: 73400,
-    realizationAED: 93600,
-    expensesAED: 6850,
-    grossAED: 20200,
-    netAED: 13350,
-    status: "COMPLETED",
-  },
-];
-
 export const mockProfitLossStatement: ProfitLossStatementData = {
   tradingRevenue: [
     {
-      title: "India Sales / Realization Protocol (3 cycles)",
+      title: "India Sales / Realization Protocol",
       amountAED: 235600,
     },
   ],

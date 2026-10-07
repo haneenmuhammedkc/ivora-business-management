@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, use } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
@@ -10,6 +10,7 @@ import {
   InvestorDetailsPanel,
 } from "@/components/admin/investors";
 import { BusinessInvestorDetails, InvestorRecord } from "@/types/investors";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 interface PageProps {
   params: Promise<{ businessId: string }>;
@@ -19,50 +20,27 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const businessId = resolvedParams.businessId;
 
-  const [business, setBusiness] = useState<BusinessInvestorDetails | null>(null);
+  const { data, error: fetchError, isLoading } = useCachedFetch<{
+    success: boolean;
+    business: BusinessInvestorDetails;
+    message?: string;
+    error?: string;
+  }>(businessId ? `/api/investors/business/${encodeURIComponent(businessId)}` : null);
+
+  const business = data?.business || null;
+  const error = fetchError
+    ? fetchError.message
+    : data && !data.success
+    ? data.message || data.error || "Failed to load business investor details"
+    : null;
+
   const [selectedParticipantId, setSelectedParticipantId] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadBusinessDetails() {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const res = await fetch(`/api/investors/business/${encodeURIComponent(businessId)}`);
-        const json = await res.json().catch(() => ({}));
+  const activeParticipantId =
+    selectedParticipantId || (business?.participants && business.participants.length > 0 ? business.participants[0].id : "");
 
-        if (isMounted) {
-          if (res.ok && json.success && json.business) {
-            setBusiness(json.business);
-            if (json.business.participants && json.business.participants.length > 0) {
-              setSelectedParticipantId(json.business.participants[0].id);
-            }
-          } else {
-            setError(json.message || json.error || "Failed to load business investor details");
-          }
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          setError(err instanceof Error ? err.message : "Failed to load business details");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadBusinessDetails();
-    return () => {
-      isMounted = false;
-    };
-  }, [businessId]);
-
-  const activeParticipant = business?.participants.find(
-    (p) => p.id === selectedParticipantId
-  ) || business?.participants[0] || null;
+  const activeParticipant =
+    business?.participants.find((p) => p.id === activeParticipantId) || null;
 
   return (
     <div className="space-y-6 pb-14">
@@ -179,7 +157,7 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
       <FadeUp delay={0.2}>
         <BusinessParticipantsTable
           participants={business?.participants || []}
-          selectedParticipantId={selectedParticipantId}
+          selectedParticipantId={activeParticipantId}
           onSelectParticipant={(p: InvestorRecord) => setSelectedParticipantId(p.id)}
           isLoading={isLoading}
         />

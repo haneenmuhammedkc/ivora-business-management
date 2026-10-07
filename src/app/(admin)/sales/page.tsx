@@ -27,13 +27,11 @@ export default function SalesPage() {
         const matchesId = s.id.toLowerCase().includes(query);
         const matchesBusiness = s.business.toLowerCase().includes(query);
         const matchesCommodity = s.commodity.toLowerCase().includes(query);
-        const matchesCycle = s.cycle.toLowerCase().includes(query);
         const matchesDesk = s.locationDesk.toLowerCase().includes(query);
         if (
           !matchesId &&
           !matchesBusiness &&
           !matchesCommodity &&
-          !matchesCycle &&
           !matchesDesk
         ) {
           return false;

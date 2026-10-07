@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, use } from "react";
 import Link from "next/link";
 import { FadeUp } from "@/components/ui/motion";
 import {
@@ -10,6 +10,7 @@ import {
   AlertTriangleIcon,
 } from "@/components/ui/icons";
 import { BusinessWorkspaceDetail } from "@/types/business";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 interface BusinessDetailPageProps {
   params: Promise<{ id: string }>;
@@ -19,47 +20,23 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
   const resolvedParams = use(params);
   const businessId = resolvedParams.id;
 
-  const [business, setBusiness] = useState<BusinessWorkspaceDetail | null>(null);
+  const { data, error: fetchError, isLoading } = useCachedFetch<{
+    success: boolean;
+    business: BusinessWorkspaceDetail;
+    message?: string;
+    error?: string;
+  }>(businessId ? `/api/businesses/${encodeURIComponent(businessId)}` : null);
+
+  const business = data?.business || null;
+  const error = fetchError
+    ? fetchError.message
+    : data && !data.success
+    ? data.message || data.error || "Business workspace could not be found."
+    : null;
+
   const [activeTab, setActiveTab] = useState<
-    "overview" | "cycles" | "purchases" | "sales" | "expenses" | "investors" | "transactions"
+    "overview" | "purchases" | "sales" | "expenses" | "investors" | "transactions"
   >("overview");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    async function loadBusinessDetail() {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const res = await fetch(`/api/businesses/${encodeURIComponent(businessId)}`, {
-          credentials: "include",
-        });
-        const data = await res.json().catch(() => ({}));
-
-        if (isMounted) {
-          if (res.ok && data.success && data.business) {
-            setBusiness(data.business);
-          } else {
-            setError(data.message || data.error || "Business workspace could not be found.");
-          }
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          setError(err instanceof Error ? err.message : "Failed to load business details.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadBusinessDetail();
-    return () => {
-      isMounted = false;
-    };
-  }, [businessId]);
 
   if (isLoading) {
     return (
@@ -268,7 +245,6 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
         <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200/90 pb-px text-xs font-semibold">
           {[
             { id: "overview", label: "Overview & Capital", count: undefined },
-            { id: "cycles", label: "Trading Cycles", count: business.tradingCycles.length },
             { id: "purchases", label: "Purchases", count: business.purchases.length },
             { id: "sales", label: "Sales", count: business.sales.length },
             { id: "expenses", label: "Expenses", count: business.expenses.length },
@@ -396,75 +372,6 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
                   </span>
                 </div>
               </div>
-            </div>
-          </div>
-        </FadeUp>
-      )}
-
-      {/* TRADING CYCLES TAB */}
-      {activeTab === "cycles" && (
-        <FadeUp delay={0.18}>
-          <div className="rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-950">
-                Trading Cycles ({business.tradingCycles.length})
-              </h2>
-              <Link
-                href="/trading-cycle"
-                className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
-              >
-                Go to Cycles Module →
-              </Link>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50/60 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                    <th className="px-4 py-3 font-bold">CYCLE CODE</th>
-                    <th className="px-4 py-3 font-bold">STATUS</th>
-                    <th className="px-4 py-3 font-bold">START DATE</th>
-                    <th className="px-4 py-3 font-bold text-right">LANDED COST</th>
-                    <th className="px-4 py-3 font-bold text-right">REALIZATION</th>
-                    <th className="px-4 py-3 font-bold text-right">NET PROFIT</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {business.tradingCycles.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-500">
-                        No trading cycles created for this business yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    business.tradingCycles.map((cycle) => (
-                      <tr key={cycle.id} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="px-4 py-3.5 font-mono font-bold text-gray-950">{cycle.cycleCode}</td>
-                        <td className="px-4 py-3.5">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-100 border border-gray-200">
-                            {cycle.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-gray-600">
-                          {new Date(cycle.startDate).toLocaleDateString("en-GB", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                          })}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-medium text-gray-900">
-                          AED {Number(cycle.purchaseLandedCostAed || 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-medium text-gray-900">
-                          AED {Number(cycle.grossRealizationAed || 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-bold text-emerald-700">
-                          AED {Number(cycle.netProfitAed || 0).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
         </FadeUp>

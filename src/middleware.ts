@@ -25,7 +25,6 @@ const PROTECTED_PREFIXES = [
   "/businesses",
   "/purchase",
   "/sales",
-  "/trading-cycle",
   "/investors",
   "/expenses",
   "/profit-loss",

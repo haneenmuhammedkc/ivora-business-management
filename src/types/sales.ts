@@ -5,7 +5,6 @@ export interface SaleRecord {
   business: string;
   partnersShare: string;
   date: string;
-  cycle: string;
   commodity: string;
   locationDesk: string;
   quantityGms: number;

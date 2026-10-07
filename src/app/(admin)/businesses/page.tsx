@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
@@ -11,52 +11,32 @@ import {
   BusinessCardsView,
 } from "@/components/admin/businesses";
 import { BusinessEntity, BusinessesSummaryKPIs } from "@/types/business";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 export default function BusinessesPage() {
   const router = useRouter();
-  const [businesses, setBusinesses] = useState<BusinessEntity[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const { data, error, isLoading } = useCachedFetch<{
+    success: boolean;
+    businesses: BusinessEntity[];
+    message?: string;
+    error?: string;
+  }>("/api/businesses");
+
+  const businesses = useMemo(() => {
+    return Array.isArray(data?.businesses) ? data.businesses : [];
+  }, [data]);
+
+  const apiError = error
+    ? error.message
+    : data && !data.success
+    ? data.message || data.error || "Failed to load businesses."
+    : null;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState("all");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
-
-  // Fetch businesses from real backend API
-  useEffect(() => {
-    let isMounted = true;
-    async function loadBusinesses() {
-      try {
-        setIsLoading(true);
-        setApiError(null);
-        const res = await fetch("/api/businesses", { credentials: "include" });
-        const data = await res.json().catch(() => ({}));
-        if (isMounted) {
-          if (res.ok && data.success && Array.isArray(data.businesses)) {
-            setBusinesses(data.businesses);
-          } else {
-            setApiError(data.message || data.error || "Failed to load businesses.");
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch businesses:", err);
-        if (isMounted) {
-          setApiError("A network error occurred while loading businesses.");
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadBusinesses();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Compute summary KPIs dynamically
   const kpis: BusinessesSummaryKPIs = useMemo(() => {

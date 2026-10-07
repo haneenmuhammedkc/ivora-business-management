@@ -30,23 +30,6 @@ export function AuditedCrossLinksPanel() {
           />
         </Link>
 
-        {/* Trading Cycles */}
-        <Link
-          href="/trading-cycle"
-          className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50 transition-colors group text-gray-800"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">🔄</span>
-            <span className="font-semibold text-gray-900">
-              Open Trading Cycles (TR-0248)
-            </span>
-          </div>
-          <ArrowRightIcon
-            size={13}
-            className="text-gray-400 group-hover:text-black group-hover:translate-x-0.5 transition-all"
-          />
-        </Link>
-
         {/* Investor Settlements */}
         <Link
           href="/investors"

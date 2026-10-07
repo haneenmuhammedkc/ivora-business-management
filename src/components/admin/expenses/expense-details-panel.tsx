@@ -27,9 +27,6 @@ export function ExpenseDetailsPanel({
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 font-medium">
             <span>Entity: {expense.entityLabel}</span>
-            <span className="px-2 py-0.2 text-[10.5px] font-bold text-gray-800 border border-gray-300 rounded bg-gray-50">
-              {expense.cycle}
-            </span>
           </div>
         </div>
 
@@ -105,168 +102,65 @@ export function ExpenseDetailsPanel({
             </span>
           </div>
 
-          <div className="flex flex-col gap-1 pt-2 border-t border-gray-200/60">
+          <div className="flex flex-col gap-1 pt-2 border-t border-gray-200/60 sm:col-span-2">
             <span className="text-gray-500">Expense Classification:</span>
             <span className="font-semibold text-gray-900">
               {expense.details.expenseClassification}
             </span>
           </div>
-
-          <div className="flex flex-col gap-1 pt-2 border-t border-gray-200/60">
-            <span className="text-gray-500">Cycle Allocation:</span>
-            <span className="font-semibold text-gray-900">
-              {expense.details.cycleAllocation}
-            </span>
-          </div>
         </div>
       </div>
 
-      {/* SECTION 2: CYCLE EXPENSE CATEGORY DISTRIBUTION */}
-      <div className="space-y-3 pt-2 border-t border-gray-100">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-          CYCLE EXPENSE CATEGORY DISTRIBUTION
-        </span>
+      {/* SECTION: LINKED TRANSACTIONS */}
+      {expense.details.linkedContracts && (
+        <div className="space-y-3 pt-2 border-t border-gray-100">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
+            LINKED TRANSACTIONS
+          </span>
 
-        <div className="rounded-xl border border-gray-200 p-4 space-y-2.5 text-xs bg-white">
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Delivery / Freight:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleCategoryDistribution.deliveryFreight.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
+          <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 text-xs bg-white">
+            {/* Purchase Link */}
+            {expense.details.linkedContracts.purchaseId && (
+              <div className="flex items-center justify-between p-3.5 hover:bg-gray-50/50 transition-colors">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">🛒</span>
+                  <span className="font-semibold text-gray-900">
+                    Purchase: {expense.details.linkedContracts.purchaseId} (AED{" "}
+                    {Number(expense.details.linkedContracts.purchaseCostAED || 0).toLocaleString()})
+                  </span>
+                </div>
+                <Link
+                  href="/purchase"
+                  className="inline-flex items-center gap-1 font-semibold text-xs text-gray-800 hover:text-black"
+                >
+                  <span>Open</span>
+                  <ArrowRightIcon size={12} />
+                </Link>
+              </div>
+            )}
 
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Labour & Vault:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleCategoryDistribution.labourVault.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Processing & Assaying:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleCategoryDistribution.processingAssaying.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>India Realization Exp:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleCategoryDistribution.indiaRealizationExp.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Transfer / FX Fees:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleCategoryDistribution.transferFxFees.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 3: CYCLE MARGINAL IMPACT */}
-      <div className="space-y-3 pt-2 border-t border-gray-100">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-          CYCLE MARGINAL IMPACT
-        </span>
-
-        <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4 space-y-2.5 text-xs">
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Cycle Gross Spread:</span>
-            <span className="font-semibold text-gray-900">
-              AED {expense.details.cycleMarginalImpact.cycleGrossSpread.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>This Record ({expense.ref}):</span>
-            <span className="font-semibold text-gray-900">
-              -AED {Math.abs(expense.details.cycleMarginalImpact.thisRecord).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Total Cycle Expenses:</span>
-            <span className="font-semibold text-gray-900">
-              -AED {Math.abs(expense.details.cycleMarginalImpact.totalCycleExpenses).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-
-          <div className="pt-2 border-t border-gray-200 flex items-center justify-between font-bold text-gray-950">
-            <span>Net Cycle Profit:</span>
-            <span>
-              AED {expense.details.cycleMarginalImpact.netCycleProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
-              <span className="font-normal text-gray-500 text-[11px]">
-                ({expense.details.cycleMarginalImpact.netCycleMargin.toFixed(2)}%)
-              </span>
-            </span>
+            {/* Sale Link */}
+            {expense.details.linkedContracts.saleId && (
+              <div className="flex items-center justify-between p-3.5 hover:bg-gray-50/50 transition-colors">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">🏷️</span>
+                  <span className="font-semibold text-gray-900">
+                    Sale: {expense.details.linkedContracts.saleId} (AED{" "}
+                    {Number(expense.details.linkedContracts.saleRealizationAED || 0).toLocaleString()})
+                  </span>
+                </div>
+                <Link
+                  href="/sales"
+                  className="inline-flex items-center gap-1 font-semibold text-xs text-gray-800 hover:text-black"
+                >
+                  <span>Open</span>
+                  <ArrowRightIcon size={12} />
+                </Link>
+              </div>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* SECTION 4: LINKED CONTRACTS & COMMODITIES */}
-      <div className="space-y-3 pt-2 border-t border-gray-100">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-          LINKED CONTRACTS & COMMODITIES
-        </span>
-
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 text-xs bg-white">
-          {/* Purchase Link */}
-          <div className="flex items-center justify-between p-3.5 hover:bg-gray-50/50 transition-colors">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">🛒</span>
-              <span className="font-semibold text-gray-900">
-                Purchase: {expense.details.linkedContracts.purchaseId} (AED{" "}
-                {expense.details.linkedContracts.purchaseCostAED.toLocaleString()})
-              </span>
-            </div>
-            <Link
-              href="/purchase"
-              className="inline-flex items-center gap-1 font-semibold text-xs text-gray-800 hover:text-black"
-            >
-              <span>Open</span>
-              <ArrowRightIcon size={12} />
-            </Link>
-          </div>
-
-          {/* Sale Link */}
-          <div className="flex items-center justify-between p-3.5 hover:bg-gray-50/50 transition-colors">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">🏷️</span>
-              <span className="font-semibold text-gray-900">
-                Sale: {expense.details.linkedContracts.saleId} (AED{" "}
-                {expense.details.linkedContracts.saleRealizationAED.toLocaleString()})
-              </span>
-            </div>
-            <Link
-              href="/sales"
-              className="inline-flex items-center gap-1 font-semibold text-xs text-gray-800 hover:text-black"
-            >
-              <span>Open</span>
-              <ArrowRightIcon size={12} />
-            </Link>
-          </div>
-
-          {/* Cycle Link */}
-          <div className="flex items-center justify-between p-3.5 hover:bg-gray-50/50 transition-colors">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-500">🔄</span>
-              <span className="font-semibold text-gray-900">
-                Cycle: {expense.details.linkedContracts.cycleId} (
-                {expense.details.linkedContracts.cycleStatus})
-              </span>
-            </div>
-            <Link
-              href="/trading-cycle"
-              className="inline-flex items-center gap-1 font-semibold text-xs text-gray-800 hover:text-black"
-            >
-              <span>Open</span>
-              <ArrowRightIcon size={12} />
-            </Link>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

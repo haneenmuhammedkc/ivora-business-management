@@ -199,48 +199,6 @@ export function InvestorDetailsPanel({
         </div>
       </div>
 
-      {/* SECTION 1: TRADING CYCLE ALLOCATION BREAKDOWN */}
-      <div className="space-y-3 pt-2 border-t border-gray-100">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            TRADING CYCLE ALLOCATION BREAKDOWN
-          </span>
-          <span className="text-[10.5px] font-mono font-bold text-gray-700">
-            CYCLE: {investor.details.cycleAllocation.cycleId}
-          </span>
-        </div>
-
-        <div className="rounded-xl border border-[#d6e3ed] bg-[#edf4f8]/60 p-4 space-y-3 text-xs">
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Net Cycle Profit:</span>
-            <span className="font-bold text-gray-950">
-              AED {investor.details.cycleAllocation.netCycleProfitAED.toLocaleString()}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Contracted Ratio:</span>
-            <span className="font-semibold text-gray-900">
-              {investor.details.cycleAllocation.contractedRatio}
-            </span>
-          </div>
-
-          <div className="pt-2 border-t border-[#d6e3ed] flex items-center justify-between">
-            <span className="font-bold text-gray-900">Investor Profit Credit:</span>
-            <span className="text-base font-bold text-gray-950">
-              AED {investor.details.cycleAllocation.investorProfitCreditAED.toLocaleString()}
-            </span>
-          </div>
-
-          <div className="pt-2 border-t border-[#d6e3ed] flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-gray-500 font-medium gap-1">
-            <span>Allocation Date: {investor.details.cycleAllocation.allocationDate}</span>
-            <span className="font-semibold text-gray-700">
-              Status: {investor.details.cycleAllocation.status}
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* SECTION 2: RECORD SETTLEMENT DISBURSAL */}
       <form onSubmit={handleDisburse} className="space-y-3 pt-2 border-t border-gray-100">
         <div className="flex items-center justify-between">

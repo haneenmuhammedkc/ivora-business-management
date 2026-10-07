@@ -3,10 +3,12 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, ExpenseCategory, ExpensePaymentStatus, UserRole } from "@prisma/client";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
 
 export interface CreateExpenseInput {
   businessId: string;
-  tradingCycleId?: string;
   expenseCode: string;
   category: ExpenseCategory;
   description: string;
@@ -29,12 +31,15 @@ export interface UpdateExpenseInput {
 
 export async function listExpenses(session: SessionPayload, businessId?: string) {
   if (businessId) {
-    await requireBusinessAccess(businessId);
-    return prisma.expense.findMany({
-      where: { businessId },
-      include: { business: { select: { id: true, name: true, code: true } } },
-      orderBy: { expenseDate: "desc" },
-    });
+    await requireBusinessAccess(businessId, session);
+    const cacheKey = CacheKeys.expenses.list(businessId);
+    return getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
+      prisma.expense.findMany({
+        where: { businessId },
+        include: { business: { select: { id: true, name: true, code: true } } },
+        orderBy: { expenseDate: "desc" },
+      })
+    );
   }
 
   const where: Prisma.ExpenseWhereInput =
@@ -55,12 +60,11 @@ export async function getExpenseById(session: SessionPayload, expenseId: string)
 }
 
 export async function createExpense(session: SessionPayload, input: CreateExpenseInput) {
-  await requireBusinessAccess(input.businessId);
+  await requireBusinessAccess(input.businessId, session);
 
   const expense = await prisma.expense.create({
     data: {
       businessId: input.businessId,
-      tradingCycleId: input.tradingCycleId || null,
       expenseCode: input.expenseCode.trim(),
       category: input.category,
       description: input.description.trim(),
@@ -80,6 +84,9 @@ export async function createExpense(session: SessionPayload, input: CreateExpens
     entityId: expense.id,
     newValues: { code: expense.expenseCode, amount: input.amount, category: input.category },
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(expense.businessId, "expenses", expense.id);
 
   return expense;
 }
@@ -109,11 +116,18 @@ export async function updateExpense(session: SessionPayload, expenseId: string, 
     newValues: { amount: updated.amount, status: updated.status },
   });
 
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(updated.businessId, "expenses", updated.id);
+
   return updated;
 }
 
 export async function deleteExpense(session: SessionPayload, expenseId: string) {
-  await requireResourceAccess("Expense", expenseId, "DELETE");
+  const { resource: existing } = await requireResourceAccess<Prisma.ExpenseGetPayload<Record<string, never>>>(
+    "Expense",
+    expenseId,
+    "DELETE"
+  );
 
   const deleted = await prisma.expense.delete({
     where: { id: expenseId },
@@ -125,6 +139,9 @@ export async function deleteExpense(session: SessionPayload, expenseId: string) 
     entity: "Expense",
     entityId: deleted.id,
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(existing.businessId, "expenses", deleted.id);
 
   return { success: true };
 }

@@ -18,7 +18,6 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
 
   const [category, setCategory] = useState<ExpenseCategory>("Delivery / Transport");
   const [business, setBusiness] = useState("Business 01 (Entity A + B)");
-  const [tradingCycle, setTradingCycle] = useState("TR-0248");
   const [amount, setAmount] = useState("450.00");
   const [date, setDate] = useState("10 Sep 2026");
   const [referenceCode, setReferenceCode] = useState("DEL-8822");
@@ -38,7 +37,6 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
       date,
       category,
       description,
-      cycle: tradingCycle,
       ref: referenceCode,
       amountAED: amountNum,
       status: "CLEARED" as ExpenseStatus,
@@ -48,28 +46,11 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
         settlementCurrency: "AED (United Arab Emirates Dirham)",
         disbursedBy: paymentMethod,
         expenseClassification: category,
-        cycleAllocation: `Trading Cycle ${tradingCycle}`,
-        cycleCategoryDistribution: {
-          deliveryFreight: 1150.0,
-          labourVault: 850.0,
-          processingAssaying: 1200.0,
-          indiaRealizationExp: 4000.0,
-          transferFxFees: 1650.0,
-        },
-        cycleMarginalImpact: {
-          cycleGrossSpread: 30000.0,
-          thisRecord: -amountNum,
-          totalCycleExpenses: -6000.0,
-          netCycleProfit: 24000.0,
-          netCycleMargin: 16.9,
-        },
         linkedContracts: {
           purchaseId: "PR-0248",
           purchaseCostAED: 112000,
           saleId: "SL-0248",
           saleRealizationAED: 142000,
-          cycleId: tradingCycle,
-          cycleStatus: "Completed",
         },
       },
     };
@@ -146,16 +127,6 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
             />
           </div>
 
-          <Select
-            label="Linked Trading Cycle"
-            value={tradingCycle}
-            onChange={(e) => setTradingCycle(e.target.value)}
-            options={[
-              { value: "TR-0248", label: "TR-0248 (Dubai Gold Souk ↔ Mumbai Vault)" },
-              { value: "TR-0247", label: "TR-0247 (Dubai Gold Souk ↔ Zaveri Bazaar)" },
-              { value: "TR-0246", label: "TR-0246 (Pure Bullion Transit)" },
-            ]}
-          />
         </div>
 
         {/* 02. FINANCIAL DETAILS & DESCRIPTION */}
@@ -223,12 +194,6 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
             <span>Settled Amount:</span>
             <span className="font-bold text-gray-950">
               AED {amountNum.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Cycle Allocation:</span>
-            <span className="font-semibold text-gray-900">
-              Trading Cycle {tradingCycle}
             </span>
           </div>
         </div>

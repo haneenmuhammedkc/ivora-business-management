@@ -43,13 +43,6 @@ enum InvestorType {
   INVESTOR
 }
 
-enum TradingCycleStatus {
-  DRAFT
-  IN_PROGRESS
-  REALIZED
-  COMPLETED
-}
-
 enum PurchaseStatus {
   DRAFT
   IN_PROGRESS
@@ -78,12 +71,6 @@ enum ExpenseCategory {
 enum ExpensePaymentStatus {
   PENDING
   CLEARED
-}
-
-enum ProfitAllocationStatus {
-  UNSETTLED
-  PARTIALLY_SETTLED
-  SETTLED
 }
 
 enum TransactionType {
@@ -158,10 +145,9 @@ model Business {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  partner       User           @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  partner       User          @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   investors     Investor[]
   investments   Investment[]
-  tradingCycles TradingCycle[]
   purchases     Purchase[]
   sales         Sale[]
   expenses      Expense[]
@@ -185,10 +171,9 @@ model Investor {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  business          Business?          @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  investments       Investment[]
-  profitAllocations ProfitAllocation[]
-  transactions      Transaction[]
+  business     Business?     @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investments  Investment[]
+  transactions Transaction[]
 
   @@index([code])
   @@index([status])
@@ -208,47 +193,17 @@ model Investment {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  investor          Investor           @relation(fields: [investorId], references: [id], onDelete: Restrict)
-  business          Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  profitAllocations ProfitAllocation[]
+  investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([investorId])
   @@index([businessId])
-}
-
-model TradingCycle {
-  id                      String             @id @default(cuid())
-  cycleCode               String             @unique
-  businessId              String
-  status                  TradingCycleStatus @default(DRAFT)
-  startDate               DateTime
-  completionDate          DateTime?
-  grossRealizationAed     Decimal?           @db.Decimal(18, 2)
-  purchaseLandedCostAed   Decimal?           @db.Decimal(18, 2)
-  directExpensesAed       Decimal?           @db.Decimal(18, 2)
-  grossArbitrageSpreadAed Decimal?           @db.Decimal(18, 2)
-  netProfitAed            Decimal?           @db.Decimal(18, 2)
-  investorShareTotalAed   Decimal?           @db.Decimal(18, 2)
-  deskRetainedProfitAed   Decimal?           @db.Decimal(18, 2)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-
-  business          Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  purchase          Purchase?
-  sale              Sale?
-  expenses          Expense[]
-  profitAllocations ProfitAllocation[]
-
-  @@index([businessId])
-  @@index([status])
-  @@index([cycleCode])
 }
 
 model Purchase {
   id                      String         @id @default(cuid())
   purchaseCode            String         @unique
   businessId              String
-  tradingCycleId          String?        @unique
   purchaseDate            DateTime
   sourcingVault           String?
   productType             String
@@ -266,11 +221,9 @@ model Purchase {
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
-  @@index([tradingCycleId])
   @@index([purchaseDate])
 }
 
@@ -278,7 +231,6 @@ model Sale {
   id                  String     @id @default(cuid())
   saleCode            String     @unique
   businessId          String
-  tradingCycleId      String?    @unique
   saleDate            DateTime
   liquidationDesk     String
   buyerFirm           String
@@ -292,11 +244,9 @@ model Sale {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
-  @@index([tradingCycleId])
   @@index([saleDate])
 }
 
@@ -304,7 +254,6 @@ model Expense {
   id                   String               @id @default(cuid())
   expenseCode          String               @unique
   businessId           String
-  tradingCycleId       String?
   category             ExpenseCategory
   description          String
   refNo                String?
@@ -315,36 +264,11 @@ model Expense {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  tradingCycle TradingCycle? @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
-  @@index([tradingCycleId])
   @@index([category])
   @@index([expenseDate])
-}
-
-model ProfitAllocation {
-  id              String                 @id @default(cuid())
-  tradingCycleId  String
-  investorId      String
-  investmentId    String?
-  netCycleProfit  Decimal                @db.Decimal(18, 2)
-  contractRatio   Decimal                @db.Decimal(5, 2)
-  allocatedAmount Decimal                @db.Decimal(18, 2)
-  status          ProfitAllocationStatus @default(UNSETTLED)
-  lockedAt        DateTime               @default(now())
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
-
-  tradingCycle TradingCycle @relation(fields: [tradingCycleId], references: [id], onDelete: Restrict)
-  investor     Investor     @relation(fields: [investorId], references: [id], onDelete: Restrict)
-  investment   Investment?  @relation(fields: [investmentId], references: [id], onDelete: Restrict)
-
-  @@unique([tradingCycleId, investorId])
-  @@index([tradingCycleId])
-  @@index([investorId])
-  @@index([status])
 }
 
 model Transaction {

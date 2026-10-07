@@ -32,14 +32,12 @@ export default function ExpensesPage() {
         const matchesBusiness = exp.business.toLowerCase().includes(query);
         const matchesCategory = exp.category.toLowerCase().includes(query);
         const matchesDesc = exp.description.toLowerCase().includes(query);
-        const matchesCycle = exp.cycle.toLowerCase().includes(query);
         const matchesRef = exp.ref.toLowerCase().includes(query);
         if (
           !matchesId &&
           !matchesBusiness &&
           !matchesCategory &&
           !matchesDesc &&
-          !matchesCycle &&
           !matchesRef
         ) {
           return false;
@@ -142,7 +140,7 @@ export default function ExpensesPage() {
 
       {/* Cross-Module Expense & Profit Impact Lineage */}
       <FadeUp delay={0.22}>
-        <ExpenseLineageBanner cycleId={activeExpense?.cycle || "TR-0248"} />
+        <ExpenseLineageBanner transactionId={activeExpense?.id || "EXP-018"} />
       </FadeUp>
 
       {/* Expense Details Panel */}

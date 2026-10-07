@@ -67,7 +67,6 @@ export function SalesTableView({
               <th className="px-4 py-3.5 font-bold">SALE ID</th>
               <th className="px-4 py-3.5 font-bold">BUSINESS</th>
               <th className="px-4 py-3.5 font-bold">DATE</th>
-              <th className="px-4 py-3.5 font-bold text-center">CYCLE</th>
               <th className="px-4 py-3.5 font-bold">COMMODITY</th>
               <th className="px-4 py-3.5 font-bold text-right">QTY (GMS)</th>
               <th className="px-4 py-3.5 font-bold text-right">PRICE (AED)</th>
@@ -80,7 +79,7 @@ export function SalesTableView({
           <tbody className="divide-y divide-gray-100 bg-white">
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={12} className="py-12 text-center text-gray-500">
+                <td colSpan={11} className="py-12 text-center text-gray-500">
                   No sales records found matching your filters.
                 </td>
               </tr>
@@ -125,13 +124,6 @@ export function SalesTableView({
                   {/* Date */}
                   <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500">
                     {s.date}
-                  </td>
-
-                  {/* Cycle Link */}
-                  <td className="px-4 py-4 text-center">
-                    <span className="inline-block px-2 py-0.5 text-xs font-semibold text-gray-900 underline underline-offset-2 cursor-pointer hover:text-black">
-                      {s.cycle}
-                    </span>
                   </td>
 
                   {/* Commodity */}

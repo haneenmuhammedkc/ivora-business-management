@@ -8,14 +8,12 @@ import {
   ProfitLossFilters,
   BusinessProfitabilityTable,
   AuditedPLStatement,
-  TradingCyclePLTable,
   CapitalWaterfallPanel,
   InvestorAllocationsPanel,
   ExpenseImpactPanel,
   AuditedCrossLinksPanel,
   mockProfitLossKPIs,
   mockBusinessProfitabilityList,
-  mockTradingCyclePLList,
   mockProfitLossStatement,
 } from "@/components/admin/profit-loss";
 
@@ -79,10 +77,6 @@ export default function ProfitLossPage() {
 
           <FadeUp delay={0.25}>
             <AuditedPLStatement statement={mockProfitLossStatement} />
-          </FadeUp>
-
-          <FadeUp delay={0.3}>
-            <TradingCyclePLTable cycles={mockTradingCyclePLList} />
           </FadeUp>
         </div>
 

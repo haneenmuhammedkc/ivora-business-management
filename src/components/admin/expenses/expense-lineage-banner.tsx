@@ -1,7 +1,7 @@
 import React from "react";
 
 export interface ExpenseLineageBannerProps {
-  cycleId?: string;
+  transactionId?: string;
   grossAED?: number;
   purchaseCostAED?: number;
   allocatedExpAED?: number;
@@ -11,7 +11,7 @@ export interface ExpenseLineageBannerProps {
 }
 
 export function ExpenseLineageBanner({
-  cycleId = "TR-0248",
+  transactionId = "TX-0248",
   grossAED = 142000,
   purchaseCostAED = 112000,
   allocatedExpAED = 6000,
@@ -24,7 +24,7 @@ export function ExpenseLineageBanner({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1">
         <span className="text-[10px] sm:text-[10.5px] font-bold uppercase tracking-wider text-gray-700">
-          CROSS-MODULE EXPENSE & PROFIT IMPACT LINEAGE • {cycleId}
+          CROSS-MODULE EXPENSE & PROFIT IMPACT LINEAGE • {transactionId}
         </span>
         <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">
           STATUS: FULLY AUDITED

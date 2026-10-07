@@ -30,14 +30,6 @@ export const mockInvestorsList: InvestorRecord[] = [
       allocatedProfit: 5340,
       outstandingBalance: 2650,
       paidAmount: 2690,
-      cycleAllocation: {
-        cycleId: "TR-0247",
-        netCycleProfitAED: 15257,
-        contractedRatio: "× 35%",
-        investorProfitCreditAED: 5340,
-        allocationDate: "18 Aug 2026",
-        status: "Partially Settled",
-      },
       recentTransactions: [
         {
           id: "SET-007",
@@ -48,10 +40,10 @@ export const mockInvestorsList: InvestorRecord[] = [
           type: "BANK TRANSFER",
         },
         {
-          id: "TR-0247",
-          title: "Profit Allocation TR-0247",
+          id: "ALLOC-003",
+          title: "Profit Allocation",
           date: "18 Aug 2026",
-          reference: "Trading Cycle Close",
+          reference: "Period Allocation Close",
           amountFormatted: "AED 5,340 Calculated",
           type: "AUTOMATED",
         },
@@ -89,14 +81,6 @@ export const mockInvestorsList: InvestorRecord[] = [
       allocatedProfit: 9600,
       outstandingBalance: 3600,
       paidAmount: 6000,
-      cycleAllocation: {
-        cycleId: "TR-0248",
-        netCycleProfitAED: 24000,
-        contractedRatio: "× 40%",
-        investorProfitCreditAED: 9600,
-        allocationDate: "10 Sep 2026",
-        status: "Partially Settled",
-      },
       recentTransactions: [
         {
           id: "SET-008",
@@ -107,10 +91,10 @@ export const mockInvestorsList: InvestorRecord[] = [
           type: "BANK TRANSFER",
         },
         {
-          id: "TR-0248",
-          title: "Profit Allocation TR-0248",
+          id: "ALLOC-002",
+          title: "Profit Allocation",
           date: "10 Sep 2026",
-          reference: "Trading Cycle Close",
+          reference: "Period Allocation Close",
           amountFormatted: "AED 9,600 Calculated",
           type: "AUTOMATED",
         },
@@ -147,14 +131,6 @@ export const mockInvestorsList: InvestorRecord[] = [
       allocatedProfit: 38400,
       outstandingBalance: 0,
       paidAmount: 38400,
-      cycleAllocation: {
-        cycleId: "TR-0245",
-        netCycleProfitAED: 76800,
-        contractedRatio: "× 50%",
-        investorProfitCreditAED: 38400,
-        allocationDate: "04 Jul 2026",
-        status: "Fully Settled",
-      },
       recentTransactions: [
         {
           id: "SET-001",
@@ -165,10 +141,10 @@ export const mockInvestorsList: InvestorRecord[] = [
           type: "BANK TRANSFER",
         },
         {
-          id: "TR-0245",
-          title: "Profit Allocation TR-0245",
+          id: "ALLOC-001",
+          title: "Profit Allocation",
           date: "04 Jul 2026",
-          reference: "Trading Cycle Close",
+          reference: "Period Allocation Close",
           amountFormatted: "AED 38,400 Calculated",
           type: "AUTOMATED",
         },

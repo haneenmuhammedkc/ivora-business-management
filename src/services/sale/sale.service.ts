@@ -3,10 +3,12 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, SaleStatus, UserRole } from "@prisma/client";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
 
 export interface CreateSaleInput {
   businessId: string;
-  tradingCycleId?: string;
   saleCode: string;
   saleDate: string | Date;
   liquidationDesk: string;
@@ -31,12 +33,15 @@ export interface UpdateSaleInput {
 
 export async function listSales(session: SessionPayload, businessId?: string) {
   if (businessId) {
-    await requireBusinessAccess(businessId);
-    return prisma.sale.findMany({
-      where: { businessId },
-      include: { business: { select: { id: true, name: true, code: true } } },
-      orderBy: { saleDate: "desc" },
-    });
+    await requireBusinessAccess(businessId, session);
+    const cacheKey = CacheKeys.sales.list(businessId);
+    return getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
+      prisma.sale.findMany({
+        where: { businessId },
+        include: { business: { select: { id: true, name: true, code: true } } },
+        orderBy: { saleDate: "desc" },
+      })
+    );
   }
 
   const where: Prisma.SaleWhereInput =
@@ -57,7 +62,7 @@ export async function getSaleById(session: SessionPayload, saleId: string) {
 }
 
 export async function createSale(session: SessionPayload, input: CreateSaleInput) {
-  await requireBusinessAccess(input.businessId);
+  await requireBusinessAccess(input.businessId, session);
 
   const inrRealizationValue = Number(input.quantityGms) * Number(input.sellingPricePerGm);
   const aedEquivalent = inrRealizationValue / Number(input.realizedFxRate);
@@ -65,7 +70,6 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
   const sale = await prisma.sale.create({
     data: {
       businessId: input.businessId,
-      tradingCycleId: input.tradingCycleId || null,
       saleCode: input.saleCode.trim(),
       saleDate: new Date(input.saleDate),
       liquidationDesk: input.liquidationDesk.trim(),
@@ -88,6 +92,9 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
     entityId: sale.id,
     newValues: { code: sale.saleCode, businessId: input.businessId, aedEquivalent },
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(sale.businessId, "sales", sale.id);
 
   return sale;
 }
@@ -131,6 +138,9 @@ export async function updateSale(session: SessionPayload, saleId: string, input:
     newValues: { status: updated.status, aedEquivalent },
   });
 
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(updated.businessId, "sales", updated.id);
+
   return updated;
 }
 
@@ -149,11 +159,18 @@ export async function clearSale(session: SessionPayload, saleId: string) {
     entityId: cleared.id,
   });
 
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(cleared.businessId, "sales", cleared.id);
+
   return cleared;
 }
 
 export async function deleteSale(session: SessionPayload, saleId: string) {
-  await requireResourceAccess("Sale", saleId, "DELETE");
+  const { resource: existing } = await requireResourceAccess<Prisma.SaleGetPayload<Record<string, never>>>(
+    "Sale",
+    saleId,
+    "DELETE"
+  );
 
   const deleted = await prisma.sale.delete({
     where: { id: saleId },
@@ -165,6 +182,9 @@ export async function deleteSale(session: SessionPayload, saleId: string) {
     entity: "Sale",
     entityId: deleted.id,
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(existing.businessId, "sales", deleted.id);
 
   return { success: true };
 }

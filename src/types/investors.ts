@@ -36,14 +36,6 @@ export interface InvestorRecord {
     allocatedProfit: number;
     outstandingBalance: number;
     paidAmount: number;
-    cycleAllocation: {
-      cycleId: string;
-      netCycleProfitAED: number;
-      contractedRatio: string;
-      investorProfitCreditAED: number;
-      allocationDate: string;
-      status: string;
-    };
     recentTransactions: AuditTransaction[];
   };
 }

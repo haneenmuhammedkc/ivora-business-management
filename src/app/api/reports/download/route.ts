@@ -13,9 +13,9 @@ export async function GET(req: NextRequest) {
     const reportData = await getReportData(session, businessId);
 
     if (format === "csv") {
-      let csvContent = "CycleCode,StartDate,Status\n";
-      for (const cycle of reportData.tradingCycles) {
-        csvContent += `"${cycle.cycleCode}","${cycle.startDate.toISOString()}","${cycle.status}"\n`;
+      let csvContent = "PurchaseCode,PurchaseDate,TotalLandedCost\n";
+      for (const purchase of reportData.purchasesSummary) {
+        csvContent += `"${purchase.purchaseCode}","${new Date(purchase.purchaseDate).toISOString()}","${purchase.totalLandedCost}"\n`;
       }
       return new NextResponse(csvContent, {
         status: 200,

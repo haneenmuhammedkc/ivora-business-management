@@ -5,6 +5,9 @@ import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, PurchaseStatus, QuantityUnit, UserRole } from "@prisma/client";
 import { createPurchaseSchema, updatePurchaseSchema } from "@/validators/purchase.validator";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
 
 export interface CreatePurchaseInput {
   businessId: string;
@@ -17,7 +20,6 @@ export interface CreatePurchaseInput {
   basePricePerGm?: number | string | null;
   purchaseCode?: string;
   sourcingVault?: string | null;
-  tradingCycleId?: string | null;
   transitInsuranceFreight?: number | null;
   vaultHandlingLabour?: number | null;
   customsSecurity?: number | null;
@@ -75,12 +77,15 @@ export async function generateUniquePurchaseCode(): Promise<string> {
 
 export async function listPurchases(session: SessionPayload, businessId?: string) {
   if (businessId) {
-    await requireBusinessAccess(businessId);
-    return prisma.purchase.findMany({
-      where: { businessId },
-      include: { business: { select: { id: true, name: true, code: true } } },
-      orderBy: { purchaseDate: "desc" },
-    });
+    await requireBusinessAccess(businessId, session);
+    const cacheKey = CacheKeys.purchases.list(businessId);
+    return getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
+      prisma.purchase.findMany({
+        where: { businessId },
+        include: { business: { select: { id: true, name: true, code: true } } },
+        orderBy: { purchaseDate: "desc" },
+      })
+    );
   }
 
   const where: Prisma.PurchaseWhereInput =
@@ -177,7 +182,6 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
   const purchase = await prisma.purchase.create({
     data: {
       businessId: validated.businessId,
-      tradingCycleId: input.tradingCycleId || null,
       purchaseCode,
       purchaseDate: new Date(validated.purchaseDate),
       sourcingVault: input.sourcingVault?.trim() || null,
@@ -214,6 +218,9 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
       totalLandedCost: purchase.totalLandedCost ? Number(purchase.totalLandedCost) : null,
     },
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(purchase.businessId, "purchases", purchase.id);
 
   return purchase;
 }
@@ -334,6 +341,12 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
     },
   });
 
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(updated.businessId, "purchases", updated.id);
+  if (existing.businessId && existing.businessId !== updated.businessId) {
+    await invalidateTransactionCaches(existing.businessId, "purchases", updated.id);
+  }
+
   return updated;
 }
 
@@ -352,11 +365,18 @@ export async function clearPurchase(session: SessionPayload, purchaseId: string)
     entityId: cleared.id,
   });
 
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(cleared.businessId, "purchases", cleared.id);
+
   return cleared;
 }
 
 export async function deletePurchase(session: SessionPayload, purchaseId: string) {
-  await requireResourceAccess("Purchase", purchaseId, "DELETE");
+  const { resource: existing } = await requireResourceAccess<Prisma.PurchaseGetPayload<Record<string, never>>>(
+    "Purchase",
+    purchaseId,
+    "DELETE"
+  );
 
   const deleted = await prisma.purchase.delete({
     where: { id: purchaseId },
@@ -368,6 +388,9 @@ export async function deletePurchase(session: SessionPayload, purchaseId: string
     entity: "Purchase",
     entityId: deleted.id,
   });
+
+  // Invalidate Redis caches
+  await invalidateTransactionCaches(existing.businessId, "purchases", deleted.id);
 
   return { success: true };
 }
