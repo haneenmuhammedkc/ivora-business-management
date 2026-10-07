@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
 import {
@@ -9,6 +9,7 @@ import {
   PurchaseTableView,
 } from "@/components/admin/purchase";
 import { PurchaseRecord, PurchaseSummaryKPIs } from "@/types/purchase";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 interface ApiPurchaseItem {
   id: string;
@@ -41,90 +42,87 @@ interface BusinessItem {
   code: string;
 }
 
+const mapApiPurchaseToRecord = (p: ApiPurchaseItem): PurchaseRecord => {
+  const formattedDate = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(p.purchaseDate));
+
+  const baseAmountNum =
+    p.basePricePerUnitAED !== null && p.basePricePerUnitAED !== undefined
+      ? Number(p.basePricePerUnitAED)
+      : p.basePricePerGm !== null && p.basePricePerGm !== undefined
+      ? Number(p.basePricePerGm)
+      : null;
+
+  const totalAcqNum =
+    p.baseAcquisitionValue !== null && p.baseAcquisitionValue !== undefined
+      ? Number(p.baseAcquisitionValue)
+      : null;
+
+  return {
+    id: p.purchaseCode,
+    rawId: p.id,
+    businessId: p.businessId,
+    business: p.business?.name || "Business",
+    businessCode: p.business?.code,
+    businessEntities: p.business?.code || "",
+    date: formattedDate,
+    product: p.productType,
+    locationVault: p.sourcingVault,
+    quantity: Number(p.quantity),
+    quantityUnit: p.quantityUnit,
+    quantityGms: p.quantityGms !== null ? Number(p.quantityGms) : null,
+    baseAmount: baseAmountNum,
+    basePriceAED: baseAmountNum,
+    basePricePerUnitAED: baseAmountNum,
+    totalPurchaseAmount: totalAcqNum,
+    baseAcquisitionValue: totalAcqNum,
+    freightAED: p.transitInsuranceFreight !== null ? Number(p.transitInsuranceFreight) : null,
+    labourAED: p.vaultHandlingLabour !== null ? Number(p.vaultHandlingLabour) : null,
+    customsAED: p.customsSecurity !== null ? Number(p.customsSecurity) : null,
+    totalLandedAED: p.totalLandedCost !== null ? Number(p.totalLandedCost) : null,
+    status: p.status,
+  };
+};
+
 export default function PurchasePage() {
-  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
-  const [businesses, setBusinesses] = useState<BusinessItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: purchasesData, isLoading: isLoadingPurchases, error: purchasesError } = useCachedFetch<{
+    success: boolean;
+    purchases: ApiPurchaseItem[];
+    message?: string;
+    error?: string;
+  }>("/api/purchases");
+
+  const { data: businessesData } = useCachedFetch<{
+    success: boolean;
+    businesses: BusinessItem[];
+  }>("/api/businesses");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState("all");
 
-  const mapApiPurchaseToRecord = (p: ApiPurchaseItem): PurchaseRecord => {
-    const formattedDate = new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(p.purchaseDate));
+  const purchases = useMemo<PurchaseRecord[]>(() => {
+    if (!purchasesData?.success || !Array.isArray(purchasesData.purchases)) {
+      return [];
+    }
+    return purchasesData.purchases.map(mapApiPurchaseToRecord);
+  }, [purchasesData]);
 
-    const baseAmountNum =
-      p.basePricePerUnitAED !== null && p.basePricePerUnitAED !== undefined
-        ? Number(p.basePricePerUnitAED)
-        : p.basePricePerGm !== null && p.basePricePerGm !== undefined
-        ? Number(p.basePricePerGm)
-        : null;
+  const businesses = useMemo<BusinessItem[]>(() => {
+    if (!businessesData?.success || !Array.isArray(businessesData.businesses)) {
+      return [];
+    }
+    return businessesData.businesses.map((b) => ({
+      id: b.id,
+      name: b.name,
+      code: b.code,
+    }));
+  }, [businessesData]);
 
-    const totalAcqNum =
-      p.baseAcquisitionValue !== null && p.baseAcquisitionValue !== undefined
-        ? Number(p.baseAcquisitionValue)
-        : null;
-
-    return {
-      id: p.purchaseCode,
-      rawId: p.id,
-      businessId: p.businessId,
-      business: p.business?.name || "Business",
-      businessCode: p.business?.code,
-      businessEntities: p.business?.code || "",
-      date: formattedDate,
-      product: p.productType,
-      locationVault: p.sourcingVault,
-      quantity: Number(p.quantity),
-      quantityUnit: p.quantityUnit,
-      quantityGms: p.quantityGms !== null ? Number(p.quantityGms) : null,
-      baseAmount: baseAmountNum,
-      basePriceAED: baseAmountNum,
-      basePricePerUnitAED: baseAmountNum,
-      totalPurchaseAmount: totalAcqNum,
-      baseAcquisitionValue: totalAcqNum,
-      freightAED: p.transitInsuranceFreight !== null ? Number(p.transitInsuranceFreight) : null,
-      labourAED: p.vaultHandlingLabour !== null ? Number(p.vaultHandlingLabour) : null,
-      customsAED: p.customsSecurity !== null ? Number(p.customsSecurity) : null,
-      totalLandedAED: p.totalLandedCost !== null ? Number(p.totalLandedCost) : null,
-      status: p.status,
-    };
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-    Promise.all([
-      fetch("/api/purchases").then((r) => r.json()),
-      fetch("/api/businesses").then((r) => r.json()),
-    ])
-      .then(([pData, bData]) => {
-        if (!isMounted) return;
-        if (pData?.success && Array.isArray(pData.purchases)) {
-          setPurchases(pData.purchases.map(mapApiPurchaseToRecord));
-        }
-        if (bData?.success && Array.isArray(bData.businesses)) {
-          setBusinesses(
-            bData.businesses.map((b: { id: string; name: string; code: string }) => ({
-              id: b.id,
-              name: b.name,
-              code: b.code,
-            }))
-          );
-        }
-      })
-      .catch((err) => console.error("Failed to fetch purchases data:", err))
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const isInitialLoading = isLoadingPurchases && purchases.length === 0;
 
   // Compute live KPIs from database purchases
   const kpis: PurchaseSummaryKPIs = useMemo(() => {
@@ -202,6 +200,12 @@ export default function PurchasePage() {
     });
   }, [purchases, searchTerm, selectedBusiness, selectedProduct]);
 
+  const apiError = purchasesError
+    ? purchasesError.message
+    : purchasesData && !purchasesData.success
+    ? purchasesData.message || purchasesData.error || "Failed to load purchases."
+    : null;
+
   return (
     <div className="space-y-6 pb-14">
       {/* Page Header */}
@@ -211,6 +215,14 @@ export default function PurchasePage() {
           subtitle="Manage Dubai Purchases, Quantities, Costs And Associated Trading Expenses."
         />
       </FadeUp>
+
+      {/* Error state */}
+      {apiError && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
+          <span className="font-bold">Error:</span>
+          <span>{apiError}</span>
+        </div>
+      )}
 
       {/* 3 Top KPI Cards */}
       <FadeUp delay={0.1}>
@@ -233,7 +245,7 @@ export default function PurchasePage() {
 
       {/* Purchases Table Container */}
       <FadeUp delay={0.2}>
-        {loading ? (
+        {isInitialLoading ? (
           <div className="w-full rounded-xl border border-gray-200/90 bg-white p-12 text-center text-xs text-gray-500 shadow-2xs">
             Loading purchases...
           </div>

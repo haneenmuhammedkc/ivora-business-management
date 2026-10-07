@@ -16,6 +16,7 @@ export type DomainResourceType =
   | "Investment"
   | "Purchase"
   | "Sale"
+  | "Inventory"
   | "Expense"
   | "Transaction"
   | "AuditLog";
@@ -210,6 +211,17 @@ export async function requireResourceAccess<T = Record<string, unknown>>(
     }
     case "Sale": {
       const item = await prisma.sale.findUnique({
+        where: { id: resourceId },
+        include: { business: { select: { id: true, partnerId: true } } },
+      });
+      if (item) {
+        resource = item as unknown as Record<string, unknown>;
+        businessId = item.businessId;
+      }
+      break;
+    }
+    case "Inventory": {
+      const item = await prisma.inventory.findUnique({
         where: { id: resourceId },
         include: { business: { select: { id: true, partnerId: true } } },
       });

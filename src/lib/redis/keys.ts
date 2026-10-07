@@ -17,15 +17,30 @@ export const CacheKeys = {
     business: (businessId: string) => `${PREFIX}:biz:${businessId}:investors:detail`,
   },
   purchases: {
-    list: (businessId: string) => `${PREFIX}:biz:${businessId}:purchases:list`,
+    list: (businessId?: string, role = "ADMIN", userId = "") =>
+      businessId
+        ? `${PREFIX}:biz:${businessId}:purchases:list`
+        : role === "ADMIN"
+        ? `${PREFIX}:admin:purchases:list`
+        : `${PREFIX}:partner:${userId}:purchases:list`,
     detail: (purchaseId: string) => `${PREFIX}:purchase:${purchaseId}:detail`,
   },
   sales: {
-    list: (businessId: string) => `${PREFIX}:biz:${businessId}:sales:list`,
+    list: (businessId?: string, role = "ADMIN", userId = "") =>
+      businessId
+        ? `${PREFIX}:biz:${businessId}:sales:list`
+        : role === "ADMIN"
+        ? `${PREFIX}:admin:sales:list`
+        : `${PREFIX}:partner:${userId}:sales:list`,
     detail: (saleId: string) => `${PREFIX}:sale:${saleId}:detail`,
   },
   expenses: {
-    list: (businessId: string) => `${PREFIX}:biz:${businessId}:expenses:list`,
+    list: (businessId?: string, role = "ADMIN", userId = "") =>
+      businessId
+        ? `${PREFIX}:biz:${businessId}:expenses:list`
+        : role === "ADMIN"
+        ? `${PREFIX}:admin:expenses:list`
+        : `${PREFIX}:partner:${userId}:expenses:list`,
     detail: (expenseId: string) => `${PREFIX}:expense:${expenseId}:detail`,
   },
   financials: {

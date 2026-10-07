@@ -150,6 +150,7 @@ model Business {
   investments   Investment[]
   purchases     Purchase[]
   sales         Sale[]
+  inventory     Inventory[]
   expenses      Expense[]
   transactions  Transaction[]
 
@@ -228,26 +229,53 @@ model Purchase {
 }
 
 model Sale {
-  id                  String     @id @default(cuid())
-  saleCode            String     @unique
-  businessId          String
-  saleDate            DateTime
-  liquidationDesk     String
-  buyerFirm           String
-  productType         String
-  quantityGms         Decimal    @db.Decimal(18, 3)
-  sellingPricePerGm   Decimal    @db.Decimal(18, 4)
-  inrRealizationValue Decimal    @db.Decimal(18, 2)
-  realizedFxRate      Decimal    @db.Decimal(18, 4)
-  aedEquivalent       Decimal    @db.Decimal(18, 2)
-  status              SaleStatus @default(PENDING)
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
+  id                   String       @id @default(cuid())
+  saleCode             String       @unique
+  businessId           String
+  saleDate             DateTime
+  liquidationDesk      String?
+  buyerFirm            String
+  productType          String
+  quantity             Decimal      @default(0) @db.Decimal(18, 3)
+  quantityUnit         QuantityUnit @default(GRAM)
+  quantityGms          Decimal?     @db.Decimal(18, 3)
+  sellingPricePerGm    Decimal?     @db.Decimal(18, 4)
+  basePricePerUnitAED  Decimal?     @db.Decimal(18, 4)
+  totalSellingPriceINR Decimal?     @db.Decimal(18, 2)
+  inrRealizationValue  Decimal      @db.Decimal(18, 2)
+  realizedFxRate       Decimal      @db.Decimal(18, 4)
+  aedEquivalent        Decimal      @db.Decimal(18, 2)
+  status               SaleStatus   @default(PENDING)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
   @@index([saleDate])
+  @@index([productType])
+}
+
+model Inventory {
+  id                     String       @id @default(cuid())
+  businessId             String
+  productType            String
+  quantityUnit           QuantityUnit @default(GRAM)
+  totalPurchasedQuantity Decimal      @default(0) @db.Decimal(18, 3)
+  totalSoldQuantity      Decimal      @default(0) @db.Decimal(18, 3)
+  remainingQuantity      Decimal      @default(0) @db.Decimal(18, 3)
+  totalCostAED           Decimal      @default(0) @db.Decimal(18, 2)
+  carryingValueAED       Decimal      @default(0) @db.Decimal(18, 2)
+  averageCostPerUnitAED  Decimal      @default(0) @db.Decimal(18, 4)
+  lastPurchaseDate       DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, productType, quantityUnit])
+  @@index([businessId])
+  @@index([productType])
 }
 
 model Expense {

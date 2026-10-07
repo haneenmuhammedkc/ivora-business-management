@@ -9,8 +9,7 @@ export interface SalesFiltersProps {
   onSearchChange: (value: string) => void;
   selectedBusiness: string;
   onBusinessChange: (value: string) => void;
-  selectedStatus: string;
-  onStatusChange: (value: string) => void;
+  businessOptions?: Array<{ value: string; label: string }>;
 }
 
 export function SalesFilters({
@@ -18,9 +17,12 @@ export function SalesFilters({
   onSearchChange,
   selectedBusiness,
   onBusinessChange,
-  selectedStatus,
-  onStatusChange,
+  businessOptions,
 }: SalesFiltersProps) {
+  const options = businessOptions || [
+    { value: "all", label: "All Businesses" },
+  ];
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
       {/* Search Input */}
@@ -39,26 +41,8 @@ export function SalesFilters({
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "Business 01", label: "Business 01" },
-              { value: "Business 02", label: "Business 02" },
-            ]}
+            options={options}
             prefixLabel="Business"
-            className="h-10 text-xs"
-          />
-        </div>
-
-        <div className="w-full sm:w-auto min-w-[145px]">
-          <Select
-            value={selectedStatus}
-            onChange={(e) => onStatusChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Status" },
-              { value: "CLEARED", label: "Cleared" },
-              { value: "PENDING", label: "Pending" },
-            ]}
-            prefixLabel="Status"
             className="h-10 text-xs"
           />
         </div>

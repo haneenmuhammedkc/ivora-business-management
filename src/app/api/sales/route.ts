@@ -35,6 +35,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, sale }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) {
+      if (error.statusCode === 400) {
+        return NextResponse.json(
+          { success: false, error: "BAD_REQUEST", message: error.message },
+          { status: 400 }
+        );
+      }
       return error.statusCode === 401
         ? unauthorizedResponse(error.message)
         : forbiddenErrorResponse(error.message);

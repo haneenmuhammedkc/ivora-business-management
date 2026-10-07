@@ -49,7 +49,12 @@ export async function invalidateTransactionCaches(
 ): Promise<void> {
   const keys: (string | null | undefined)[] = [
     CacheKeys[moduleType].list(businessId),
+    CacheKeys[moduleType].list(undefined, "ADMIN", ""),
   ];
+
+  if (partnerId) {
+    keys.push(CacheKeys[moduleType].list(undefined, "PARTNER", partnerId));
+  }
 
   if (itemId) {
     if (moduleType === "purchases") keys.push(CacheKeys.purchases.detail(itemId));
@@ -58,6 +63,12 @@ export async function invalidateTransactionCaches(
   }
 
   await invalidateCacheKeys(...keys);
+
+  // If partnerId was not explicitly passed, invalidate any partner overview keys for this module
+  if (!partnerId) {
+    await invalidateCacheByPattern(`${PREFIX}:partner:*:${moduleType}:list`);
+  }
+
   await invalidateBusinessFinancials(businessId, partnerId);
 }
 

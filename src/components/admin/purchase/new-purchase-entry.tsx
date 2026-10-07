@@ -71,15 +71,24 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
   const [productType, setProductType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
-  const [baseAmount, setBaseAmount] = useState("");
+  const [totalPurchaseAmount, setTotalPurchaseAmount] = useState("");
 
-  // Live client-side calculation for display
-  const calculatedTotal = React.useMemo(() => {
+  // Live client-side calculation for display: Base Amount = Total Purchase Amount ÷ Quantity
+  const calculatedBaseAmount = React.useMemo(() => {
     const q = parseFloat(quantity);
-    const b = parseFloat(baseAmount);
-    if (isNaN(q) || q <= 0 || isNaN(b) || b <= 0) return null;
-    return q * b;
-  }, [quantity, baseAmount]);
+    const t = parseFloat(totalPurchaseAmount);
+    if (isNaN(q) || q <= 0 || isNaN(t) || t <= 0) return null;
+    return t / q;
+  }, [quantity, totalPurchaseAmount]);
+
+  const displayBaseAmount = React.useMemo(() => {
+    if (calculatedBaseAmount === null) return "—";
+    const unitSuffix = quantityUnit === "PIECE" ? "Piece" : "Gram";
+    return `AED ${calculatedBaseAmount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })} / ${unitSuffix}`;
+  }, [calculatedBaseAmount, quantityUnit]);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -211,9 +220,9 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       return;
     }
 
-    const baseNum = parseFloat(baseAmount);
-    if (isNaN(baseNum) || baseNum <= 0) {
-      setErrorMessage("Base Amount must be a positive number greater than 0.");
+    const totalNum = parseFloat(totalPurchaseAmount);
+    if (isNaN(totalNum) || totalNum <= 0) {
+      setErrorMessage("Total Purchase Amount must be a positive number greater than 0.");
       return;
     }
 
@@ -226,7 +235,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         productType: trimmedProduct,
         quantity: qtyNum,
         quantityUnit,
-        baseAmount: baseNum,
+        totalPurchaseAmount: totalNum,
       };
 
       const response = await fetch("/api/purchases", {
@@ -506,19 +515,19 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
             </p>
           </div>
 
-          {/* 5. Base Amount */}
+          {/* 5. Total Purchase Amount (Editable) */}
           <div className="space-y-1">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
-              BASE AMOUNT ({quantityUnit === "GRAM" ? "AED / GRAM" : "AED / PIECE"})
+              TOTAL PURCHASE AMOUNT (AED)
             </label>
             <input
               type="number"
-              min="0.0001"
+              min="0.01"
               step="any"
-              placeholder={quantityUnit === "GRAM" ? "e.g. 31.50" : "e.g. 250.00"}
-              value={baseAmount}
+              placeholder="e.g. 195315.75"
+              value={totalPurchaseAmount}
               onChange={(e) => {
-                setBaseAmount(e.target.value);
+                setTotalPurchaseAmount(e.target.value);
                 setErrorMessage(null);
               }}
               disabled={submitting}
@@ -526,37 +535,28 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
               required
             />
             <p className="text-[11px] text-gray-500 mt-1">
-              {quantityUnit === "GRAM"
-                ? "Price in AED per physical gram."
-                : "Price in AED per individual piece."}
+              Total monetary value in AED paid for this acquisition.
             </p>
           </div>
 
-          {/* 6. Total Purchase Amount (Read-Only) */}
+          {/* 6. Base Amount (Read-Only, Auto-Calculated) */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
-                TOTAL PURCHASE AMOUNT
+                BASE AMOUNT ({quantityUnit === "GRAM" ? "AED / GRAM" : "AED / PIECE"})
               </label>
               <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
                 Read-only
               </span>
             </div>
             <div className="w-full h-10 px-3 bg-gray-50/80 border border-gray-200 rounded-lg flex items-center justify-between text-gray-950 font-bold text-xs sm:text-sm select-none">
-              <span>
-                {calculatedTotal !== null
-                  ? `AED ${calculatedTotal.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`
-                  : "—"}
-              </span>
+              <span>{displayBaseAmount}</span>
               <span className="text-[10px] text-gray-400 font-medium">
                 Auto-calculated
               </span>
             </div>
             <p className="text-[11px] text-gray-500 mt-1">
-              Automatically calculated as Quantity × Base Amount.
+              Automatically calculated as Total Purchase Amount ÷ Quantity.
             </p>
           </div>
         </div>

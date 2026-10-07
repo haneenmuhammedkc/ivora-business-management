@@ -3,3 +3,4 @@ export * from "./sales-kpi-cards";
 export * from "./sales-filters";
 export * from "./sales-table-view";
 export * from "./new-sale-entry";
+export * from "./edit-sale-entry";
