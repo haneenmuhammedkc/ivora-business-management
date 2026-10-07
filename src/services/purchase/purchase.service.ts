@@ -5,6 +5,7 @@ import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, PurchaseStatus, QuantityUnit, UserRole } from "@prisma/client";
 import { createPurchaseSchema, updatePurchaseSchema } from "@/validators/purchase.validator";
+import { reconcileInventory } from "@/services/sale/sale.service";
 
 export interface CreatePurchaseInput {
   businessId: string;
@@ -12,6 +13,8 @@ export interface CreatePurchaseInput {
   productType: string;
   quantity: number | string;
   quantityUnit?: QuantityUnit | "GRAM" | "PIECE" | "GRAMS" | "PIECES";
+  totalPurchaseAmount?: number | string;
+  baseAcquisitionValue?: number | string;
   baseAmount?: number | string;
   basePricePerUnitAED?: number | string | null;
   basePricePerGm?: number | string | null;
@@ -32,6 +35,8 @@ export interface UpdatePurchaseInput {
   quantity?: number | string;
   quantityUnit?: QuantityUnit | "GRAM" | "PIECE" | "GRAMS" | "PIECES";
   quantityGms?: number | null;
+  totalPurchaseAmount?: number | string;
+  baseAcquisitionValue?: number | string;
   baseAmount?: number | string;
   basePricePerUnitAED?: number | string | null;
   basePricePerGm?: number | string | null;
@@ -142,26 +147,30 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
   const quantityGms =
     validated.quantityUnit === QuantityUnit.GRAM ? quantityDecimal : null;
 
-  // 6. Base Amount & Authoritative Total Purchase Amount Calculation (quantity × baseAmount)
-  const effectiveBase = validated.baseAmount ?? validated.basePricePerUnitAED ?? validated.basePricePerGm;
+  // 6. Total Purchase Amount & Authoritative Base Amount Calculation (totalPurchaseAmount ÷ quantity)
+  const inputTotal = validated.totalPurchaseAmount ?? validated.baseAcquisitionValue;
   if (
-    effectiveBase === undefined ||
-    effectiveBase === null ||
-    isNaN(Number(effectiveBase)) ||
-    Number(effectiveBase) <= 0
+    inputTotal === undefined ||
+    inputTotal === null ||
+    isNaN(Number(inputTotal)) ||
+    Number(inputTotal) <= 0
   ) {
-    throw new AuthError("Base amount must be a positive number greater than 0", 400);
+    throw new AuthError("Total purchase amount must be a positive number greater than 0", 400);
   }
 
-  const baseAmountDecimal = new Prisma.Decimal(effectiveBase);
-  // Authoritative server-side calculation: totalPurchaseAmount = quantity × baseAmount
-  const baseAcquisitionValueDecimal = quantityDecimal
-    .mul(baseAmountDecimal)
-    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  const baseAcquisitionValueDecimal = new Prisma.Decimal(inputTotal).toDecimalPlaces(
+    2,
+    Prisma.Decimal.ROUND_HALF_UP
+  );
 
-  const basePricePerUnitAEDDecimal = baseAmountDecimal;
+  // Authoritative server-side calculation: Base Amount = Total Purchase Amount / Quantity
+  // Precision: 4 decimal places for base price
+  const basePricePerUnitAEDDecimal = baseAcquisitionValueDecimal
+    .div(quantityDecimal)
+    .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+
   const basePricePerGmDecimal =
-    validated.quantityUnit === QuantityUnit.GRAM ? baseAmountDecimal : null;
+    validated.quantityUnit === QuantityUnit.GRAM ? basePricePerUnitAEDDecimal : null;
 
   const tifDecimal = new Prisma.Decimal(input.transitInsuranceFreight ?? 0);
   const vhlDecimal = new Prisma.Decimal(input.vaultHandlingLabour ?? 0);
@@ -215,6 +224,9 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
     },
   });
 
+  // 9. Reconcile Inventory
+  await reconcileInventory(prisma, purchase.businessId, purchase.productType, purchase.quantityUnit);
+
   return purchase;
 }
 
@@ -242,16 +254,27 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
   const quantityGms =
     newQuantityUnit === QuantityUnit.GRAM ? newQuantity : null;
 
-  // Determine base amount
-  const inputBase = validated.baseAmount ?? validated.basePricePerUnitAED ?? validated.basePricePerGm;
-  let effectiveBaseDecimal: Prisma.Decimal | null = null;
+  // Determine Total Purchase Amount
+  const inputTotal = validated.totalPurchaseAmount ?? validated.baseAcquisitionValue;
+  let baseAcquisitionValue: Prisma.Decimal | null = null;
+  let basePricePerUnitAED: Prisma.Decimal | null = null;
+  let basePricePerGm: Prisma.Decimal | null = null;
 
-  if (inputBase !== undefined && inputBase !== null) {
-    effectiveBaseDecimal = new Prisma.Decimal(inputBase);
-  } else if (existing.basePricePerUnitAED !== null) {
-    effectiveBaseDecimal = new Prisma.Decimal(existing.basePricePerUnitAED);
-  } else if (existing.basePricePerGm !== null) {
-    effectiveBaseDecimal = new Prisma.Decimal(existing.basePricePerGm);
+  if (inputTotal !== undefined && inputTotal !== null) {
+    baseAcquisitionValue = new Prisma.Decimal(inputTotal).toDecimalPlaces(
+      2,
+      Prisma.Decimal.ROUND_HALF_UP
+    );
+  } else if (existing.baseAcquisitionValue !== null) {
+    baseAcquisitionValue = new Prisma.Decimal(existing.baseAcquisitionValue);
+  }
+
+  if (baseAcquisitionValue !== null && !newQuantity.isZero()) {
+    // Authoritative calculation: Base Amount = Total Purchase Amount / Quantity
+    basePricePerUnitAED = baseAcquisitionValue
+      .div(newQuantity)
+      .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+    basePricePerGm = newQuantityUnit === QuantityUnit.GRAM ? basePricePerUnitAED : null;
   }
 
   const tif =
@@ -275,18 +298,8 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
       ? new Prisma.Decimal(existing.customsSecurity)
       : new Prisma.Decimal(0);
 
-  let baseAcquisitionValue: Prisma.Decimal | null = null;
   let totalLandedCost: Prisma.Decimal | null = null;
-  let basePricePerGm: Prisma.Decimal | null = null;
-  let basePricePerUnitAED: Prisma.Decimal | null = null;
-
-  if (effectiveBaseDecimal !== null) {
-    basePricePerUnitAED = effectiveBaseDecimal;
-    basePricePerGm = newQuantityUnit === QuantityUnit.GRAM ? effectiveBaseDecimal : null;
-    // Authoritative calculation: quantity × baseAmount
-    baseAcquisitionValue = newQuantity
-      .mul(effectiveBaseDecimal)
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  if (baseAcquisitionValue !== null) {
     totalLandedCost = baseAcquisitionValue
       .add(tif)
       .add(vhl)
@@ -334,6 +347,15 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
     },
   });
 
+  await reconcileInventory(prisma, updated.businessId, updated.productType, updated.quantityUnit);
+  if (
+    existing.businessId !== updated.businessId ||
+    existing.productType !== updated.productType ||
+    existing.quantityUnit !== updated.quantityUnit
+  ) {
+    await reconcileInventory(prisma, existing.businessId, existing.productType, existing.quantityUnit);
+  }
+
   return updated;
 }
 
@@ -356,11 +378,17 @@ export async function clearPurchase(session: SessionPayload, purchaseId: string)
 }
 
 export async function deletePurchase(session: SessionPayload, purchaseId: string) {
-  await requireResourceAccess("Purchase", purchaseId, "DELETE");
+  const { resource: existing } = await requireResourceAccess<Prisma.PurchaseGetPayload<Record<string, never>>>(
+    "Purchase",
+    purchaseId,
+    "DELETE"
+  );
 
   const deleted = await prisma.purchase.delete({
     where: { id: purchaseId },
   });
+
+  await reconcileInventory(prisma, existing.businessId, existing.productType, existing.quantityUnit);
 
   await logAuditEvent({
     userId: session.userId,

@@ -40,6 +40,14 @@ export const createPurchaseSchema = z
         }
         return QuantityUnit.GRAM;
       }),
+    totalPurchaseAmount: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    baseAcquisitionValue: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
     baseAmount: z
       .union([z.number(), z.string()])
       .optional()
@@ -77,18 +85,18 @@ export const createPurchaseSchema = z
       }
     }
 
-    // Base amount validation (required and positive)
-    const effectiveBase = data.baseAmount ?? data.basePricePerUnitAED ?? data.basePricePerGm;
+    // Total Purchase Amount validation (required and positive)
+    const effectiveTotal = data.totalPurchaseAmount ?? data.baseAcquisitionValue;
     if (
-      effectiveBase === undefined ||
-      effectiveBase === null ||
-      isNaN(effectiveBase) ||
-      effectiveBase <= 0
+      effectiveTotal === undefined ||
+      effectiveTotal === null ||
+      isNaN(effectiveTotal) ||
+      effectiveTotal <= 0
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Base amount is required and must be a positive number greater than 0",
-        path: ["baseAmount"],
+        message: "Total purchase amount is required and must be a positive number greater than 0",
+        path: ["totalPurchaseAmount"],
       });
     }
   });
@@ -134,6 +142,14 @@ export const updatePurchaseSchema = z
         return QuantityUnit.GRAM;
       })
       .optional(),
+    totalPurchaseAmount: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
+    baseAcquisitionValue: z
+      .union([z.number(), z.string()])
+      .optional()
+      .transform((val) => (val !== undefined && typeof val === "string" ? parseFloat(val) : val)),
     baseAmount: z
       .union([z.number(), z.string()])
       .optional()
@@ -173,14 +189,14 @@ export const updatePurchaseSchema = z
       }
     }
 
-    // Base amount validation if provided
-    const providedBase = data.baseAmount ?? data.basePricePerUnitAED ?? data.basePricePerGm;
-    if (providedBase !== undefined) {
-      if (providedBase === null || isNaN(providedBase) || providedBase <= 0) {
+    // Total Purchase Amount validation if provided
+    const providedTotal = data.totalPurchaseAmount ?? data.baseAcquisitionValue;
+    if (providedTotal !== undefined) {
+      if (providedTotal === null || isNaN(providedTotal) || providedTotal <= 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Base amount must be a positive number greater than 0",
-          path: ["baseAmount"],
+          message: "Total purchase amount must be a positive number greater than 0",
+          path: ["totalPurchaseAmount"],
         });
       }
     }

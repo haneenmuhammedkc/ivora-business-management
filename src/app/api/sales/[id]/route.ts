@@ -54,6 +54,9 @@ export async function PATCH(
       if (error.message.includes("immutable") || error.message.includes("finalized") || error.message.includes("locked")) {
         return lockedResourceResponse(error.message);
       }
+      if (error.statusCode === 400) {
+        return NextResponse.json({ success: false, error: "BAD_REQUEST", message: error.message }, { status: 400 });
+      }
       return error.statusCode === 401
         ? unauthorizedResponse(error.message)
         : forbiddenErrorResponse(error.message);

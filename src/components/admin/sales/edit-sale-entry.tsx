@@ -15,51 +15,57 @@ interface BusinessOption {
   createdAt: string;
 }
 
-function getTodayString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+interface EditSaleEntryProps {
+  saleId: string;
 }
 
-export function NewSaleEntry() {
+export function EditSaleEntry({ saleId }: EditSaleEntryProps) {
   const router = useRouter();
 
-  // Businesses state
-  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  // Loading states
+  const [loadingSale, setLoadingSale] = useState(true);
   const [loadingBusinesses, setLoadingBusinesses] = useState(true);
-  const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
-  const businessDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Available products state for selected business
-  const [availableProducts, setAvailableProducts] = useState<AvailableProductItem[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+
+  // Businesses & Products
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  const [availableProducts, setAvailableProducts] = useState<AvailableProductItem[]>([]);
+  const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const businessDropdownRef = useRef<HTMLDivElement>(null);
   const productDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Original sale state
+  const [originalQty, setOriginalQty] = useState<number>(0);
+  const [saleCode, setSaleCode] = useState("");
 
   // Form inputs
   const [businessId, setBusinessId] = useState("");
-  const [saleDate, setSaleDate] = useState(getTodayString());
+  const [saleDate, setSaleDate] = useState("");
   const [productType, setProductType] = useState("");
   const [buyerFirm, setBuyerFirm] = useState("");
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
   const [totalSellingPriceINR, setTotalSellingPriceINR] = useState("");
   const [realizedFxRate, setRealizedFxRate] = useState("");
+  const [originalBasePrice, setOriginalBasePrice] = useState<number | null>(null);
 
-  // Submitting & status messages
+  // Status & error messages
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Find currently selected product object
+  // Active product
   const activeProduct = useMemo(() => {
     return availableProducts.find((p) => p.productType === productType) || null;
   }, [availableProducts, productType]);
 
-  // Derived available quantity
-  const availableQty = activeProduct ? activeProduct.remainingQuantity : 0;
+  // Derived effective available quantity (includes original quantity of this sale)
+  const effectiveAvailableQty = useMemo(() => {
+    const remaining = activeProduct ? activeProduct.remainingQuantity : 0;
+    return remaining + originalQty;
+  }, [activeProduct, originalQty]);
 
   // Sales Base Price = (Total Selling Price INR ÷ Realized FX Rate) ÷ Quantity
   // = AED Equivalent Realized ÷ Quantity
@@ -68,11 +74,12 @@ export function NewSaleEntry() {
     const inr = parseFloat(totalSellingPriceINR);
     const fx = parseFloat(realizedFxRate);
     if (isNaN(qty) || isNaN(inr) || isNaN(fx) || qty <= 0 || inr <= 0 || fx <= 0) {
+      if (originalBasePrice && originalBasePrice > 0) return originalBasePrice;
       return null;
     }
     const aedTotal = inr / fx;
     return aedTotal / qty;
-  }, [quantity, totalSellingPriceINR, realizedFxRate]);
+  }, [quantity, totalSellingPriceINR, realizedFxRate, originalBasePrice]);
 
   const displaySalesBasePrice = useMemo(() => {
     if (calculatedSalesBasePrice === null) return "—";
@@ -83,7 +90,7 @@ export function NewSaleEntry() {
     })} / ${unitSuffix}`;
   }, [calculatedSalesBasePrice, quantityUnit]);
 
-  // INR Realization Value is identical to Total Selling Price (INR)
+  // INR Realization display
   const displayInrRealization = useMemo(() => {
     const val = parseFloat(totalSellingPriceINR);
     if (isNaN(val) || val <= 0) return "—";
@@ -93,7 +100,7 @@ export function NewSaleEntry() {
     })}`;
   }, [totalSellingPriceINR]);
 
-  // AED Equivalent Realized = Total Selling Price INR ÷ FX Rate
+  // AED Equivalent display
   const displayAedEquivalent = useMemo(() => {
     const inr = parseFloat(totalSellingPriceINR);
     const fx = parseFloat(realizedFxRate);
@@ -116,18 +123,18 @@ export function NewSaleEntry() {
     if (quantityUnit === "PIECE" && !Number.isInteger(quantityNum)) {
       return "Quantity in PIECES must be a whole integer.";
     }
-    if (quantityNum > availableQty) {
+    if (quantityNum > effectiveAvailableQty) {
       const unitLabel = quantityUnit === "PIECE" ? "PCS" : "GMS";
-      return `Only ${availableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${quantityNum.toLocaleString()} ${unitLabel}.`;
+      return `Only ${effectiveAvailableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${quantityNum.toLocaleString()} ${unitLabel}.`;
     }
     return null;
-  }, [quantity, productType, quantityNum, quantityUnit, availableQty]);
+  }, [quantity, productType, quantityNum, quantityUnit, effectiveAvailableQty]);
 
   const isFormValid = useMemo(() => {
     if (!businessId || !saleDate || !productType || !buyerFirm.trim()) return false;
     if (isNaN(quantityNum) || quantityNum <= 0) return false;
     if (quantityUnit === "PIECE" && !Number.isInteger(quantityNum)) return false;
-    if (quantityNum > availableQty) return false;
+    if (quantityNum > effectiveAvailableQty) return false;
     const inr = parseFloat(totalSellingPriceINR);
     if (isNaN(inr) || inr <= 0) return false;
     const fx = parseFloat(realizedFxRate);
@@ -140,12 +147,12 @@ export function NewSaleEntry() {
     buyerFirm,
     quantityNum,
     quantityUnit,
-    availableQty,
+    effectiveAvailableQty,
     totalSellingPriceINR,
     realizedFxRate,
   ]);
 
-  // Close dropdowns on outside click or Escape
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -161,29 +168,17 @@ export function NewSaleEntry() {
         setIsProductDropdownOpen(false);
       }
     }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsBusinessDropdownOpen(false);
-        setIsProductDropdownOpen(false);
-      }
-    }
-
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 1. Load real businesses from DB, ordered createdAt DESC
+  // 1. Fetch businesses
   useEffect(() => {
     let isMounted = true;
     async function loadBusinesses() {
       try {
         setLoadingBusinesses(true);
         const res = await fetch("/api/businesses");
-        if (!res.ok) throw new Error(`Failed to load businesses (${res.status})`);
         const data = await res.json();
         if (isMounted && data.success && Array.isArray(data.businesses)) {
           const mapped: BusinessOption[] = data.businesses.map(
@@ -194,18 +189,15 @@ export function NewSaleEntry() {
               createdAt: b.createdAt || "",
             })
           );
-
-          // Strictly sort NEWEST -> OLDEST by createdAt timestamp
           mapped.sort((a, b) => {
             const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
             const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
             return timeB - timeA;
           });
-
           setBusinesses(mapped);
         }
       } catch (err) {
-        console.error("Error fetching businesses:", err);
+        console.error("Error loading businesses:", err);
       } finally {
         if (isMounted) setLoadingBusinesses(false);
       }
@@ -216,69 +208,102 @@ export function NewSaleEntry() {
     };
   }, []);
 
-  // 2. When business changes: reset product & quantity, fetch available products
+  // 2. Fetch sale details
+  useEffect(() => {
+    let isMounted = true;
+    async function loadSale() {
+      try {
+        setLoadingSale(true);
+        const res = await fetch(`/api/sales/${saleId}`);
+        const data = await res.json();
+        if (!res.ok || !data.success || !data.sale) {
+          throw new Error(data.message || "Failed to load sale details");
+        }
+
+        if (isMounted) {
+          const s = data.sale;
+          setSaleCode(s.saleCode);
+          setBusinessId(s.businessId);
+          setIsLocked(s.status === "CLEARED");
+          setProductType(s.productType);
+          setBuyerFirm(s.buyerFirm || "");
+          const qtyVal = Number(s.quantity || s.quantityGms || 0);
+          setOriginalQty(qtyVal);
+          setQuantity(String(qtyVal));
+          setQuantityUnit(s.quantityUnit || "GRAM");
+          setOriginalBasePrice(s.basePricePerUnitAED ? Number(s.basePricePerUnitAED) : null);
+
+          const d = s.saleDate ? new Date(s.saleDate) : new Date();
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          setSaleDate(`${y}-${m}-${day}`);
+
+          const priceVal = s.totalSellingPriceINR || s.inrRealizationValue || 0;
+          setTotalSellingPriceINR(String(priceVal));
+          setRealizedFxRate(String(s.realizedFxRate || ""));
+
+          // Fetch available products for this business
+          fetch(`/api/sales/available-products?businessId=${encodeURIComponent(s.businessId)}`)
+            .then((r) => r.json())
+            .then((prodData) => {
+              if (isMounted && prodData.success && Array.isArray(prodData.products)) {
+                setAvailableProducts(prodData.products);
+              }
+            })
+            .catch((err) => console.error("Error loading products:", err));
+        }
+      } catch (err: unknown) {
+        console.error("Error loading sale:", err);
+        const msg = err instanceof Error ? err.message : "Failed to load sale";
+        setErrorMessage(msg);
+      } finally {
+        if (isMounted) setLoadingSale(false);
+      }
+    }
+    loadSale();
+    return () => {
+      isMounted = false;
+    };
+  }, [saleId]);
+
+  // Handle business change
   const handleBusinessSelect = async (bId: string) => {
+    if (isLocked) return;
     setBusinessId(bId);
     setIsBusinessDropdownOpen(false);
     setProductType("");
     setQuantity("");
     setTotalSellingPriceINR("");
     setRealizedFxRate("");
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    if (!bId) {
-      setAvailableProducts([]);
-      return;
-    }
 
     try {
       setLoadingProducts(true);
       const res = await fetch(`/api/sales/available-products?businessId=${encodeURIComponent(bId)}`);
-      if (!res.ok) throw new Error(`Failed to load available products (${res.status})`);
       const data = await res.json();
       if (data.success && Array.isArray(data.products)) {
         setAvailableProducts(data.products);
-      } else {
-        setAvailableProducts([]);
       }
-    } catch (err) {
-      console.error("Error fetching available products:", err);
-      setAvailableProducts([]);
     } finally {
       setLoadingProducts(false);
     }
   };
 
-  // 3. When product changes: update unit & display available quantity
+  // Handle product change
   const handleProductSelect = (prod: AvailableProductItem) => {
+    if (isLocked) return;
     setProductType(prod.productType);
     setQuantityUnit(prod.quantityUnit);
     setQuantity("");
     setIsProductDropdownOpen(false);
-    setErrorMessage(null);
   };
 
-  // Form submission
+  // Handle submit update
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
     setErrorMessage(null);
     setSuccessMessage(null);
-
-    if (!businessId) {
-      setErrorMessage("Please select an Assigned Business Entity.");
-      return;
-    }
-
-    if (!saleDate) {
-      setErrorMessage("Please enter a valid Sale Date.");
-      return;
-    }
-
-    if (!productType) {
-      setErrorMessage("Please select an available Product Type.");
-      return;
-    }
 
     const trimmedBuyer = buyerFirm.trim();
     if (!trimmedBuyer) {
@@ -297,9 +322,9 @@ export function NewSaleEntry() {
       return;
     }
 
-    if (qtyNum > availableQty) {
+    if (qtyNum > effectiveAvailableQty) {
       const unitLabel = quantityUnit === "PIECE" ? "PCS" : "GMS";
-      setErrorMessage(`Only ${availableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${qtyNum.toLocaleString()} ${unitLabel}.`);
+      setErrorMessage(`Only ${effectiveAvailableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${qtyNum.toLocaleString()} ${unitLabel}.`);
       return;
     }
 
@@ -329,30 +354,37 @@ export function NewSaleEntry() {
         realizedFxRate: fxRateNum,
       };
 
-      const res = await fetch("/api/sales", {
-        method: "POST",
+      const res = await fetch(`/api/sales/${saleId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       const result = await res.json();
-
       if (!res.ok || !result.success) {
-        throw new Error(result.message || result.error || "Failed to record sale.");
+        throw new Error(result.message || result.error || "Failed to update sale.");
       }
 
-      setSuccessMessage("Sale successfully recorded and inventory updated.");
+      setSuccessMessage("Sale successfully updated.");
       setTimeout(() => {
         router.push("/sales");
       }, 700);
     } catch (err: unknown) {
-      console.error("Sale submission error:", err);
-      const msg = err instanceof Error ? err.message : "Failed to record sale.";
+      console.error("Sale update error:", err);
+      const msg = err instanceof Error ? err.message : "Failed to update sale.";
       setErrorMessage(msg);
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (loadingSale) {
+    return (
+      <div className="w-full rounded-xl border border-gray-200 bg-white p-12 text-center text-xs text-gray-500">
+        Loading sale details...
+      </div>
+    );
+  }
 
   const selectedBusinessObj = businesses.find((b) => b.id === businessId);
 
@@ -367,18 +399,25 @@ export function NewSaleEntry() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base sm:text-lg font-bold text-gray-950">
-                New Sale Entry
+                Edit Sale Entry
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 rounded uppercase">
-                ACTIVE
+              <span className="font-mono text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                {saleCode}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
-              Record physical liquidation against available inventory and realize proceeds.
+              Modify liquidation quantity and realization parameters.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Lock banner if CLEARED */}
+      {isLocked && (
+        <div className="p-3 text-xs rounded-lg border border-amber-300 bg-amber-50 text-amber-900 font-semibold flex items-center justify-between">
+          <span>🔒 This sale record has been CLEARED and finalized. Modifications are prohibited.</span>
+        </div>
+      )}
 
       {/* Notifications */}
       {errorMessage && (
@@ -408,54 +447,38 @@ export function NewSaleEntry() {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setIsBusinessDropdownOpen((prev) => !prev)}
-                  disabled={loadingBusinesses}
-                  className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-left text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black flex items-center justify-between transition-colors disabled:opacity-50"
+                  onClick={() => !isLocked && setIsBusinessDropdownOpen((prev) => !prev)}
+                  disabled={isLocked || loadingBusinesses}
+                  className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-left text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black flex items-center justify-between transition-colors disabled:opacity-50 disabled:bg-gray-50"
                 >
                   <span className="truncate">
-                    {loadingBusinesses
-                      ? "Loading businesses..."
-                      : selectedBusinessObj
+                    {selectedBusinessObj
                       ? `${selectedBusinessObj.name} (${selectedBusinessObj.code})`
-                      : "Select an assigned business..."}
+                      : "Select business..."}
                   </span>
-                  <ChevronDownIcon
-                    size={16}
-                    className={`text-gray-500 transition-transform ${
-                      isBusinessDropdownOpen ? "rotate-180" : ""
-                    }`}
-                  />
+                  <ChevronDownIcon size={16} className="text-gray-500" />
                 </button>
 
                 {isBusinessDropdownOpen && (
                   <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-56 overflow-y-auto overscroll-contain py-1">
-                    {businesses.length === 0 ? (
-                      <div className="px-3.5 py-2 text-xs text-gray-400">
-                        No businesses found
-                      </div>
-                    ) : (
-                      businesses.map((b) => {
-                        const isSelected = b.id === businessId;
-                        return (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => handleBusinessSelect(b.id)}
-                            className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between hover:bg-gray-50 transition-colors ${
-                              isSelected ? "bg-gray-50 font-bold text-gray-950" : "text-gray-700"
-                            }`}
-                          >
-                            <div className="flex flex-col truncate">
-                              <span className="truncate font-semibold">{b.name}</span>
-                              <span className="text-[10px] text-gray-400 font-mono">
-                                {b.code}
-                              </span>
-                            </div>
-                            {isSelected && <CheckIcon size={14} className="text-black shrink-0" />}
-                          </button>
-                        );
-                      })
-                    )}
+                    {businesses.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => handleBusinessSelect(b.id)}
+                        className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between hover:bg-gray-50 ${
+                          b.id === businessId ? "bg-gray-50 font-bold" : "text-gray-700"
+                        }`}
+                      >
+                        <div className="flex flex-col truncate">
+                          <span className="truncate font-semibold">{b.name}</span>
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            {b.code}
+                          </span>
+                        </div>
+                        {b.id === businessId && <CheckIcon size={14} className="text-black shrink-0" />}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -468,13 +491,14 @@ export function NewSaleEntry() {
                 type="date"
                 value={saleDate}
                 onChange={(e) => setSaleDate(e.target.value)}
+                disabled={isLocked}
                 required
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Product Type (Filtered to purchased products with stock > 0) */}
+            {/* Product Type */}
             <div className="space-y-1.5" ref={productDropdownRef}>
               <label className="block text-xs font-semibold text-gray-700">
                 Product Type <span className="text-red-500">*</span>
@@ -482,67 +506,48 @@ export function NewSaleEntry() {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setIsProductDropdownOpen((prev) => !prev)}
-                  disabled={!businessId || loadingProducts}
-                  className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-left text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black flex items-center justify-between transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => !isLocked && setIsProductDropdownOpen((prev) => !prev)}
+                  disabled={isLocked || !businessId || loadingProducts}
+                  className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-left text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black flex items-center justify-between transition-colors disabled:opacity-50 disabled:bg-gray-50"
                 >
-                  <span className="truncate">
-                    {!businessId
-                      ? "Select a business first"
-                      : loadingProducts
-                      ? "Loading available products..."
-                      : productType || "Select a product with available stock..."}
-                  </span>
-                  <ChevronDownIcon
-                    size={16}
-                    className={`text-gray-500 transition-transform ${
-                      isProductDropdownOpen ? "rotate-180" : ""
-                    }`}
-                  />
+                  <span className="truncate">{productType || "Select a product..."}</span>
+                  <ChevronDownIcon size={16} className="text-gray-500" />
                 </button>
 
                 {isProductDropdownOpen && (
                   <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-56 overflow-y-auto overscroll-contain py-1">
-                    {availableProducts.length === 0 ? (
-                      <div className="px-3.5 py-2 text-xs text-gray-400">
-                        No products with available inventory found for this business.
-                      </div>
-                    ) : (
-                      availableProducts.map((p) => {
-                        const isSelected = p.productType === productType;
-                        const unitStr = p.quantityUnit === "PIECE" ? "PCS" : "GMS";
-                        return (
-                          <button
-                            key={p.productType}
-                            type="button"
-                            onClick={() => handleProductSelect(p)}
-                            className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between hover:bg-gray-50 transition-colors ${
-                              isSelected ? "bg-gray-50 font-bold text-gray-950" : "text-gray-700"
-                            }`}
-                          >
-                            <div className="flex flex-col truncate">
-                              <span className="truncate font-semibold">{p.productType}</span>
-                              <span className="text-[10px] text-emerald-600 font-mono">
-                                Available: {p.remainingQuantity.toLocaleString()} {unitStr}
-                              </span>
-                            </div>
-                            {isSelected && <CheckIcon size={14} className="text-black shrink-0" />}
-                          </button>
-                        );
-                      })
-                    )}
+                    {availableProducts.map((p) => (
+                      <button
+                        key={p.productType}
+                        type="button"
+                        onClick={() => handleProductSelect(p)}
+                        className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between hover:bg-gray-50 ${
+                          p.productType === productType ? "bg-gray-50 font-bold" : "text-gray-700"
+                        }`}
+                      >
+                        <div className="flex flex-col truncate">
+                          <span className="truncate font-semibold">{p.productType}</span>
+                          <span className="text-[10px] text-emerald-600 font-mono">
+                            Available: {p.remainingQuantity.toLocaleString()} {p.quantityUnit === "PIECE" ? "PCS" : "GMS"}
+                          </span>
+                        </div>
+                        {p.productType === productType && (
+                          <CheckIcon size={14} className="text-black shrink-0" />
+                        )}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Buyer / Clearing Firm */}
+            {/* Buyer Firm */}
             <div>
               <Input
                 label="Buyer / Clearing Firm"
-                placeholder="e.g. Surat & Zaveri Diamond & Bullion House"
                 value={buyerFirm}
                 onChange={(e) => setBuyerFirm(e.target.value)}
+                disabled={isLocked}
                 required
               />
             </div>
@@ -556,7 +561,6 @@ export function NewSaleEntry() {
           </span>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-            {/* Quantity Input + Unit Indicator */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
                 Quantity ({quantityUnit === "PIECE" ? "PIECES" : "GRAMS"}){" "}
@@ -566,13 +570,13 @@ export function NewSaleEntry() {
                 <input
                   type="number"
                   step={quantityUnit === "PIECE" ? "1" : "0.001"}
-                  placeholder={quantityUnit === "PIECE" ? "e.g. 80" : "e.g. 1000.000"}
                   value={quantity}
                   onChange={(e) => {
                     setQuantity(e.target.value);
                     setErrorMessage(null);
                   }}
-                  className={`w-full h-10 px-3.5 rounded-lg border bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 transition-colors ${
+                  disabled={isLocked}
+                  className={`w-full h-10 px-3.5 rounded-lg border bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 transition-colors disabled:bg-gray-50 ${
                     quantityValidationError
                       ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
                       : "border-gray-300 focus:border-black focus:ring-black/10"
@@ -590,7 +594,6 @@ export function NewSaleEntry() {
               )}
             </div>
 
-            {/* Available Quantity Display Tile */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
                 Available Stock
@@ -599,7 +602,7 @@ export function NewSaleEntry() {
                 <span className="text-neutral-500 font-medium">Remaining:</span>
                 <span className="font-mono font-bold text-emerald-700">
                   {productType
-                    ? `${availableQty.toLocaleString()} ${
+                    ? `${effectiveAvailableQty.toLocaleString()} ${
                         quantityUnit === "PIECE" ? "PCS" : "GMS"
                       }`
                     : "—"}
@@ -616,7 +619,6 @@ export function NewSaleEntry() {
           </span>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-            {/* Total Selling Price (INR) - USER ENTERS */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
                 Total Selling Price (INR) <span className="text-red-500">*</span>
@@ -628,19 +630,18 @@ export function NewSaleEntry() {
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="e.g. 3200000.00"
                   value={totalSellingPriceINR}
                   onChange={(e) => {
                     setTotalSellingPriceINR(e.target.value);
                     setErrorMessage(null);
                   }}
-                  className="w-full h-10 pl-8 pr-3.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors"
+                  disabled={isLocked}
+                  className="w-full h-10 pl-8 pr-3.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors disabled:bg-gray-50"
                   required
                 />
               </div>
             </div>
 
-            {/* Base Price - READ ONLY (Sales Selling Price Per Unit: INR / FX / Qty) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold text-gray-700">
@@ -657,7 +658,6 @@ export function NewSaleEntry() {
               </div>
             </div>
 
-            {/* INR Realization Value - READ ONLY (= Total Selling Price INR) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold text-gray-700">
@@ -683,7 +683,6 @@ export function NewSaleEntry() {
           </span>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-            {/* Realized FX Rate (₹ / AED) - USER ENTERS */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
                 Realized FX Rate (₹ / AED) <span className="text-red-500">*</span>
@@ -691,18 +690,17 @@ export function NewSaleEntry() {
               <input
                 type="number"
                 step="0.0001"
-                placeholder="e.g. 22.7400"
                 value={realizedFxRate}
                 onChange={(e) => {
                   setRealizedFxRate(e.target.value);
                   setErrorMessage(null);
                 }}
-                className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors"
+                disabled={isLocked}
+                className="w-full h-10 px-3.5 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition-colors disabled:bg-gray-50"
                 required
               />
             </div>
 
-            {/* AED Equivalent Realized - READ ONLY */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold text-gray-700">
@@ -725,12 +723,14 @@ export function NewSaleEntry() {
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
           <Link href="/sales">
             <Button type="button" variant="outline" disabled={submitting}>
-              Cancel
+              Back to Sales
             </Button>
           </Link>
-          <Button type="submit" disabled={submitting || !isFormValid}>
-            {submitting ? "Saving..." : "Save & Confirm Sale"}
-          </Button>
+          {!isLocked && (
+            <Button type="submit" disabled={submitting || !isFormValid}>
+              {submitting ? "Updating..." : "Update Sale"}
+            </Button>
+          )}
         </div>
       </form>
     </div>
