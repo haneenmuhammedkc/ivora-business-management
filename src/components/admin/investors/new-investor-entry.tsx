@@ -6,6 +6,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckIcon, InvestorsIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  validateCreateInvestor,
+  validateInvestorName,
+  validateInvestorEmail,
+  validateInvestmentAmount,
+  InvestorValidationErrors,
+} from "@/validators";
 
 interface BusinessData {
   id: string;
@@ -32,6 +39,7 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
   const [email, setEmail] = useState("");
   const [investmentAmount, setInvestmentAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<InvestorValidationErrors>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Fetch businesses to identify the selected business entity and its totalInvestmentAED
@@ -74,8 +82,12 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
   // Live equity calculation:
   // Investor Equity % = (Investor Investment Capital / Business.totalInvestmentAED) * 100
   const calculatedEquity = useMemo(() => {
-    const investNum = parseFloat(investmentAmount);
-    if (isNaN(investNum) || investNum <= 0 || totalInvestmentBase <= 0) {
+    const rawStr = investmentAmount.trim();
+    if (!rawStr || !/^\d+(\.\d+)?$/.test(rawStr)) {
+      return "0.00%";
+    }
+    const investNum = Number(rawStr);
+    if (isNaN(investNum) || !isFinite(investNum) || investNum <= 0 || totalInvestmentBase <= 0) {
       return "0.00%";
     }
     const ratio = (investNum / totalInvestmentBase) * 100;
@@ -85,51 +97,124 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     return `${ratio.toFixed(2)}%`;
   }, [investmentAmount, totalInvestmentBase]);
 
+  /**
+   * Helper to scroll and focus to the first invalid field.
+   */
+  const focusFirstError = (validationErrors: InvestorValidationErrors) => {
+    const errorKeys = Object.keys(validationErrors);
+    if (errorKeys.length === 0) return;
+
+    const elementIdMap: Record<string, string> = {
+      name: "investorName",
+      email: "contactEmail",
+      investmentAmount: "investmentCapital",
+    };
+
+    for (const key of errorKeys) {
+      const targetId = elementIdMap[key];
+      if (targetId) {
+        const el = document.getElementById(targetId);
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
+      }
+    }
+  };
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (errors.name) {
+      const err = validateInvestorName(val);
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (err) next.name = err;
+        else delete next.name;
+        return next;
+      });
+    }
+  };
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (errors.email) {
+      const err = validateInvestorEmail(val);
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (err) next.email = err;
+        else delete next.email;
+        return next;
+      });
+    }
+  };
+
+  const handleInvestmentChange = (val: string) => {
+    setInvestmentAmount(val);
+    if (errors.investmentAmount) {
+      const err = validateInvestmentAmount(val);
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (err) next.investmentAmount = err;
+        else delete next.investmentAmount;
+        return next;
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
     if (!selectedBusiness) {
+      setErrors((prev) => ({
+        ...prev,
+        businessId: "No valid business entity selected. Please select a business first.",
+      }));
       setErrorMessage("No valid business entity selected. Please select a business first.");
       return;
     }
 
-    if (!name.trim()) {
-      setErrorMessage("Please provide the investor's name.");
+    const validationResult = validateCreateInvestor({
+      name,
+      email,
+      businessId: selectedBusiness.id,
+      investmentCapitalAED: investmentAmount,
+    });
+
+    if (!validationResult.isValid || !validationResult.data) {
+      setErrors(validationResult.errors);
+      focusFirstError(validationResult.errors);
       return;
     }
 
-    const investVal = parseFloat(investmentAmount);
-    if (isNaN(investVal) || investVal <= 0) {
-      setErrorMessage("Please enter a valid investment capital amount greater than 0.");
-      return;
-    }
+    setErrors({});
+    setIsSubmitting(true);
 
     try {
-      setIsSubmitting(true);
       const res = await fetch("/api/investors", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim() || undefined,
-          businessId: selectedBusiness.id,
-          investmentCapitalAED: investVal,
-        }),
+        body: JSON.stringify(validationResult.data),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || data.error || "Failed to register investor.");
-      }
+      const data = await res.json().catch(() => ({}));
 
-      router.push(`/investors/business/${encodeURIComponent(selectedBusiness.id)}`);
-      router.refresh();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to register investor";
-      setErrorMessage(msg);
+      if (res.ok && data.success) {
+        router.push(`/investors/business/${encodeURIComponent(selectedBusiness.id)}`);
+        router.refresh();
+      } else {
+        if (data.errors && typeof data.errors === "object") {
+          setErrors(data.errors);
+          focusFirstError(data.errors);
+        }
+        const msg = data.message || data.error || "Failed to register investor.";
+        setErrorMessage(msg);
+      }
+    } catch {
+      setErrorMessage("A network error occurred while registering the investor. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -160,12 +245,13 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
       </div>
 
       {errorMessage && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-medium">
-          {errorMessage}
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700 font-medium flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wider text-[11px] text-red-800">Error:</span>
+          <span>{errorMessage}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} noValidate className="space-y-6">
         {/* 01. INVESTOR PROFILE */}
         <div className="space-y-3.5">
           <div className="flex items-center justify-between">
@@ -179,18 +265,23 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
+              id="investorName"
               label="Investor Name"
               placeholder="e.g. Test External Investor / Alpha Capital"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => handleNameChange(e.target.value)}
+              error={errors.name}
               required
             />
             <Input
+              id="contactEmail"
               label="Contact Email"
               type="email"
               placeholder="e.g. investor@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => handleEmailChange(e.target.value)}
+              error={errors.email}
+              helperText="Optional: used for contract and distribution communications."
             />
           </div>
         </div>
@@ -206,7 +297,11 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
             <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
               Assigned Business Entity
             </label>
-            <div className="w-full rounded-md border border-gray-200 bg-gray-50/80 px-3.5 py-2.5 text-xs text-gray-900 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div
+              className={`w-full rounded-md border bg-gray-50/80 px-3.5 py-2.5 text-xs text-gray-900 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${
+                errors.businessId ? "border-red-500" : "border-gray-200"
+              }`}
+            >
               {isLoadingBusinesses ? (
                 <span className="text-gray-400">Loading business information...</span>
               ) : selectedBusiness ? (
@@ -232,21 +327,27 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-gray-500 mt-1">
-              Assigned from your selected business context (read-only).
-            </p>
+            {errors.businessId ? (
+              <p className="mt-1 text-[11px] text-red-600 font-medium">{errors.businessId}</p>
+            ) : (
+              <p className="text-[11px] text-gray-500 mt-1">
+                Assigned from your selected business context (read-only).
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
             {/* Investment Capital (AED) - Editable */}
             <Input
+              id="investmentCapital"
               label="Investment Capital (AED)"
               type="number"
               step="any"
               min="1"
               placeholder="e.g. 25000"
               value={investmentAmount}
-              onChange={(e) => setInvestmentAmount(e.target.value)}
+              onChange={(e) => handleInvestmentChange(e.target.value)}
+              error={errors.investmentAmount}
               className="text-right font-semibold"
               required
             />

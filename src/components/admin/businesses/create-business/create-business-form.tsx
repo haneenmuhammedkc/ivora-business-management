@@ -7,6 +7,17 @@ import { PlusIcon, CheckIcon, ArrowRightIcon } from "@/components/ui/icons";
 import { BusinessDetailsSection } from "./business-details-section";
 import { BusinessPartnerSection } from "./business-partner-section";
 import { InitialContributionsSection } from "./initial-contributions-section";
+import {
+  validateCreateBusiness,
+  validateBusinessName,
+  validateBusinessType,
+  validateBusinessDescription,
+  validatePartnerId,
+  validateTotalInvestment,
+  validateAdminInvestment,
+  validatePartnerInvestment,
+  BusinessValidationErrors,
+} from "@/validators";
 
 interface CreatedBusinessInfo {
   id: string;
@@ -37,13 +48,13 @@ export function CreateBusinessForm() {
   const [partnersError, setPartnersError] = useState<string | null>(null);
 
   // Validation & Submission states
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<BusinessValidationErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [createdBusiness, setCreatedBusiness] = useState<CreatedBusinessInfo | null>(null);
 
-  // Manual retry handler
+  // Manual retry handler for partner options
   const handleRetryPartners = () => {
     setIsLoadingPartners(true);
     setPartnersError(null);
@@ -113,50 +124,199 @@ export function CreateBusinessForm() {
     };
   }, []);
 
-  // Form validation
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
+  /**
+   * Helper to revalidate financial fields (total, admin, partner) and cross-field contribution sum.
+   */
+  const revalidateFinancials = (
+    newTotal: string,
+    newAdmin: string,
+    newPartner: string,
+    changedField?: "totalInvestment" | "adminInvestment" | "partnerInvestment"
+  ) => {
+    setErrors((prev) => {
+      const next = { ...prev };
 
-    if (!businessName.trim()) {
-      newErrors.businessName = "Business name is required.";
+      // Total investment validation
+      const totalErr = validateTotalInvestment(newTotal);
+      if (changedField === "totalInvestment" || prev.totalInvestment) {
+        if (totalErr) next.totalInvestment = totalErr;
+        else delete next.totalInvestment;
+      }
+
+      const parsedTotal = totalErr ? undefined : Number(newTotal) || 0;
+
+      // Admin investment validation
+      const adminErr = validateAdminInvestment(newAdmin, parsedTotal);
+      if (changedField === "adminInvestment" || prev.adminInvestment) {
+        if (adminErr) next.adminInvestment = adminErr;
+        else delete next.adminInvestment;
+      }
+
+      // Partner investment validation
+      const partnerErr = validatePartnerInvestment(newPartner, parsedTotal);
+      if (changedField === "partnerInvestment" || prev.partnerInvestment) {
+        if (partnerErr) next.partnerInvestment = partnerErr;
+        else delete next.partnerInvestment;
+      }
+
+      // Cross-field sum check
+      if (
+        !totalErr &&
+        !adminErr &&
+        !partnerErr &&
+        parsedTotal !== undefined &&
+        parsedTotal > 0
+      ) {
+        const adminNum = newAdmin ? Number(newAdmin) || 0 : 0;
+        const partnerNum = newPartner ? Number(newPartner) || 0 : 0;
+        const sum = Math.round((adminNum + partnerNum) * 100) / 100;
+        const total = Math.round(parsedTotal * 100) / 100;
+
+        if (sum > total) {
+          next.adminInvestment =
+            "Sum of admin and partner investments cannot exceed total investment.";
+          next.partnerInvestment =
+            "Sum of admin and partner investments cannot exceed total investment.";
+        } else {
+          // Clear cross-field errors if they were previously set
+          if (
+            next.adminInvestment ===
+            "Sum of admin and partner investments cannot exceed total investment."
+          ) {
+            delete next.adminInvestment;
+          }
+          if (
+            next.partnerInvestment ===
+            "Sum of admin and partner investments cannot exceed total investment."
+          ) {
+            delete next.partnerInvestment;
+          }
+        }
+      }
+
+      return next;
+    });
+  };
+
+  const handleFieldChange = (
+    field:
+      | "businessName"
+      | "businessType"
+      | "totalInvestment"
+      | "description"
+      | "partnerId"
+      | "adminInvestment"
+      | "partnerInvestment",
+    value: string
+  ) => {
+    if (field === "businessName") {
+      setBusinessName(value);
+      if (errors.businessName) {
+        const err = validateBusinessName(value);
+        setErrors((prev) => {
+          const next = { ...prev };
+          if (err) next.businessName = err;
+          else delete next.businessName;
+          return next;
+        });
+      }
+    } else if (field === "businessType") {
+      setBusinessType(value);
+      if (errors.businessType) {
+        const err = validateBusinessType(value);
+        setErrors((prev) => {
+          const next = { ...prev };
+          if (err) next.businessType = err;
+          else delete next.businessType;
+          return next;
+        });
+      }
+    } else if (field === "description") {
+      setDescription(value);
+      if (errors.description) {
+        const err = validateBusinessDescription(value);
+        setErrors((prev) => {
+          const next = { ...prev };
+          if (err) next.description = err;
+          else delete next.description;
+          return next;
+        });
+      }
+    } else if (field === "partnerId") {
+      setPartnerId(value);
+      if (errors.partnerId) {
+        const err = validatePartnerId(value);
+        setErrors((prev) => {
+          const next = { ...prev };
+          if (err) next.partnerId = err;
+          else delete next.partnerId;
+          return next;
+        });
+      }
+    } else if (field === "totalInvestment") {
+      setTotalInvestment(value);
+      revalidateFinancials(value, adminInvestment, partnerInvestment, "totalInvestment");
+    } else if (field === "adminInvestment") {
+      setAdminInvestment(value);
+      revalidateFinancials(totalInvestment, value, partnerInvestment, "adminInvestment");
+    } else if (field === "partnerInvestment") {
+      setPartnerInvestment(value);
+      revalidateFinancials(totalInvestment, adminInvestment, value, "partnerInvestment");
     }
+  };
 
-    if (!businessType.trim()) {
-      newErrors.businessType = "Business type is required.";
-    }
+  /**
+   * Helper to scroll and focus to the first invalid field.
+   */
+  const focusFirstError = (validationErrors: BusinessValidationErrors) => {
+    const errorKeys = Object.keys(validationErrors);
+    if (errorKeys.length === 0) return;
 
-    const investmentNum = parseFloat(totalInvestment);
-    if (!totalInvestment || isNaN(investmentNum) || investmentNum <= 0) {
-      newErrors.totalInvestment = "Please enter a valid total investment amount.";
-    }
+    const elementIdMap: Record<string, string> = {
+      businessName: "businessName",
+      businessType: "businessType",
+      totalInvestment: "totalInvestment",
+      partnerId: "partnerSelect",
+      adminInvestment: "adminInvestment",
+      partnerInvestment: "partnerInvestment",
+      description: "businessDescription",
+    };
 
-    if (!partnerId) {
-      newErrors.partnerId = "Please select a partner.";
-    }
-
-    if (adminInvestment) {
-      const adminNum = parseFloat(adminInvestment);
-      if (isNaN(adminNum) || adminNum < 0) {
-        newErrors.adminInvestment = "Please enter a valid amount.";
+    for (const key of errorKeys) {
+      const targetId = elementIdMap[key];
+      if (targetId) {
+        const el = document.getElementById(targetId);
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
       }
     }
-
-    if (partnerInvestment) {
-      const partnerNum = parseFloat(partnerInvestment);
-      if (isNaN(partnerNum) || partnerNum < 0) {
-        newErrors.partnerInvestment = "Please enter a valid amount.";
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setApiError(null);
-    if (!validateForm()) return;
 
+    // Run centralized business validator
+    const validationResult = validateCreateBusiness({
+      businessName,
+      businessType,
+      totalInvestment,
+      description,
+      partnerId,
+      adminInvestment,
+      partnerInvestment,
+    });
+
+    if (!validationResult.isValid || !validationResult.data) {
+      setErrors(validationResult.errors);
+      focusFirstError(validationResult.errors);
+      return;
+    }
+
+    setErrors({});
     setIsSubmitting(true);
 
     try {
@@ -164,15 +324,7 @@ export function CreateBusinessForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          name: businessName.trim(),
-          businessType: businessType.trim(),
-          totalInvestment: parseFloat(totalInvestment),
-          description: description.trim(),
-          partnerId: partnerId.trim(),
-          adminInvestment: adminInvestment ? parseFloat(adminInvestment) : undefined,
-          partnerInvestment: partnerInvestment ? parseFloat(partnerInvestment) : undefined,
-        }),
+        body: JSON.stringify(validationResult.data),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -181,7 +333,12 @@ export function CreateBusinessForm() {
         setCreatedBusiness(data.business);
         setIsSuccess(true);
       } else {
-        const errorMsg = data.message || data.error || "Failed to create business entity.";
+        if (data.errors && typeof data.errors === "object") {
+          setErrors(data.errors);
+          focusFirstError(data.errors);
+        }
+        const errorMsg =
+          data.message || data.error || "Failed to create business entity.";
         setApiError(errorMsg);
       }
     } catch {
@@ -250,7 +407,7 @@ export function CreateBusinessForm() {
               Total Investment
             </span>
             <span className="font-bold text-gray-950 font-mono mt-1 block">
-              AED {parseFloat(totalInvestment).toLocaleString("en-US")}
+              AED {parseFloat(totalInvestment || "0").toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
 
@@ -288,7 +445,7 @@ export function CreateBusinessForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {/* API Error Notification */}
       {apiError && (
         <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2.5">
@@ -300,15 +457,7 @@ export function CreateBusinessForm() {
       {/* 1. Business Details (Name, Type, Total Investment, Description) */}
       <BusinessDetailsSection
         data={{ businessName, businessType, totalInvestment, description }}
-        onChange={(field, value) => {
-          if (field === "businessName") setBusinessName(value);
-          if (field === "businessType") setBusinessType(value);
-          if (field === "totalInvestment") setTotalInvestment(value);
-          if (field === "description") setDescription(value);
-          if (errors[field]) {
-            setErrors((prev) => ({ ...prev, [field]: "" }));
-          }
-        }}
+        onChange={(field, value) => handleFieldChange(field, value)}
         errors={errors}
       />
 
@@ -319,25 +468,14 @@ export function CreateBusinessForm() {
         isLoading={isLoadingPartners}
         fetchError={partnersError}
         onRetry={handleRetryPartners}
-        onChange={(_, value) => {
-          setPartnerId(value);
-          if (errors.partnerId) {
-            setErrors((prev) => ({ ...prev, partnerId: "" }));
-          }
-        }}
+        onChange={(_, value) => handleFieldChange("partnerId", value)}
         errors={errors}
       />
 
       {/* 3. Initial Investment Contributions (Admin & Partner Optional Contributions) */}
       <InitialContributionsSection
         data={{ adminInvestment, partnerInvestment }}
-        onChange={(field, value) => {
-          if (field === "adminInvestment") setAdminInvestment(value);
-          if (field === "partnerInvestment") setPartnerInvestment(value);
-          if (errors[field]) {
-            setErrors((prev) => ({ ...prev, [field]: "" }));
-          }
-        }}
+        onChange={(field, value) => handleFieldChange(field, value)}
         errors={errors}
       />
 

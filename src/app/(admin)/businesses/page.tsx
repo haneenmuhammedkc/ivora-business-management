@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
 import {
@@ -12,6 +13,7 @@ import {
 import { BusinessEntity, BusinessesSummaryKPIs } from "@/types/business";
 
 export default function BusinessesPage() {
+  const router = useRouter();
   const [businesses, setBusinesses] = useState<BusinessEntity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -61,7 +63,9 @@ export default function BusinessesPage() {
     const total = businesses.length;
     const active = businesses.filter((b) => b.status === "ACTIVE").length;
     const uniquePartners = new Set(
-      businesses.flatMap((b) => b.partners?.map((p) => p.name) || [])
+      businesses
+        .map((b) => b.partnerName || (b.partnersSummary !== "No partner" ? b.partnersSummary : ""))
+        .filter((name) => name && name !== "Admin" && name !== "No partner")
     );
     const combinedInvestment = businesses.reduce(
       (acc, b) => acc + (b.investmentAED || 0),
@@ -100,7 +104,8 @@ export default function BusinessesPage() {
         const query = searchTerm.toLowerCase();
         const matchesName = b.name.toLowerCase().includes(query);
         const matchesSubtitle = (b.subtitle || "").toLowerCase().includes(query);
-        const matchesPartners = (b.partnersSummary || "").toLowerCase().includes(query);
+        const partnerDisplay = b.partnerName || b.partnersSummary || "";
+        const matchesPartners = partnerDisplay.toLowerCase().includes(query);
         const matchesCode = (b.code || "").toLowerCase().includes(query);
         if (!matchesName && !matchesSubtitle && !matchesPartners && !matchesCode) {
           return false;
@@ -175,12 +180,14 @@ export default function BusinessesPage() {
             businesses={filteredBusinesses}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            onOpenWorkspace={(b) => router.push(`/businesses/${b.id}`)}
           />
         ) : (
           <BusinessCardsView
             businesses={filteredBusinesses}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
+            onOpenWorkspace={(b) => router.push(`/businesses/${b.id}`)}
           />
         )}
       </FadeUp>
