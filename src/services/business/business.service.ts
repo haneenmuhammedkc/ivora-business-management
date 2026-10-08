@@ -264,7 +264,7 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
             expenseCode: true,
             category: true,
             description: true,
-            refNo: true,
+            paymentMethod: true,
             amount: true,
             expenseDate: true,
             status: true,

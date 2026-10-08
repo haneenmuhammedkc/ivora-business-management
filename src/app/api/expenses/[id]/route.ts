@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getExpenseById, updateExpense, deleteExpense } from "@/services/expense/expense.service";
 import { requireActiveSession, forbiddenErrorResponse, lockedResourceResponse } from "@/lib/auth/authorization";
 import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
+import { ZodError } from "zod";
 
 export async function GET(
   _req: NextRequest,
@@ -11,7 +12,12 @@ export async function GET(
     const session = await requireActiveSession();
     const { id } = await params;
     const expense = await getExpenseById(session, id);
-    return NextResponse.json({ success: true, expense });
+
+    if (!expense) {
+      return NextResponse.json({ success: false, error: "NOT_FOUND", message: "Expense not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, expense, data: expense });
   } catch (error) {
     if (error instanceof AuthError) {
       if (error.statusCode === 404) {
@@ -40,8 +46,19 @@ export async function PATCH(
     }
 
     const updated = await updateExpense(session, id, body);
-    return NextResponse.json({ success: true, expense: updated });
+    return NextResponse.json({ success: true, expense: updated, data: updated });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "VALIDATION_ERROR",
+          message: error.issues[0]?.message || "Validation failed",
+          details: error.issues,
+        },
+        { status: 400 }
+      );
+    }
     if (error instanceof AuthError) {
       if (error.statusCode === 404) {
         return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });

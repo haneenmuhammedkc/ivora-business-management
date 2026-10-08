@@ -3,3 +3,6 @@ export * from "./business.validator";
 export * from "./investor.validator";
 export * from "./purchase.validator";
 export * from "./sale.validator";
+export * from "./expense.validator";
+export * from "./profit-loss.validator";
+export * from "./balance-sheet.validator";

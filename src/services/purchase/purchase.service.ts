@@ -109,7 +109,7 @@ export async function listPurchases(session: SessionPayload, businessId?: string
 }
 
 export async function getPurchaseById(session: SessionPayload, purchaseId: string) {
-  const { resource } = await requireResourceAccess("Purchase", purchaseId, "READ");
+  const { resource } = await requireResourceAccess("Purchase", purchaseId, "READ", session);
   return resource;
 }
 
@@ -253,7 +253,8 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
   const { resource: existing } = await requireResourceAccess<Prisma.PurchaseGetPayload<Record<string, never>>>(
     "Purchase",
     purchaseId,
-    "WRITE"
+    "WRITE",
+    session
   );
 
   const newQuantity =
@@ -376,7 +377,7 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
 }
 
 export async function clearPurchase(session: SessionPayload, purchaseId: string) {
-  await requireResourceAccess("Purchase", purchaseId, "WRITE");
+  await requireResourceAccess("Purchase", purchaseId, "WRITE", session);
 
   const cleared = await prisma.purchase.update({
     where: { id: purchaseId },
@@ -400,7 +401,8 @@ export async function deletePurchase(session: SessionPayload, purchaseId: string
   const { resource: existing } = await requireResourceAccess<Prisma.PurchaseGetPayload<Record<string, never>>>(
     "Purchase",
     purchaseId,
-    "DELETE"
+    "DELETE",
+    session
   );
 
   const deleted = await prisma.purchase.delete({

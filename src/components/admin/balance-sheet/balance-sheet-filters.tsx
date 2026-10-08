@@ -7,10 +7,12 @@ export interface BalanceSheetFiltersProps {
   onSearchChange: (value: string) => void;
   selectedBusiness: string;
   onBusinessChange: (value: string) => void;
+  businessesList?: { id: string; name: string }[];
   selectedStatus: string;
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
+  availableProducts?: string[];
 }
 
 export function BalanceSheetFilters({
@@ -18,17 +20,38 @@ export function BalanceSheetFilters({
   onSearchChange,
   selectedBusiness,
   onBusinessChange,
+  businessesList = [],
   selectedStatus,
   onStatusChange,
   selectedProduct,
   onProductChange,
+  availableProducts = [],
 }: BalanceSheetFiltersProps) {
+  const businessOptions = [
+    { value: "all", label: "All Businesses" },
+    ...businessesList.map((b) => ({ value: b.id, label: b.name })),
+  ];
+
+  const statusOptions = [
+    { value: "all", label: "All Status" },
+    { value: "CLEARED", label: "Cleared Only" },
+    { value: "PENDING", label: "Pending Only" },
+  ];
+
+  const productOptions = [
+    { value: "all", label: "All Products" },
+    ...availableProducts.map((p) => ({
+      value: p,
+      label: p.replace(/_/g, " "),
+    })),
+  ];
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
       {/* Search Input */}
       <div className="w-full lg:max-w-md">
         <SearchInput
-          placeholder="Search..."
+          placeholder="Search entities, codes, or descriptions..."
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
           className="h-10"
@@ -41,11 +64,7 @@ export function BalanceSheetFilters({
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "Business 01", label: "Business 01" },
-              { value: "Business 02", label: "Business 02" },
-            ]}
+            options={businessOptions}
             prefixLabel="Business"
             className="h-10 text-xs"
           />
@@ -55,11 +74,7 @@ export function BalanceSheetFilters({
           <Select
             value={selectedStatus}
             onChange={(e) => onStatusChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Status" },
-              { value: "Balanced", label: "Balanced" },
-              { value: "Pending", label: "Pending" },
-            ]}
+            options={statusOptions}
             prefixLabel="Status"
             className="h-10 text-xs"
           />
@@ -69,11 +84,7 @@ export function BalanceSheetFilters({
           <Select
             value={selectedProduct}
             onChange={(e) => onProductChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Products" },
-              { value: "999.9 Bullion", label: "999.9 Bullion" },
-              { value: "Gold Grain 995", label: "Gold Grain 995" },
-            ]}
+            options={productOptions}
             prefixLabel="Product"
             className="h-10 text-xs"
           />

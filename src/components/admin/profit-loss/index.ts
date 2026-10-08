@@ -1,4 +1,3 @@
-export * from "./profit-loss-mock-data";
 export * from "./profit-loss-header-bar";
 export * from "./profit-loss-kpi-cards";
 export * from "./profit-loss-filters";

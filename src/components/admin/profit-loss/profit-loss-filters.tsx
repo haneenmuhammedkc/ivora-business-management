@@ -11,6 +11,8 @@ export interface ProfitLossFiltersProps {
   onStatusChange: (value: string) => void;
   selectedProduct: string;
   onProductChange: (value: string) => void;
+  businessesList?: { id: string; name: string }[];
+  productList?: string[];
 }
 
 export function ProfitLossFilters({
@@ -22,7 +24,24 @@ export function ProfitLossFilters({
   onStatusChange,
   selectedProduct,
   onProductChange,
+  businessesList = [],
+  productList = [],
 }: ProfitLossFiltersProps) {
+  const businessOptions = [
+    { value: "all", label: "All Businesses" },
+    ...businessesList.map((b) => ({ value: b.id, label: b.name })),
+  ];
+
+  // Combine default products with any available products from the database
+  const combinedProducts = Array.from(
+    new Set(["999.9 Bullion", "Gold Grain 995", ...productList])
+  ).filter(Boolean);
+
+  const productOptions = [
+    { value: "all", label: "All Products" },
+    ...combinedProducts.map((p) => ({ value: p, label: p })),
+  ];
+
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
       {/* Search Input */}
@@ -41,11 +60,7 @@ export function ProfitLossFilters({
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Businesses" },
-              { value: "Business 01", label: "Business 01" },
-              { value: "Business 02", label: "Business 02" },
-            ]}
+            options={businessOptions}
             prefixLabel="Business"
             className="h-10 text-xs"
           />
@@ -69,11 +84,7 @@ export function ProfitLossFilters({
           <Select
             value={selectedProduct}
             onChange={(e) => onProductChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Products" },
-              { value: "999.9 Bullion", label: "999.9 Bullion" },
-              { value: "Gold Grain 995", label: "Gold Grain 995" },
-            ]}
+            options={productOptions}
             prefixLabel="Product"
             className="h-10 text-xs"
           />

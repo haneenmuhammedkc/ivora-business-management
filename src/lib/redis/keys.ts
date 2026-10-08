@@ -48,9 +48,9 @@ export const CacheKeys = {
       if (businessId) return `${PREFIX}:biz:${businessId}:pnl`;
       return role === "ADMIN" ? `${PREFIX}:admin:pnl:summary` : `${PREFIX}:partner:${userId}:pnl:summary`;
     },
-    balanceSheet: (businessId?: string, userId?: string, role?: string) => {
-      if (businessId) return `${PREFIX}:biz:${businessId}:balance-sheet`;
-      return role === "ADMIN" ? `${PREFIX}:admin:balance-sheet:summary` : `${PREFIX}:partner:${userId}:balance-sheet:summary`;
+    balanceSheet: (businessId?: string, userId?: string, role?: string, asOfDate?: string, status?: string, productType?: string) => {
+      const scope = businessId ? `biz:${businessId}` : role === "ADMIN" ? "admin:all" : `partner:${userId}`;
+      return `${PREFIX}:${scope}:balance-sheet:${asOfDate || "latest"}:${status || "all"}:${productType || "all"}`;
     },
     reports: (businessId?: string, userId?: string, role?: string) => {
       if (businessId) return `${PREFIX}:biz:${businessId}:reports`;

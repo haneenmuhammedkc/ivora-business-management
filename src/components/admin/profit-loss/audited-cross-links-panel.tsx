@@ -1,14 +1,23 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowRightIcon } from "@/components/ui/icons";
+import { CrossLinksData } from "@/types/profit-loss";
 
-export function AuditedCrossLinksPanel() {
+export interface AuditedCrossLinksPanelProps {
+  crossLinks?: CrossLinksData;
+}
+
+export function AuditedCrossLinksPanel({ crossLinks }: AuditedCrossLinksPanelProps) {
+  const expenseText = crossLinks?.expenseCount
+    ? `Open Expenses Ledger (${crossLinks.expenseCodeRange})`
+    : "Open Expenses Ledger";
+
   return (
     <div className="w-full rounded-xl border border-gray-200/90 bg-white p-5 shadow-2xs space-y-3">
       {/* Header */}
       <div className="pb-2 border-b border-gray-100">
         <h2 className="text-xs sm:text-sm font-bold text-gray-950 uppercase tracking-wide">
-          AUDITED CROSS-LINKS
+          TRANSACTION CROSS-LINKS
         </h2>
       </div>
 
@@ -21,7 +30,7 @@ export function AuditedCrossLinksPanel() {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">📑</span>
             <span className="font-semibold text-gray-900">
-              Open Expenses Ledger (EXP-018 - 023)
+              {expenseText}
             </span>
           </div>
           <ArrowRightIcon
@@ -38,7 +47,7 @@ export function AuditedCrossLinksPanel() {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">👥</span>
             <span className="font-semibold text-gray-900">
-              Open Investor Settlements
+              Open Investor Profiles
             </span>
           </div>
           <ArrowRightIcon

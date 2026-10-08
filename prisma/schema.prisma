@@ -284,10 +284,10 @@ model Expense {
   businessId           String
   category             ExpenseCategory
   description          String
-  refNo                String?
   amount               Decimal              @db.Decimal(18, 2)
   expenseDate          DateTime
   status               ExpensePaymentStatus @default(CLEARED)
+  paymentMethod        String?
   isPurchaseLandedCost Boolean              @default(false)
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
@@ -297,6 +297,7 @@ model Expense {
   @@index([businessId])
   @@index([category])
   @@index([expenseDate])
+  @@index([status])
 }
 
 model Transaction {

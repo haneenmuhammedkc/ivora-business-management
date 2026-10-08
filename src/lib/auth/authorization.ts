@@ -83,16 +83,20 @@ export async function requireBusinessAccess(
 }> {
   const session = currentSession || (await requireActiveSession());
 
-  if (session.role === UserRole.ADMIN) {
-    return { session, isGlobalAdmin: true };
-  }
-
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { id: true, partnerId: true },
   });
 
-  if (!business || business.partnerId !== session.userId) {
+  if (!business) {
+    throw new AuthError("Business not found", 404);
+  }
+
+  if (session.role === UserRole.ADMIN) {
+    return { session, isGlobalAdmin: true };
+  }
+
+  if (business.partnerId !== session.userId) {
     await logAuditEvent({
       userId: session.userId,
       action: "UNAUTHORIZED_ACCESS_ATTEMPT",

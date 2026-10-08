@@ -72,6 +72,7 @@ export const mockProfitLossStatement: ProfitLossStatementData = {
     { title: "Processing & Assaying Certification", amountAED: 1200 },
   ],
   totalExpensesAED: 12850,
+  netProfitAED: 37350,
   auditedNetProfitAED: 37350,
   netMarginPercent: 15.85,
   investorShareAED: 14940,
