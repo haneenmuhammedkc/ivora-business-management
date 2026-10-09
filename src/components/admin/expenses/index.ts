@@ -5,3 +5,4 @@ export * from "./expense-table-view";
 export * from "./expense-lineage-banner";
 export * from "./expense-details-panel";
 export * from "./new-expense-entry";
+export * from "./edit-expense-entry";

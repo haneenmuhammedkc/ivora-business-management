@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckIcon, ExpensesIcon } from "@/components/ui/icons";
+import { ExpensesIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 import { ExpenseRecord, ExpenseStatus } from "@/types/expenses";
 
 interface BusinessOption {
@@ -16,56 +15,142 @@ interface BusinessOption {
   code: string;
 }
 
-export interface NewExpenseEntryProps {
-  onRecordExpense?: (expense: ExpenseRecord) => void;
+export interface EditExpenseEntryProps {
+  expenseId: string;
 }
 
-function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+function formatDateForInput(dateVal: string | Date | undefined): string {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
+export function EditExpenseEntry({ expenseId }: EditExpenseEntryProps) {
   const router = useRouter();
 
-  // Load active businesses via SWR cache
-  const { data: businessesResponse, isLoading: loadingBusinesses } = useCachedFetch<{
-    businesses?: BusinessOption[];
-    data?: BusinessOption[];
-  }>("/api/businesses");
+  // Businesses state
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  const [loadingBusinesses, setLoadingBusinesses] = useState(true);
 
-  const businesses: BusinessOption[] = useMemo(() => {
-    if (!businessesResponse) return [];
-    if (Array.isArray(businessesResponse)) return businessesResponse;
-    return businessesResponse.businesses || businessesResponse.data || [];
-  }, [businessesResponse]);
+  // Existing expense record state
+  const [loadingRecord, setLoadingRecord] = useState(true);
+  const [expenseCode, setExpenseCode] = useState("");
+  const [isLocked, setIsLocked] = useState(false);
 
   // Form State
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
-  const [category, setCategory] = useState<string>("");
+  const [category, setCategory] = useState("");
   const [amount, setAmount] = useState("");
-  const [expenseDate, setExpenseDate] = useState(getTodayDateString());
+  const [expenseDate, setExpenseDate] = useState("");
   const [description, setDescription] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<string>("Cash");
-  const [status, setStatus] = useState<ExpenseStatus>("CLEARED");
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [status, setStatus] = useState<ExpenseStatus>("PENDING");
 
   // Submission State
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const activeBusinessId = selectedBusinessId || businesses[0]?.id || "";
   const amountNum = Number(amount) || 0;
+
+  // Load real businesses from database
+  useEffect(() => {
+    let isMounted = true;
+    async function loadBusinesses() {
+      try {
+        setLoadingBusinesses(true);
+        const res = await fetch("/api/businesses");
+        if (!res.ok) {
+          throw new Error(`Failed to load businesses (${res.status})`);
+        }
+        const data = await res.json();
+        if (isMounted && data.success && Array.isArray(data.businesses)) {
+          setBusinesses(
+            data.businesses.map((b: { id: string; name: string; code: string }) => ({
+              id: b.id,
+              name: b.name,
+              code: b.code,
+            }))
+          );
+        }
+      } catch (err) {
+        console.error("Error fetching businesses:", err);
+      } finally {
+        if (isMounted) setLoadingBusinesses(false);
+      }
+    }
+    loadBusinesses();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Load existing expense record
+  useEffect(() => {
+    let isMounted = true;
+    async function loadExpense() {
+      try {
+        setLoadingRecord(true);
+        setErrorMessage(null);
+        const res = await fetch(`/api/expenses/${expenseId}`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.message || data.error || "Failed to load expense details");
+        }
+
+        const exp: ExpenseRecord = data.expense || data.data;
+        if (isMounted && exp) {
+          setExpenseCode(exp.expenseCode || "");
+          setSelectedBusinessId(exp.businessId || "");
+          setCategory(exp.category || "");
+          setAmount(exp.amount !== undefined && exp.amount !== null ? String(exp.amount) : "");
+          setExpenseDate(formatDateForInput(exp.expenseDate || exp.date));
+          setDescription(exp.description || "");
+
+          // Normalize payment method to Cash, Card, or Cheque if valid; default Cash
+          const pm = exp.paymentMethod || "Cash";
+          if (["Cash", "Card", "Cheque"].includes(pm)) {
+            setPaymentMethod(pm);
+          } else {
+            setPaymentMethod("Cash");
+          }
+
+          setStatus(exp.status || "CLEARED");
+
+          // Financial Immutability check
+          if (exp.status === "CLEARED") {
+            setIsLocked(true);
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to load expense record.";
+        setErrorMessage(msg);
+      } finally {
+        if (isMounted) setLoadingRecord(false);
+      }
+    }
+    loadExpense();
+    return () => {
+      isMounted = false;
+    };
+  }, [expenseId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (!activeBusinessId) {
+    if (isLocked) {
+      setErrorMessage("Cleared expenses are finalized and immutable. Modifications are prohibited.");
+      return;
+    }
+
+    if (!selectedBusinessId) {
       setErrorMessage("Please select a business entity.");
       return;
     }
@@ -89,7 +174,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
 
     try {
       const payload = {
-        businessId: activeBusinessId,
+        businessId: selectedBusinessId,
         category: category.trim(),
         amount: amountNum,
         expenseDate,
@@ -98,8 +183,8 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
         status,
       };
 
-      const res = await fetch("/api/expenses", {
-        method: "POST",
+      const res = await fetch(`/api/expenses/${expenseId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -107,28 +192,39 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(json.message || json.error || "Failed to record expense");
+        throw new Error(json.message || json.error || "Failed to update expense");
       }
 
-      const createdExpense = json.expense || json.data;
-
-      setSuccessMessage("Expense recorded successfully!");
-
-      if (onRecordExpense && createdExpense) {
-        onRecordExpense(createdExpense);
-      }
+      setSuccessMessage("Expense updated successfully! Returning to expense list...");
 
       setTimeout(() => {
         router.push("/expenses");
         router.refresh();
-      }, 500);
+      }, 700);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
       setErrorMessage(msg);
-    } finally {
       setSubmitting(false);
     }
   };
+
+  const businessOptions = useMemo(() => {
+    return [
+      { value: "", label: loadingBusinesses ? "Loading businesses..." : "Select Business" },
+      ...businesses.map((b) => ({
+        value: b.id,
+        label: `${b.name} (${b.code})`,
+      })),
+    ];
+  }, [businesses, loadingBusinesses]);
+
+  if (loadingRecord) {
+    return (
+      <div className="w-full rounded-xl border border-gray-200 bg-white p-12 text-center text-xs text-gray-500 shadow-2xs">
+        Loading expense record...
+      </div>
+    );
+  }
 
   return (
     <div className="w-full rounded-xl border border-gray-200/90 bg-white p-6 sm:p-7 shadow-2xs space-y-6">
@@ -141,18 +237,30 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base sm:text-lg font-bold text-gray-950">
-                New Expense Entry
+                Edit Expense
               </h2>
-              <span className="px-2 py-0.5 text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 rounded uppercase">
-                ADMIN
-              </span>
+              {expenseCode && (
+                <span className="px-2.5 py-0.5 text-xs font-mono font-bold text-gray-900 bg-gray-100 border border-gray-300 rounded">
+                  {expenseCode}
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
-              Record landed logistics, handling, and trading-level expense allocations.
+              Update landed logistics, handling, and trading-level expense allocations.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Financial Immutability Notice Banner */}
+      {isLocked && (
+        <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+          <span className="font-bold">🔒 Financial Lock:</span>
+          <span>
+            This expense is marked as <strong>CLEARED</strong> and is financially finalized. Modifications are prohibited to preserve ledger integrity.
+          </span>
+        </div>
+      )}
 
       {/* Error / Success Notifications */}
       {errorMessage && (
@@ -181,25 +289,17 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
               placeholder="e.g. Delivery & Freight, Labour, Transportation..."
               value={category}
               onChange={(e) => setCategory(e.target.value)}
+              disabled={isLocked || submitting}
               required
             />
 
             <div>
               <Select
                 label="Assigned Business Entity"
-                value={activeBusinessId}
+                value={selectedBusinessId}
                 onChange={(e) => setSelectedBusinessId(e.target.value)}
-                disabled={loadingBusinesses || businesses.length === 0}
-                options={
-                  loadingBusinesses
-                    ? [{ value: "", label: "Loading businesses..." }]
-                    : businesses.length === 0
-                    ? [{ value: "", label: "No businesses found" }]
-                    : businesses.map((b) => ({
-                        value: b.id,
-                        label: `${b.name} (${b.code})`,
-                      }))
-                }
+                disabled={loadingBusinesses || isLocked || submitting}
+                options={businessOptions}
               />
             </div>
           </div>
@@ -221,6 +321,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="text-right font-semibold"
+              disabled={isLocked || submitting}
               required
             />
 
@@ -229,6 +330,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
               type="date"
               value={expenseDate}
               onChange={(e) => setExpenseDate(e.target.value)}
+              disabled={isLocked || submitting}
               required
             />
 
@@ -236,6 +338,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
               label="Payment Status"
               value={status}
               onChange={(e) => setStatus(e.target.value as ExpenseStatus)}
+              disabled={isLocked || submitting}
               options={[
                 { value: "CLEARED", label: "Cleared" },
                 { value: "PENDING", label: "Pending" },
@@ -248,6 +351,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
             placeholder="e.g. Air freight security & customs clearing"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={isLocked || submitting}
             required
           />
         </div>
@@ -262,6 +366,7 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
             label="Payment & Disbursement Method"
             value={paymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value)}
+            disabled={isLocked || submitting}
             options={[
               { value: "Cash", label: "Cash" },
               { value: "Card", label: "Card" },
@@ -292,15 +397,16 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
           >
             Cancel
           </Link>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={submitting}
-            icon={<CheckIcon size={14} />}
-            className="px-6 text-xs font-bold"
-          >
-            {submitting ? "Saving..." : "Save & Record Expense"}
-          </Button>
+          {!isLocked && (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={submitting}
+              className="px-6 text-xs font-bold"
+            >
+              {submitting ? "Saving..." : "Save Changes"}
+            </Button>
+          )}
         </div>
       </form>
     </div>

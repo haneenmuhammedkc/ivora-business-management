@@ -36,6 +36,7 @@ export async function invalidateBusinessFinancials(
   }
 
   await invalidateCacheKeys(...keys);
+  await invalidateCacheByPattern(`${PREFIX}:reports:*`);
 }
 
 /**

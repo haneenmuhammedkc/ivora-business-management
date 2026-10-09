@@ -1,43 +1,15 @@
 import { z } from "zod";
-import { ExpenseCategory, ExpensePaymentStatus } from "@prisma/client";
-
-const ExpenseCategoryMap: Record<string, ExpenseCategory> = {
-  DELIVERY_FREIGHT: ExpenseCategory.DELIVERY_FREIGHT,
-  "Delivery & Freight": ExpenseCategory.DELIVERY_FREIGHT,
-  "Delivery / Transport": ExpenseCategory.DELIVERY_FREIGHT,
-  LABOUR_VAULT: ExpenseCategory.LABOUR_VAULT,
-  Labour: ExpenseCategory.LABOUR_VAULT,
-  "Labour & Vault": ExpenseCategory.LABOUR_VAULT,
-  PROCESSING_ASSAYING: ExpenseCategory.PROCESSING_ASSAYING,
-  "Processing & Assaying": ExpenseCategory.PROCESSING_ASSAYING,
-  "Other Expense": ExpenseCategory.GENERAL_OVERHEAD,
-  INDIA_EXPENSE: ExpenseCategory.INDIA_EXPENSE,
-  "India Expense": ExpenseCategory.INDIA_EXPENSE,
-  TRANSFER_FX_FEES: ExpenseCategory.TRANSFER_FX_FEES,
-  "Transfer / Conversion": ExpenseCategory.TRANSFER_FX_FEES,
-  "Transfer & FX Fees": ExpenseCategory.TRANSFER_FX_FEES,
-  GENERAL_OVERHEAD: ExpenseCategory.GENERAL_OVERHEAD,
-  "General Overhead": ExpenseCategory.GENERAL_OVERHEAD,
-};
+import { ExpensePaymentStatus } from "@prisma/client";
 
 export const createExpenseSchema = z.object({
   businessId: z
     .string()
     .min(1, "Please select a valid business entity"),
   category: z
-    .union([
-      z.nativeEnum(ExpenseCategory),
-      z.string(),
-    ])
-    .transform((val): ExpenseCategory => {
-      if (typeof val === "string" && ExpenseCategoryMap[val]) {
-        return ExpenseCategoryMap[val];
-      }
-      if (Object.values(ExpenseCategory).includes(val as ExpenseCategory)) {
-        return val as ExpenseCategory;
-      }
-      return ExpenseCategory.GENERAL_OVERHEAD;
-    }),
+    .string()
+    .trim()
+    .min(1, "Please enter an expense category")
+    .max(100, "Category cannot exceed 100 characters"),
   description: z
     .string()
     .trim()
@@ -72,10 +44,18 @@ export const createExpenseSchema = z.object({
   paymentMethod: z
     .string()
     .trim()
-    .max(100, "Payment method must not exceed 100 characters")
+    .transform((val) => {
+      const lower = val.toLowerCase();
+      if (lower === "cash") return "Cash";
+      if (lower === "card") return "Card";
+      if (lower === "cheque") return "Cheque";
+      return val;
+    })
+    .refine((val) => ["Cash", "Card", "Cheque"].includes(val), {
+      message: "Payment method must be Cash, Card, or Cheque",
+    })
     .optional()
-    .nullable()
-    .transform((val) => (val && val.trim().length > 0 ? val.trim() : null)),
+    .nullable(),
   isPurchaseLandedCost: z
     .boolean()
     .optional()
@@ -88,19 +68,10 @@ export const updateExpenseSchema = z.object({
     .min(1, "Please select a valid business entity")
     .optional(),
   category: z
-    .union([
-      z.nativeEnum(ExpenseCategory),
-      z.string(),
-    ])
-    .transform((val): ExpenseCategory => {
-      if (typeof val === "string" && ExpenseCategoryMap[val]) {
-        return ExpenseCategoryMap[val];
-      }
-      if (Object.values(ExpenseCategory).includes(val as ExpenseCategory)) {
-        return val as ExpenseCategory;
-      }
-      return ExpenseCategory.GENERAL_OVERHEAD;
-    })
+    .string()
+    .trim()
+    .min(1, "Please enter an expense category")
+    .max(100, "Category cannot exceed 100 characters")
     .optional(),
   description: z
     .string()
@@ -138,10 +109,18 @@ export const updateExpenseSchema = z.object({
   paymentMethod: z
     .string()
     .trim()
-    .max(100, "Payment method must not exceed 100 characters")
+    .transform((val) => {
+      const lower = val.toLowerCase();
+      if (lower === "cash") return "Cash";
+      if (lower === "card") return "Card";
+      if (lower === "cheque") return "Cheque";
+      return val;
+    })
+    .refine((val) => ["Cash", "Card", "Cheque"].includes(val), {
+      message: "Payment method must be Cash, Card, or Cheque",
+    })
     .optional()
-    .nullable()
-    .transform((val) => (val && val.trim().length > 0 ? val.trim() : null)),
+    .nullable(),
   isPurchaseLandedCost: z
     .boolean()
     .optional(),
@@ -149,7 +128,7 @@ export const updateExpenseSchema = z.object({
 
 export const expenseQuerySchema = z.object({
   businessId: z.string().optional(),
-  category: z.nativeEnum(ExpenseCategory).optional(),
+  category: z.string().optional(),
   status: z.nativeEnum(ExpensePaymentStatus).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),

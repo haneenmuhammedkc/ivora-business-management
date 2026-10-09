@@ -369,7 +369,7 @@ export async function getFullProfitLossData(
       netProfitAED > 0 ? Number(((netDeskRetainedProfitAED / netProfitAED) * 100).toFixed(2)) : 100;
 
     // Operating expenses grouped by category
-    const expenseCategoryMap: Record<ExpenseCategory, number> = {
+    const expenseCategoryMap: Record<string, number> = {
       DELIVERY_FREIGHT: 0,
       LABOUR_VAULT: 0,
       PROCESSING_ASSAYING: 0,
@@ -379,14 +379,17 @@ export async function getFullProfitLossData(
     };
 
     for (const exp of expenses) {
-      if (expenseCategoryMap[exp.category] !== undefined) {
-        expenseCategoryMap[exp.category] += Number(exp.amount || 0);
+      const cat = exp.category || "GENERAL_OVERHEAD";
+      if (expenseCategoryMap[cat] !== undefined) {
+        expenseCategoryMap[cat] += Number(exp.amount || 0);
+      } else {
+        expenseCategoryMap[cat] = Number(exp.amount || 0);
       }
     }
 
-    const operatingExpenses = (Object.keys(expenseCategoryMap) as ExpenseCategory[])
+    const operatingExpenses = Object.keys(expenseCategoryMap)
       .map((cat) => ({
-        title: CATEGORY_NAMES[cat],
+        title: (CATEGORY_NAMES as Record<string, string>)[cat] || cat.replace(/_/g, " "),
         amountAED: expenseCategoryMap[cat],
       }))
       .filter((item) => item.amountAED > 0 || expenses.length === 0);
@@ -483,9 +486,9 @@ export async function getFullProfitLossData(
     const expenseToGrossProfitRatio =
       grossProfitAED > 0 ? Number(((totalExpensesAED / grossProfitAED) * 100).toFixed(2)) : 0;
 
-    let topCategory: ExpenseCategory = "INDIA_EXPENSE";
+    let topCategory = "INDIA_EXPENSE";
     let topCategoryAmount = 0;
-    for (const [cat, amt] of Object.entries(expenseCategoryMap) as [ExpenseCategory, number][]) {
+    for (const [cat, amt] of Object.entries(expenseCategoryMap)) {
       if (amt > topCategoryAmount) {
         topCategoryAmount = amt;
         topCategory = cat;
@@ -500,7 +503,7 @@ export async function getFullProfitLossData(
     const expenseImpact: ExpenseImpactData = {
       expenseToSalesRatio,
       expenseToGrossProfitRatio,
-      topCostCenterTitle: CATEGORY_NAMES[topCategory],
+      topCostCenterTitle: (CATEGORY_NAMES as Record<string, string>)[topCategory] || topCategory.replace(/_/g, " "),
       topCostCenterAmountAED: topCategoryAmount,
       topCostCenterPercent,
     };

@@ -5,11 +5,11 @@ import {
 } from "@/types/reports";
 
 export const mockReportsKPIs: ReportsSummaryKPIs = {
-  totalSalesAED: 120000,
-  totalPurchaseAED: 245000,
-  totalExpensesAED: 245000,
-  netProfitAED: 245000,
-  investorShareAED: 245000,
+  totalSalesAED: 0,
+  totalPurchaseAED: 0,
+  totalExpensesAED: 0,
+  netProfitAED: 0,
+  investorShareAED: 0,
 };
 
 export const mockQuickDeskTabs: QuickDeskTabItem[] = [
@@ -23,78 +23,85 @@ export const mockQuickDeskTabs: QuickDeskTabItem[] = [
 export const mockReportCards: ReportCardItem[] = [
   {
     id: "rep-01",
+    reportKey: "business-performance",
     title: "Business Performance",
     description:
       "Compare sales, purchases, expenses and profitability across businesses.",
     iconType: "chart",
     badge: "MULTI-ENTITY",
     badgeVariant: "outline",
-    footerLeft: "Updated: 1h ago",
+    footerLeft: "Multi-Entity Comparison",
     routeHref: "/businesses",
     category: "Business",
   },
   {
     id: "rep-02",
+    reportKey: "purchase-report",
     title: "Purchase Report",
     description:
-      "Analyze Dubai bullion purchases, weights in GMS, supplier terms.",
+      "Analyze bullion purchases, weights and quantities, supplier terms, and landed costs.",
     iconType: "purchase",
-    badge: "BULLION DESK",
+    badge: "PURCHASE DESK",
     badgeVariant: "outline",
-    footerLeft: "6,400 GMS Total",
+    footerLeft: "Bullion Acquisitions",
     routeHref: "/purchase",
     category: "Purchase",
   },
   {
     id: "rep-03",
+    reportKey: "sales-report",
     title: "Sales Report",
     description:
-      "Analyze India sales, INR realization, and hedged FX settlement.",
+      "Analyze sales, buyer firm realization, hedged FX settlement, and AED proceeds.",
     iconType: "sales",
     badge: "CROSS-BORDER",
     badgeVariant: "outline",
-    footerLeft: "₹5.36M Realized",
+    footerLeft: "Settled Proceeds",
     routeHref: "/sales",
     category: "Sales",
   },
   {
     id: "rep-05",
+    reportKey: "expense-report",
     title: "Expense Report",
     description:
       "Analyze logistics, freight, vault labour, customs, and bank FX charges.",
     iconType: "expense",
     badge: "ITEMIZED",
     badgeVariant: "outline",
-    footerLeft: "AED 12,850 YTD",
+    footerLeft: "Operating Logistics",
     routeHref: "/expenses",
     category: "Expenses",
   },
   {
     id: "rep-06",
+    reportKey: "investor-report",
     title: "Investor Report",
     description:
-      "Review partner capital, 40%/35% profit shares, disbursed settlements.",
+      "Review partner capital, profit allocations, equity percentages, and distributions.",
     iconType: "investor",
-    badge: "EQUITY 40%",
+    badge: "EQUITY POOL",
     badgeVariant: "outline",
-    footerLeft: "6 Partners",
+    footerLeft: "Capital Commitments",
     routeHref: "/investors",
     category: "Investors",
   },
   {
     id: "rep-07",
+    reportKey: "profit-loss",
     title: "Profit & Loss Statement",
     description:
       "Consolidated audited IFRS-9 / DIFC statements and net yields.",
     iconType: "profit-loss",
     badge: "IFRS-9 / DIFC",
     badgeVariant: "solid",
-    footerLeft: "Audited MTD",
+    footerLeft: "Audited Financials",
     routeHref: "/profit-loss",
     category: "Financial",
   },
   {
     id: "rep-08",
+    reportKey: "balance-sheet",
     title: "Balance Sheet Report",
     description:
       "Point-in-time Assets = Liabilities + Equity balance verification.",
@@ -107,13 +114,14 @@ export const mockReportCards: ReportCardItem[] = [
   },
   {
     id: "rep-09",
+    reportKey: "settlement-report",
     title: "Settlement Report",
     description:
-      "Investor disbursement records, pending balances, and bank wires.",
+      "Investor disbursement records, pending balances, and bank wire transactions.",
     iconType: "settlement",
     badge: "SETTLED",
     badgeVariant: "solid",
-    footerLeft: "Ready for Wire",
+    footerLeft: "Disbursements Ledger",
     routeHref: "/investors",
     category: "Investors",
   },

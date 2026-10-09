@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess, getAuthorizedBusinessIds } from "@/lib/auth/authorization";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, ExpenseCategory, ExpensePaymentStatus } from "@prisma/client";
+import { Prisma, ExpensePaymentStatus } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
@@ -50,7 +50,7 @@ export async function listExpenses(
   session: SessionPayload,
   businessId?: string,
   filters?: {
-    category?: ExpenseCategory;
+    category?: string;
     status?: ExpensePaymentStatus;
     search?: string;
   }
@@ -80,6 +80,7 @@ export async function listExpenses(
               OR: [
                 { expenseCode: { contains: filters.search, mode: "insensitive" } },
                 { description: { contains: filters.search, mode: "insensitive" } },
+                { category: { contains: filters.search, mode: "insensitive" } },
                 { paymentMethod: { contains: filters.search, mode: "insensitive" } },
               ],
             }
@@ -100,6 +101,7 @@ export async function listExpenses(
           OR: [
             { expenseCode: { contains: filters.search, mode: "insensitive" } },
             { description: { contains: filters.search, mode: "insensitive" } },
+            { category: { contains: filters.search, mode: "insensitive" } },
             { paymentMethod: { contains: filters.search, mode: "insensitive" } },
           ],
         }

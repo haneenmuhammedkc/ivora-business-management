@@ -14,6 +14,7 @@ export interface ExpenseFiltersProps {
   selectedProduct?: string;
   onProductChange?: (value: string) => void;
   businessOptions?: { value: string; label: string }[];
+  categoryOptions?: { value: string; label: string }[];
 }
 
 export function ExpenseFilters({
@@ -26,6 +27,7 @@ export function ExpenseFilters({
   selectedProduct = "all",
   onProductChange,
   businessOptions,
+  categoryOptions,
 }: ExpenseFiltersProps) {
   const defaultBusinessOptions = [
     { value: "all", label: "All Businesses" },
@@ -35,6 +37,21 @@ export function ExpenseFilters({
     businessOptions && businessOptions.length > 0
       ? [{ value: "all", label: "All Businesses" }, ...businessOptions.filter((b) => b.value !== "all")]
       : defaultBusinessOptions;
+
+  const defaultCategoryOptions = [
+    { value: "all", label: "All Categories" },
+    { value: "DELIVERY_FREIGHT", label: "Delivery & Freight" },
+    { value: "LABOUR_VAULT", label: "Labour & Vault" },
+    { value: "PROCESSING_ASSAYING", label: "Processing & Assaying" },
+    { value: "INDIA_EXPENSE", label: "India Expense" },
+    { value: "TRANSFER_FX_FEES", label: "Transfer & FX Fees" },
+    { value: "GENERAL_OVERHEAD", label: "General Overhead" },
+  ];
+
+  const actualCategoryOptions =
+    categoryOptions && categoryOptions.length > 0
+      ? categoryOptions
+      : defaultCategoryOptions;
 
   return (
     <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 sm:gap-3 w-full">
@@ -65,15 +82,7 @@ export function ExpenseFilters({
           <Select
             value={selectedProduct}
             onChange={(e) => onProductChange(e.target.value)}
-            options={[
-              { value: "all", label: "All Categories" },
-              { value: "DELIVERY_FREIGHT", label: "Delivery & Freight" },
-              { value: "LABOUR_VAULT", label: "Labour & Vault" },
-              { value: "PROCESSING_ASSAYING", label: "Processing & Assaying" },
-              { value: "INDIA_EXPENSE", label: "India Expense" },
-              { value: "TRANSFER_FX_FEES", label: "Transfer & FX Fees" },
-              { value: "GENERAL_OVERHEAD", label: "General Overhead" },
-            ]}
+            options={actualCategoryOptions}
             prefixLabel="Category"
             className="h-10 text-xs"
           />

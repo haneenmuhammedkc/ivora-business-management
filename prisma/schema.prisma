@@ -282,7 +282,7 @@ model Expense {
   id                   String               @id @default(cuid())
   expenseCode          String               @unique
   businessId           String
-  category             ExpenseCategory
+  category             String
   description          String
   amount               Decimal              @db.Decimal(18, 2)
   expenseDate          DateTime

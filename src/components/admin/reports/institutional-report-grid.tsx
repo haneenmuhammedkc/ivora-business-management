@@ -1,10 +1,11 @@
 import React from "react";
 import Link from "next/link";
-import { ReportCardItem, ReportIconType } from "@/types/reports";
+import { ReportCardItem, ReportIconType, DetailedReportType } from "@/types/reports";
 import { ArrowRightIcon } from "@/components/ui/icons";
 
 export interface InstitutionalReportGridProps {
   reports: ReportCardItem[];
+  onSelectReport?: (reportKey: DetailedReportType) => void;
 }
 
 function ReportIcon({ type }: { type: ReportIconType }) {
@@ -72,7 +73,10 @@ function ReportIcon({ type }: { type: ReportIconType }) {
   }
 }
 
-export function InstitutionalReportGrid({ reports }: InstitutionalReportGridProps) {
+export function InstitutionalReportGrid({
+  reports,
+  onSelectReport,
+}: InstitutionalReportGridProps) {
   return (
     <div className="space-y-3.5">
       {/* Section Header */}
@@ -84,7 +88,7 @@ export function InstitutionalReportGrid({ reports }: InstitutionalReportGridProp
           <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider flex items-center gap-2">
             <span>Institutional Report Center</span>
             <span className="text-gray-400 font-bold text-[11px] normal-case">
-              (10 Configured Statements)
+              ({reports.length} Configured Statements)
             </span>
           </h2>
         </div>
@@ -94,9 +98,11 @@ export function InstitutionalReportGrid({ reports }: InstitutionalReportGridProp
       </div>
 
       {/* Grid of Report Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
         {reports.map((rep) => {
           const isSolidBadge = rep.badgeVariant === "solid";
+          const isDedicatedPage = rep.routeHref === "/profit-loss" || rep.routeHref === "/balance-sheet";
+
           return (
             <div
               key={rep.id}
@@ -133,13 +139,25 @@ export function InstitutionalReportGrid({ reports }: InstitutionalReportGridProp
                 <span className="text-[10.5px] font-semibold text-gray-500 tracking-tight">
                   {rep.footerLeft}
                 </span>
-                <Link
-                  href={rep.routeHref}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-950 hover:text-black group transition-colors cursor-pointer"
-                >
-                  <span>Open Report</span>
-                  <ArrowRightIcon size={11} className="transition-transform group-hover:translate-x-0.5" />
-                </Link>
+
+                {isDedicatedPage ? (
+                  <Link
+                    href={rep.routeHref}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-950 hover:text-black group transition-colors cursor-pointer"
+                  >
+                    <span>Open Statement</span>
+                    <ArrowRightIcon size={11} className="transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectReport?.(rep.reportKey as DetailedReportType)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-950 hover:text-black group transition-colors cursor-pointer"
+                  >
+                    <span>Open Report</span>
+                    <ArrowRightIcon size={11} className="transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                )}
               </div>
             </div>
           );

@@ -1,13 +1,13 @@
 import React from "react";
+import Link from "next/link";
 import { ExpenseRecord, getExpenseBusinessName, getExpenseBusinessCode } from "@/types/expenses";
-import { ArrowRightIcon } from "@/components/ui/icons";
 
 export interface ExpenseTableViewProps {
   expenses: ExpenseRecord[];
-  selectedExpenseId: string | null;
-  onSelectExpense: (expense: ExpenseRecord) => void;
-  onToggleSelect: (id: string) => void;
-  onSelectAll: () => void;
+  selectedExpenseId?: string | null;
+  onSelectExpense?: (expense: ExpenseRecord) => void;
+  onToggleSelect?: (id: string) => void;
+  onSelectAll?: () => void;
   onMarkAsCleared?: () => void;
   onExportSelected?: () => void;
   onDeleteExpense?: (id: string) => void;
@@ -35,16 +35,8 @@ const CategoryLabelMap: Record<string, string> = {
 
 export function ExpenseTableView({
   expenses,
-  selectedExpenseId,
-  onSelectExpense,
-  onToggleSelect,
-  onSelectAll,
-  onMarkAsCleared,
-  onExportSelected,
   loading = false,
 }: ExpenseTableViewProps) {
-  const allSelected = expenses.length > 0 && expenses.every((e) => e.selected);
-
   const formatDate = (dateVal: string | Date | undefined) => {
     if (!dateVal) return "—";
     try {
@@ -72,28 +64,6 @@ export function ExpenseTableView({
             {expenses.length} {expenses.length === 1 ? "Record" : "Records"}
           </span>
         </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          {onMarkAsCleared && (
-            <button
-              type="button"
-              onClick={onMarkAsCleared}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
-            >
-              Mark as Cleared
-            </button>
-          )}
-          {onExportSelected && (
-            <button
-              type="button"
-              onClick={onExportSelected}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
-            >
-              Export Selected
-            </button>
-          )}
-        </div>
       </div>
 
       {/* Table Container */}
@@ -101,15 +71,6 @@ export function ExpenseTableView({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-              <th className="w-12 px-4 py-3.5 text-center">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={onSelectAll}
-                  className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black cursor-pointer"
-                  aria-label="Select all expenses"
-                />
-              </th>
               <th className="px-3.5 py-3.5 font-bold">EXPENSE CODE</th>
               <th className="px-3.5 py-3.5 font-bold">BUSINESS</th>
               <th className="px-3.5 py-3.5 font-bold">DATE</th>
@@ -124,19 +85,18 @@ export function ExpenseTableView({
           <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-gray-500">
+                <td colSpan={9} className="py-12 text-center text-gray-500">
                   Loading expenses...
                 </td>
               </tr>
             ) : expenses.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-gray-500">
+                <td colSpan={9} className="py-12 text-center text-gray-500">
                   No expenses found matching your filters.
                 </td>
               </tr>
             ) : (
               expenses.map((exp) => {
-                const isCurrent = exp.id === selectedExpenseId;
                 const businessDisplay = getExpenseBusinessName(exp);
                 const businessCode = getExpenseBusinessCode(exp);
                 const codeDisplay = exp.expenseCode || exp.id;
@@ -146,28 +106,8 @@ export function ExpenseTableView({
                 return (
                   <tr
                     key={exp.id}
-                    onClick={() => onSelectExpense(exp)}
-                    className={`transition-colors cursor-pointer hover:bg-gray-50/70 ${
-                      isCurrent || exp.selected ? "bg-gray-50/60" : ""
-                    }`}
+                    className="transition-colors hover:bg-gray-50/70"
                   >
-                    {/* Checkbox */}
-                    <td
-                      className="px-4 py-4 text-center"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleSelect(exp.id);
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!!exp.selected}
-                        onChange={() => onToggleSelect(exp.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-black focus:ring-black cursor-pointer"
-                        aria-label={`Select expense ${codeDisplay}`}
-                      />
-                    </td>
-
                     {/* Expense Code */}
                     <td className="px-3.5 py-4 whitespace-nowrap">
                       <span className="font-bold text-gray-950 text-xs sm:text-[13px] font-mono">
@@ -241,17 +181,12 @@ export function ExpenseTableView({
 
                     {/* Action */}
                     <td className="px-4 py-4 text-center whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectExpense(exp);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
+                      <Link
+                        href={`/expenses/${exp.id}/edit`}
+                        className="inline-flex items-center justify-center px-3 py-1 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-2xs"
                       >
-                        <span>View</span>
-                        <ArrowRightIcon size={12} />
-                      </button>
+                        Edit
+                      </Link>
                     </td>
                   </tr>
                 );

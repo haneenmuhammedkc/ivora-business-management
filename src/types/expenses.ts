@@ -17,7 +17,8 @@ export type ExpenseCategory =
   | "India Expense"
   | "Transfer / Conversion"
   | "Transfer & FX Fees"
-  | "General Overhead";
+  | "General Overhead"
+  | (string & {});
 
 export type ExpenseStatus = ExpensePaymentStatus | "CLEARED" | "PENDING";
 

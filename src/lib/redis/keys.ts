@@ -61,6 +61,10 @@ export const CacheKeys = {
     kpis: (role: string, userId: string) =>
       role === "ADMIN" ? `${PREFIX}:admin:dashboard:kpis` : `${PREFIX}:partner:${userId}:dashboard:kpis`,
   },
+  reports: {
+    overview: (scope: string, queryHash: string) => `${PREFIX}:reports:overview:${scope}:${queryHash}`,
+    detail: (reportType: string, scope: string, queryHash: string) => `${PREFIX}:reports:detail:${reportType}:${scope}:${queryHash}`,
+  },
 };
 
 export const CacheTTL = {

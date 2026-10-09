@@ -7,7 +7,6 @@ import {
   ExpenseKpiCards,
   ExpenseFilters,
   ExpenseTableView,
-  ExpenseDetailsPanel,
 } from "@/components/admin/expenses";
 import { ExpenseRecord, ExpenseSummaryKPIs, getExpenseBusinessName } from "@/types/expenses";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
@@ -25,10 +24,6 @@ export default function ExpensesPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
 
-  // UI Selection State
-  const [selectedExpenseId, setSelectedExpenseId] = useState<string>("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
   // Dynamic API Fetch with SWR Cache
   const expensesApiUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -40,7 +35,6 @@ export default function ExpensesPage() {
   const {
     data: expensesResponse,
     isLoading: loadingExpenses,
-    mutate: mutateExpenses,
   } = useCachedFetch<{ expenses?: ExpenseRecord[]; data?: ExpenseRecord[] }>(expensesApiUrl);
 
   const { data: businessesResponse } = useCachedFetch<{
@@ -68,47 +62,60 @@ export default function ExpensesPage() {
     }));
   }, [businesses]);
 
+  // Dynamically generated category options based on existing expenses in database
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const exp of rawExpenses) {
+      if (exp.category && exp.category.trim()) {
+        set.add(exp.category.trim());
+      }
+    }
+    const sorted = Array.from(set).sort();
+    return [
+      { value: "all", label: "All Categories" },
+      ...sorted.map((cat) => ({
+        value: cat,
+        label: cat.replace(/_/g, " "),
+      })),
+    ];
+  }, [rawExpenses]);
+
   // Filtered expenses
   const filteredExpenses = useMemo(() => {
-    return rawExpenses
-      .map((exp) => ({
-        ...exp,
-        selected: selectedIds.has(exp.id),
-      }))
-      .filter((exp) => {
-        // Status filter
-        if (selectedStatus !== "all" && exp.status !== selectedStatus) {
+    return rawExpenses.filter((exp) => {
+      // Status filter
+      if (selectedStatus !== "all" && exp.status !== selectedStatus) {
+        return false;
+      }
+
+      // Category filter
+      if (selectedCategory !== "all" && exp.category !== selectedCategory) {
+        return false;
+      }
+
+      // Search filter
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase();
+        const matchesCode = (exp.expenseCode || exp.id || "").toLowerCase().includes(query);
+        const matchesBusiness = getExpenseBusinessName(exp).toLowerCase().includes(query);
+        const matchesCategory = (exp.category || "").toLowerCase().includes(query);
+        const matchesDesc = (exp.description || "").toLowerCase().includes(query);
+        const matchesPayment = (exp.paymentMethod || "").toLowerCase().includes(query);
+
+        if (
+          !matchesCode &&
+          !matchesBusiness &&
+          !matchesCategory &&
+          !matchesDesc &&
+          !matchesPayment
+        ) {
           return false;
         }
+      }
 
-        // Category filter
-        if (selectedCategory !== "all" && exp.category !== selectedCategory) {
-          return false;
-        }
-
-        // Search filter
-        if (searchTerm.trim()) {
-          const query = searchTerm.toLowerCase();
-          const matchesCode = (exp.expenseCode || exp.id || "").toLowerCase().includes(query);
-          const matchesBusiness = getExpenseBusinessName(exp).toLowerCase().includes(query);
-          const matchesCategory = (exp.category || "").toLowerCase().includes(query);
-          const matchesDesc = (exp.description || "").toLowerCase().includes(query);
-          const matchesPayment = (exp.paymentMethod || "").toLowerCase().includes(query);
-
-          if (
-            !matchesCode &&
-            !matchesBusiness &&
-            !matchesCategory &&
-            !matchesDesc &&
-            !matchesPayment
-          ) {
-            return false;
-          }
-        }
-
-        return true;
-      });
-  }, [rawExpenses, selectedIds, selectedStatus, selectedCategory, searchTerm]);
+      return true;
+    });
+  }, [rawExpenses, selectedStatus, selectedCategory, searchTerm]);
 
   // Compute live KPIs from loaded expenses
   const kpis: ExpenseSummaryKPIs = useMemo(() => {
@@ -119,14 +126,11 @@ export default function ExpensesPage() {
     for (const exp of rawExpenses) {
       const amt = Number(exp.amount ?? exp.amountAED ?? 0);
       total += amt;
-      if (exp.category === "LABOUR_VAULT" || exp.category === "Labour" || exp.category === "Labour & Vault") {
+      const catLower = (exp.category || "").toLowerCase();
+      if (catLower.includes("labour") || catLower.includes("vault")) {
         labour += amt;
       }
-      if (
-        exp.category === "DELIVERY_FREIGHT" ||
-        exp.category === "Delivery & Freight" ||
-        exp.category === "Delivery / Transport"
-      ) {
+      if (catLower.includes("delivery") || catLower.includes("freight") || catLower.includes("transport")) {
         freight += amt;
       }
     }
@@ -137,87 +141,6 @@ export default function ExpensesPage() {
       freightLogisticsAED: freight,
     };
   }, [rawExpenses]);
-
-  // Active selected expense for details panel
-  const activeExpense = useMemo(() => {
-    if (!selectedExpenseId) return null;
-    return filteredExpenses.find((exp) => exp.id === selectedExpenseId) || null;
-  }, [filteredExpenses, selectedExpenseId]);
-
-  // Selection handlers
-  const handleSelectExpense = (expense: ExpenseRecord) => {
-    setSelectedExpenseId((prev) => (prev === expense.id ? "" : expense.id));
-  };
-
-  const handleToggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const handleSelectAll = () => {
-    const allFilteredSelected =
-      filteredExpenses.length > 0 &&
-      filteredExpenses.every((e) => selectedIds.has(e.id));
-
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (allFilteredSelected) {
-        for (const e of filteredExpenses) next.delete(e.id);
-      } else {
-        for (const e of filteredExpenses) next.add(e.id);
-      }
-      return next;
-    });
-  };
-
-  const handleMarkAsCleared = async () => {
-    if (selectedIds.size === 0) return;
-
-    try {
-      const idsToUpdate = Array.from(selectedIds);
-      await Promise.all(
-        idsToUpdate.map((id) =>
-          fetch(`/api/expenses/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "CLEARED" }),
-          })
-        )
-      );
-      setSelectedIds(new Set());
-      await mutateExpenses();
-    } catch (err) {
-      console.error("Failed to update expense status:", err);
-    }
-  };
-
-  const handleDeleteExpense = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this expense record?")) {
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/expenses/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        if (selectedExpenseId === id) setSelectedExpenseId("");
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        await mutateExpenses();
-      }
-    } catch (err) {
-      console.error("Failed to delete expense:", err);
-    }
-  };
 
   return (
     <div className="space-y-6 pb-14">
@@ -246,6 +169,7 @@ export default function ExpensesPage() {
           selectedProduct={selectedCategory}
           onProductChange={setSelectedCategory}
           businessOptions={businessOptions}
+          categoryOptions={categoryOptions}
         />
       </FadeUp>
 
@@ -253,26 +177,9 @@ export default function ExpensesPage() {
       <FadeUp delay={0.2}>
         <ExpenseTableView
           expenses={filteredExpenses}
-          selectedExpenseId={selectedExpenseId}
-          onSelectExpense={handleSelectExpense}
-          onToggleSelect={handleToggleSelect}
-          onSelectAll={handleSelectAll}
-          onMarkAsCleared={selectedIds.size > 0 ? handleMarkAsCleared : undefined}
-          onExportSelected={() => {}}
           loading={loadingExpenses}
         />
       </FadeUp>
-
-      {/* Expense Details Panel */}
-      {activeExpense && (
-        <FadeUp delay={0.25}>
-          <ExpenseDetailsPanel
-            expense={activeExpense}
-            onClose={() => setSelectedExpenseId("")}
-            onDelete={handleDeleteExpense}
-          />
-        </FadeUp>
-      )}
     </div>
   );
 }

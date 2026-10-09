@@ -3,14 +3,14 @@ import { listExpenses, createExpense } from "@/services/expense/expense.service"
 import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
 import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
 import { ZodError } from "zod";
-import { ExpenseCategory, ExpensePaymentStatus } from "@prisma/client";
+import { ExpensePaymentStatus } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   try {
     const session = await requireActiveSession();
     const searchParams = req.nextUrl.searchParams;
     const businessId = searchParams.get("businessId") || undefined;
-    const category = (searchParams.get("category") as ExpenseCategory) || undefined;
+    const category = searchParams.get("category") || undefined;
     const status = (searchParams.get("status") as ExpensePaymentStatus) || undefined;
     const search = searchParams.get("search") || undefined;
 
