@@ -22,7 +22,7 @@ export function BusinessProfitabilityTable({
           </h2>
         </div>
         <span className="text-xs font-semibold text-gray-500">
-          Active Partitions
+          Active Entities
         </span>
       </div>
 
@@ -32,9 +32,9 @@ export function BusinessProfitabilityTable({
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50 text-[10px] font-bold uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3.5 font-bold">BUSINESS</th>
-              <th className="px-3.5 py-3.5 font-bold text-right">SALES</th>
-              <th className="px-3.5 py-3.5 font-bold text-right">PURCHASE</th>
-              <th className="px-3.5 py-3.5 font-bold text-right">EXPENSES</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">TOTAL SALES</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">PURCHASE COST</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">OPERATING EXPENSES</th>
               <th className="px-3.5 py-3.5 font-bold text-right">GROSS PROFIT</th>
               <th className="px-3.5 py-3.5 font-bold text-right">NET PROFIT</th>
               <th className="px-3.5 py-3.5 font-bold text-center">NET MARGIN</th>

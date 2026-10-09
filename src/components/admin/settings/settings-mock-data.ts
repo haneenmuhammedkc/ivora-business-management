@@ -2,7 +2,6 @@ import {
   DeskModuleItem,
   UserRbacItem,
   PartnerProfitShareItem,
-  ActiveDeviceSession,
 } from "@/types/settings";
 
 export const mockDeskModules: DeskModuleItem[] = [
@@ -11,9 +10,6 @@ export const mockDeskModules: DeskModuleItem[] = [
   { id: "users", name: "Users & Access Control", iconName: "users", badge: "3 Active", badgeVariant: "blue" },
   { id: "partners", name: "Partner Management", iconName: "partners", badge: "2 Partners", badgeVariant: "blue" },
   { id: "entities", name: "Business Entities", iconName: "entities", badge: "2 Entities", badgeVariant: "blue" },
-  { id: "currency", name: "Currency & FX Hedging", iconName: "currency", badge: "AED Base", badgeVariant: "gray" },
-  { id: "notifications", name: "Notification Triggers", iconName: "notifications" },
-  { id: "security", name: "Security & 2FA", iconName: "security", badge: "TIER-1", badgeVariant: "solid" },
   { id: "audit", name: "Audit & Compliance", iconName: "audit", badge: "SHA-256", badgeVariant: "gray" },
   { id: "danger", name: "Danger Zone", iconName: "danger", badge: "ROOT", badgeVariant: "outline", isDanger: true },
 ];
@@ -77,25 +73,3 @@ export const mockPartnerProfitShareList: PartnerProfitShareItem[] = [
   },
 ];
 
-export const mockActiveSessions: ActiveDeviceSession[] = [
-  {
-    id: "dev-01",
-    deviceName: 'MacBook Pro 16" • Chrome 128 (macOS Sonoma)',
-    isCurrentDevice: true,
-    locationDetails: "DIFC Dubai Gate, UAE",
-    ipAddress: "194.67.218.4",
-    tlsVersion: "TLS 1.3 Strict",
-    isActiveNow: true,
-    deviceType: "laptop",
-  },
-  {
-    id: "dev-02",
-    deviceName: "iPhone 15 Pro • Native Gateway Terminal",
-    securityBadge: "Biometric Authenticated",
-    locationDetails: "Dubai Downtown, UAE",
-    ipAddress: "185.120.44.89",
-    tlsVersion: "TLS 1.3 Strict",
-    lastActiveText: "Last active 48m ago",
-    deviceType: "phone",
-  },
-];

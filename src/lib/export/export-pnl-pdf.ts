@@ -49,7 +49,7 @@ export function exportProfitLossToPdf(
 
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text("BUSINESS MANAGEMENT & PHYSICAL BULLION PLATFORM", 14, 19);
+  doc.text("BUSINESS MANAGEMENT PLATFORM", 14, 19);
 
   doc.setFontSize(8);
   doc.text(`GENERATED: ${generatedAt.toUpperCase()}`, 196, 19, { align: "right" });
@@ -79,14 +79,14 @@ export function exportProfitLossToPdf(
   const kpis = data.kpis;
   autoTable(doc, {
     startY: currentY,
-    head: [["TOTAL SALES", "PURCHASE COST", "TOTAL EXPENSES", "GROSS PROFIT", "NET OPERATING PROFIT"]],
+    head: [["TOTAL SALES", "PURCHASE COST", "OPERATING EXPENSES", "GROSS PROFIT", "NET PROFIT"]],
     body: [
       [
-        `AED ${kpis.totalSalesAED.toLocaleString()}`,
-        `AED ${kpis.purchaseCostAED.toLocaleString()}`,
-        `AED ${kpis.totalExpensesAED.toLocaleString()}`,
-        `AED ${kpis.grossProfitAED.toLocaleString()}`,
-        `AED ${kpis.netProfitAED.toLocaleString()}`,
+        `AED ${kpis.totalSalesAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `AED ${kpis.purchaseCostAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `AED ${kpis.totalExpensesAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `AED ${kpis.grossProfitAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        `AED ${kpis.netProfitAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       ],
     ],
     theme: "plain",
@@ -114,52 +114,56 @@ export function exportProfitLossToPdf(
   const stmt = data.statement;
   const statementRows: (string | number)[][] = [];
 
+  const formatRevenueTitle = (title: string) => {
+    if (title.includes("India Sales") || title.includes("Realization Protocol") || title.includes("Sales Transactions")) {
+      return "Sales";
+    }
+    return title;
+  };
+
+  const formatPurchaseTitle = (title: string) => {
+    if (title.includes("Dubai Physical Bullion") || title.includes("Fine Sourcing") || title.includes("Purchase Transactions")) {
+      return "Purchase Cost";
+    }
+    return title;
+  };
+
   // Revenue
-  statementRows.push(["1. TRADING REVENUE", ""]);
+  statementRows.push(["1. REVENUE (TOTAL SALES)", ""]);
   for (const item of stmt.tradingRevenue) {
-    statementRows.push([`   ${item.title}`, `AED ${item.amountAED.toLocaleString()}`]);
+    statementRows.push([`   ${formatRevenueTitle(item.title)}`, `AED ${item.amountAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
   }
-  statementRows.push(["   TOTAL REVENUE", `AED ${stmt.totalRevenueAED.toLocaleString()}`]);
+  statementRows.push(["   TOTAL SALES", `AED ${stmt.totalRevenueAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
 
   // Purchases
-  statementRows.push(["2. COST OF BULLION PURCHASED", ""]);
+  statementRows.push(["2. LESS: PURCHASE COST", ""]);
   for (const item of stmt.costOfBullion) {
-    statementRows.push([`   ${item.title}`, `AED ${item.amountAED.toLocaleString()}`]);
+    statementRows.push([`   ${formatPurchaseTitle(item.title)}`, `AED ${item.amountAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
   }
-  statementRows.push(["   TOTAL PURCHASE COST", `AED ${stmt.totalPurchaseCostAED.toLocaleString()}`]);
+  statementRows.push(["   PURCHASE COST", `AED ${stmt.totalPurchaseCostAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
 
   // Gross Profit
   statementRows.push([
-    `GROSS PROFIT (SPREAD MARGIN: ${stmt.grossSpreadMarginPercent.toFixed(2)}%)`,
-    `AED ${stmt.grossProfitAED.toLocaleString()}`,
+    `GROSS PROFIT (GROSS MARGIN: ${stmt.grossSpreadMarginPercent.toFixed(2)}%)`,
+    `AED ${stmt.grossProfitAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
   ]);
 
   // Expenses
-  statementRows.push(["3. OPERATING & TRADING LOGISTICS EXPENSES", ""]);
+  statementRows.push(["3. LESS: OPERATING EXPENSES", ""]);
   for (const exp of stmt.operatingExpenses) {
-    statementRows.push([`   ${exp.title}`, `AED ${exp.amountAED.toLocaleString()}`]);
+    statementRows.push([`   ${exp.title}`, `AED ${exp.amountAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
   }
-  statementRows.push(["   TOTAL EXPENSES", `AED ${stmt.totalExpensesAED.toLocaleString()}`]);
+  statementRows.push(["   OPERATING EXPENSES", `AED ${stmt.totalExpensesAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
 
   // Net Profit
   statementRows.push([
-    `NET OPERATING PROFIT (NET MARGIN: ${stmt.netMarginPercent.toFixed(2)}%)`,
-    `AED ${(stmt.netProfitAED ?? stmt.auditedNetProfitAED ?? 0).toLocaleString()}`,
-  ]);
-
-  // Waterfall Allocations
-  statementRows.push([
-    `4. LESS CONTRACTED INVESTOR SHARE (${stmt.investorSharePercent.toFixed(2)}%)`,
-    `- AED ${stmt.investorShareAED.toLocaleString()}`,
-  ]);
-  statementRows.push([
-    `NET DESK RETAINED PROFIT (${stmt.deskRetainedPercent.toFixed(2)}%)`,
-    `AED ${stmt.netDeskRetainedProfitAED.toLocaleString()}`,
+    `NET PROFIT (NET MARGIN: ${stmt.netMarginPercent.toFixed(2)}%)`,
+    `AED ${(stmt.netProfitAED ?? stmt.auditedNetProfitAED ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
   ]);
 
   autoTable(doc, {
     startY: currentY,
-    head: [["P&L LEDGER LINE ITEM", "AMOUNT (AED)"]],
+    head: [["P&L LINE ITEM", "AMOUNT (AED)"]],
     body: statementRows,
     theme: "striped",
     headStyles: {
@@ -178,17 +182,16 @@ export function exportProfitLossToPdf(
       if (
         rowText.startsWith("1.") ||
         rowText.startsWith("2.") ||
-        rowText.startsWith("3.") ||
-        rowText.startsWith("4.")
+        rowText.startsWith("3.")
       ) {
         dataCell.cell.styles.fontStyle = "bold";
         dataCell.cell.styles.fillColor = [241, 245, 249];
       }
-      if (rowText.startsWith("GROSS PROFIT") || rowText.startsWith("NET DESK RETAINED")) {
+      if (rowText.startsWith("GROSS PROFIT")) {
         dataCell.cell.styles.fontStyle = "bold";
         dataCell.cell.styles.fillColor = [237, 244, 248];
       }
-      if (rowText.startsWith("NET OPERATING PROFIT")) {
+      if (rowText.startsWith("NET PROFIT")) {
         dataCell.cell.styles.fontStyle = "bold";
         dataCell.cell.styles.fillColor = [12, 13, 18];
         dataCell.cell.styles.textColor = [255, 255, 255];
@@ -213,17 +216,17 @@ export function exportProfitLossToPdf(
 
     const bizRows = data.businesses.map((b) => [
       b.name,
-      `AED ${b.salesAED.toLocaleString()}`,
-      `AED ${b.purchaseAED.toLocaleString()}`,
-      `AED ${b.expensesAED.toLocaleString()}`,
-      `AED ${b.grossProfitAED.toLocaleString()}`,
-      `AED ${b.netProfitAED.toLocaleString()}`,
+      `AED ${b.salesAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `AED ${b.purchaseAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `AED ${b.expensesAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `AED ${b.grossProfitAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `AED ${b.netProfitAED.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       `${b.netMarginPercent.toFixed(2)}%`,
     ]);
 
     autoTable(doc, {
       startY: currentY,
-      head: [["BUSINESS", "SALES", "PURCHASE", "EXPENSES", "GROSS PROFIT", "NET PROFIT", "MARGIN"]],
+      head: [["BUSINESS", "TOTAL SALES", "PURCHASE COST", "OPERATING EXPENSES", "GROSS PROFIT", "NET PROFIT", "MARGIN"]],
       body: bizRows,
       theme: "grid",
       headStyles: {

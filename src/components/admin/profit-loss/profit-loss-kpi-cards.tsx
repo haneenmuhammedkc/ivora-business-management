@@ -29,8 +29,8 @@ export function ProfitLossKpiCards({ kpis }: ProfitLossKpiCardsProps) {
       value: purchaseCost.toLocaleString(),
     },
     {
-      id: "total-expenses",
-      label: "TOTAL EXPENSES",
+      id: "operating-expenses",
+      label: "OPERATING EXPENSES",
       currency: "AED",
       value: totalExpenses.toLocaleString(),
     },

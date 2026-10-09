@@ -43,7 +43,7 @@ export function exportBalanceSheetToPdf(
 
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text("BUSINESS MANAGEMENT & PHYSICAL BULLION PLATFORM", 14, 19);
+  doc.text("BUSINESS MANAGEMENT PLATFORM", 14, 19);
 
   doc.setFontSize(8);
   doc.text(`GENERATED: ${generatedAt.toUpperCase()}`, 196, 19, { align: "right" });
@@ -51,13 +51,13 @@ export function exportBalanceSheetToPdf(
   // Report Title & Metadata Box
   doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text("TRANSACTION-BASED FINANCIAL POSITION STATEMENT", 14, 35);
+  doc.setFontSize(14);
+  doc.text("BALANCE SHEET", 14, 35);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text(`Entity Scope: ${businessName}`, 14, 41);
+  doc.text(`Financial Position & Holdings — Scope: ${businessName}`, 14, 41);
   doc.text(`As of Date: ${asOfDate}`, 14, 46);
   if (options.statusLabel && options.statusLabel !== "All Status") {
     doc.text(`Status Filter: ${options.statusLabel}`, 120, 41);
@@ -75,11 +75,11 @@ export function exportBalanceSheetToPdf(
     startY: currentY,
     head: [
       [
-        "COMMITTED CAPITAL",
-        "INVENTORY VALUE",
-        "REALIZED SALES",
-        "OPERATING PROFIT",
-        "PENDING DISBURSAL",
+        "TOTAL INVESTED CAPITAL",
+        "INVENTORY ON HAND",
+        "SALES",
+        "NET PROFIT",
+        "PARTNER BALANCE",
       ],
     ],
     body: [
@@ -126,17 +126,34 @@ export function exportBalanceSheetToPdf(
     return yPos + 6;
   };
 
-  // 2. Capital Position Pool
-  currentY = addSectionHeader("1. Capital Position Pool", currentY);
-  const capitalRows = data.capital.breakdown.map((item) => [
-    item.name,
-    item.note || item.drilldown || "",
-    `AED ${item.amountAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
+  // 2. Section 1: Investment & Inventory
+  currentY = addSectionHeader("1. Investment & Inventory", currentY);
+  const capitalRows: (string | number)[][] = [
+    [
+      "Admin Capital",
+      `${data.capital.adminSharePercent.toFixed(1)}% of capital pool`,
+      `AED ${data.capital.adminCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      "Partner Capital",
+      `${data.capital.partnerSharePercent.toFixed(1)}% of capital pool`,
+      `AED ${data.capital.partnerCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      "Total Invested Capital",
+      "100.0% of capital pool",
+      `AED ${data.capital.totalCommittedCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      `Inventory on Hand (${data.inventory.totalStockGrams.toLocaleString("en-US", { maximumFractionDigits: 1 })} gms in stock)`,
+      `Avg cost: AED ${data.inventory.averageCostPerGramAED.toFixed(2)} / g`,
+      `AED ${data.inventory.totalCarryingValueAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+  ];
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Category / Partner Component", "Description & Allocation", "Committed Amount (AED)"]],
+    head: [["Category / Asset Component", "Allocation & Notes", "Amount (AED)"]],
     body: capitalRows,
     theme: "striped",
     headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
@@ -146,6 +163,13 @@ export function exportBalanceSheetToPdf(
       1: { cellWidth: 60, textColor: textMuted },
       2: { cellWidth: 42, halign: "right", fontStyle: "bold" },
     },
+    didParseCell: (dataCell) => {
+      const rawRow = dataCell.row.raw as unknown as (string | number)[];
+      const rowText = String(rawRow?.[0] || "");
+      if (rowText.startsWith("Total Invested") || rowText.startsWith("Inventory on Hand")) {
+        dataCell.cell.styles.fontStyle = "bold";
+      }
+    },
     tableLineColor: borderLight,
     tableLineWidth: 0.2,
   });
@@ -153,34 +177,50 @@ export function exportBalanceSheetToPdf(
   // @ts-expect-error jspdf-autotable extends jsPDF instance
   currentY = doc.lastAutoTable.finalY + 8;
 
-  // 3. Physical Bullion Inventory Valuation
-  currentY = addSectionHeader("2. Physical Bullion Inventory Position", currentY);
-  const inventoryRows = data.inventory.items.map((item) => [
-    `${item.businessName} — ${item.productType.replace(/_/g, " ")}`,
-    `${item.remainingQuantity.toLocaleString("en-US", { maximumFractionDigits: 2 })} gms`,
-    `AED ${item.averageCostPerUnitAED.toFixed(2)}/g`,
-    `AED ${item.carryingValueAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
-
-  inventoryRows.push([
-    "Consolidated Physical Inventory Total",
-    `${data.inventory.totalStockGrams.toLocaleString("en-US", { maximumFractionDigits: 2 })} gms`,
-    `AED ${data.inventory.averageCostPerGramAED.toFixed(2)}/g (avg)`,
-    `AED ${data.inventory.totalCarryingValueAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
+  // 3. Section 2: Sales, Costs & Profit
+  currentY = addSectionHeader("2. Sales, Costs & Profit", currentY);
+  const tradingRows = [
+    [
+      "Sales",
+      "Cumulative sales revenue recognized",
+      `AED ${data.trading.realizedSalesAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      "Purchase Cost",
+      "Cumulative inventory purchases at landed cost",
+      `-AED ${data.trading.purchaseSourcingCostAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      "Operating Expenses",
+      "Cumulative operational expenses",
+      `-AED ${data.trading.operatingExpensesAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+    [
+      `Net Profit (Net Margin: ${data.trading.operatingMarginPercent.toFixed(2)}%)`,
+      "Sales - Purchase Cost - Operating Expenses",
+      `AED ${data.trading.operatingProfitAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
+  ];
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Inventory Item & Entity", "Remaining Quantity", "Avg Cost / Gram", "Carrying Value (AED)"]],
-    body: inventoryRows,
+    head: [["Financial Line Item", "Description", "Amount (AED)"]],
+    body: tradingRows,
     theme: "striped",
     headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
     bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
     columnStyles: {
-      0: { cellWidth: 70, fontStyle: "bold" },
-      1: { cellWidth: 38, halign: "right" },
-      2: { cellWidth: 34, halign: "right" },
-      3: { cellWidth: 40, halign: "right", fontStyle: "bold" },
+      0: { cellWidth: 80, fontStyle: "bold" },
+      1: { cellWidth: 60, textColor: textMuted },
+      2: { cellWidth: 42, halign: "right", fontStyle: "bold" },
+    },
+    didParseCell: (dataCell) => {
+      const rawRow = dataCell.row.raw as unknown as (string | number)[];
+      const rowText = String(rawRow?.[0] || "");
+      if (rowText.startsWith("Net Profit")) {
+        dataCell.cell.styles.fontStyle = "bold";
+        dataCell.cell.styles.fillColor = [241, 245, 249];
+      }
     },
     tableLineColor: borderLight,
     tableLineWidth: 0.2,
@@ -195,40 +235,8 @@ export function exportBalanceSheetToPdf(
     currentY = 20;
   }
 
-  // 4. Cumulative Trading Position
-  currentY = addSectionHeader("3. Cumulative Trading Position & Spread", currentY);
-  const tradingRows = data.trading.breakdown.map((item) => [
-    item.name,
-    item.note || item.drilldown || "",
-    `AED ${item.amountAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
-
-  autoTable(doc, {
-    startY: currentY,
-    head: [["Trading Position Metric", "Details & Volume", "Amount (AED)"]],
-    body: tradingRows,
-    theme: "striped",
-    headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
-    bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
-    columnStyles: {
-      0: { cellWidth: 80, fontStyle: "bold" },
-      1: { cellWidth: 60, textColor: textMuted },
-      2: { cellWidth: 42, halign: "right", fontStyle: "bold" },
-    },
-    tableLineColor: borderLight,
-    tableLineWidth: 0.2,
-  });
-
-  // @ts-expect-error jspdf-autotable extends jsPDF instance
-  currentY = doc.lastAutoTable.finalY + 8;
-
-  if (currentY > 210) {
-    doc.addPage();
-    currentY = 20;
-  }
-
-  // 5. Partner Settlement Position
-  currentY = addSectionHeader("4. Partner Settlement Position", currentY);
+  // 4. Partner Settlement
+  currentY = addSectionHeader("3. Partner Settlement", currentY);
   const settlementRows = data.settlement.partners.map((p) => [
     `${p.businessName} (${p.partnerName})`,
     `AED ${p.entitlementAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -245,7 +253,7 @@ export function exportBalanceSheetToPdf(
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Entity & Partner Share", "Entitlement (AED)", "Disbursed (AED)", "Pending Disbursal (AED)"]],
+    head: [["Business & Partner Share", "Entitlement (AED)", "Paid Disbursals (AED)", "Pending Disbursal (AED)"]],
     body: settlementRows,
     theme: "striped",
     headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
@@ -263,40 +271,53 @@ export function exportBalanceSheetToPdf(
   // @ts-expect-error jspdf-autotable extends jsPDF instance
   currentY = doc.lastAutoTable.finalY + 8;
 
-  if (currentY > 210) {
-    doc.addPage();
-    currentY = 20;
+  // 5. Business Breakdown
+  if (data.businesses && data.businesses.length > 0) {
+    if (currentY > 200) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    currentY = addSectionHeader("4. Business Breakdown", currentY);
+    const bizRows = data.businesses.map((b) => [
+      b.business,
+      `AED ${b.committedCapitalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.inventoryValueAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.salesAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.purchaseAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.expensesAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.operatingProfitAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${b.pendingDisbursalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Business", "Invested Cap", "Inventory", "Sales", "Purchase Cost", "Expenses", "Net Profit", "Pending"]],
+      body: bizRows,
+      theme: "striped",
+      headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 7, fontStyle: "bold" },
+      bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
+      columnStyles: {
+        0: { cellWidth: 36, fontStyle: "bold" },
+        1: { cellWidth: 22, halign: "right" },
+        2: { cellWidth: 20, halign: "right" },
+        3: { cellWidth: 20, halign: "right" },
+        4: { cellWidth: 22, halign: "right" },
+        5: { cellWidth: 20, halign: "right" },
+        6: { cellWidth: 22, halign: "right", fontStyle: "bold" },
+        7: { cellWidth: 20, halign: "right", fontStyle: "bold" },
+      },
+      didParseCell: (dataCell) => {
+        const rawRow = dataCell.row.raw as unknown as (string | number)[];
+        if (String(rawRow?.[0] || "").includes("Consolidated")) {
+          dataCell.cell.styles.fontStyle = "bold";
+          dataCell.cell.styles.fillColor = [241, 245, 249];
+        }
+      },
+      tableLineColor: borderLight,
+      tableLineWidth: 0.2,
+    });
   }
-
-  // 6. Business Position Table
-  currentY = addSectionHeader("5. Entity Performance & Position Breakdown", currentY);
-  const bizRows = data.businesses.map((b) => [
-    b.business,
-    `AED ${b.committedCapitalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-    `${b.stockGrams.toLocaleString("en-US", { maximumFractionDigits: 1 })}g`,
-    `AED ${b.salesAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-    `AED ${b.operatingProfitAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-    `AED ${b.pendingDisbursalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-  ]);
-
-  autoTable(doc, {
-    startY: currentY,
-    head: [["Entity", "Capital", "Stock", "Sales", "Op. Profit", "Pending Disb."]],
-    body: bizRows,
-    theme: "striped",
-    headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 7.5, fontStyle: "bold" },
-    bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59] },
-    columnStyles: {
-      0: { cellWidth: 48, fontStyle: "bold" },
-      1: { cellWidth: 28, halign: "right" },
-      2: { cellWidth: 26, halign: "right" },
-      3: { cellWidth: 28, halign: "right" },
-      4: { cellWidth: 26, halign: "right", fontStyle: "bold" },
-      5: { cellWidth: 26, halign: "right", fontStyle: "bold" },
-    },
-    tableLineColor: borderLight,
-    tableLineWidth: 0.2,
-  });
 
   // Page Numbers Footer
   const totalPages = doc.getNumberOfPages();
@@ -306,7 +327,7 @@ export function exportBalanceSheetToPdf(
     doc.setFontSize(8);
     doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
     doc.text(
-      `Ivora Financial Position Statement — As of ${asOfDate} — Page ${i} of ${totalPages}`,
+      `Ivora Balance Sheet — As of ${asOfDate} — Page ${i} of ${totalPages}`,
       105,
       290,
       { align: "center" }
@@ -315,5 +336,5 @@ export function exportBalanceSheetToPdf(
 
   // Trigger download
   const sanitizedBiz = businessName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-  doc.save(`ivora-financial-position-${sanitizedBiz}-${asOfDate}.pdf`);
+  doc.save(`ivora-balance-sheet-${sanitizedBiz}-${asOfDate}.pdf`);
 }

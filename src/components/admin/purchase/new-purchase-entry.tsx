@@ -236,6 +236,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
         quantity: qtyNum,
         quantityUnit,
         totalPurchaseAmount: totalNum,
+        status: "CLEARED",
       };
 
       const response = await fetch("/api/purchases", {

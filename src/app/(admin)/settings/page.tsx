@@ -9,27 +9,14 @@ import {
   DeskModulesSidebar,
   UserManagementRbac,
   PartnerProfitShare,
-  CurrencyFxValuation,
-  SecuritySessionsSection,
   DataExportArchival,
   mockDeskModules,
   mockUserRbacList,
   mockPartnerProfitShareList,
-  mockActiveSessions,
 } from "@/components/admin/settings";
-import { ActiveDeviceSession } from "@/types/settings";
 
 export default function SettingsPage() {
   const [activeModuleId, setActiveModuleId] = useState("general");
-  const [sessions, setSessions] = useState<ActiveDeviceSession[]>(mockActiveSessions);
-
-  const handleTerminateOtherSessions = () => {
-    setSessions((prev) => prev.filter((s) => s.isCurrentDevice));
-  };
-
-  const handleRevokeKey = (id: string) => {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-  };
 
   const renderActiveSection = () => {
     switch (activeModuleId) {
@@ -53,24 +40,6 @@ export default function SettingsPage() {
           </div>
         );
 
-      case "currency":
-        return <CurrencyFxValuation />;
-
-      case "notifications":
-        return <GeneralConfigSection />;
-
-      case "security":
-        return (
-          <div className="space-y-6">
-            <SecuritySessionsSection
-              sessions={sessions}
-              onTerminateOtherSessions={handleTerminateOtherSessions}
-              onRevokeKey={handleRevokeKey}
-            />
-            <DataExportArchival />
-          </div>
-        );
-
       case "audit":
         return <DataExportArchival />;
 
@@ -88,7 +57,7 @@ export default function SettingsPage() {
       <FadeUp delay={0.05}>
         <PageHeader
           title="Settings"
-          subtitle="Central Governance For Enterprise Configuration, Entity Partition Scopes, Partner RBAC Access, Currency Pegging, And Cryptographic Audit Controls."
+          subtitle="Central Governance For Enterprise Configuration, Entity Partition Scopes, Partner RBAC Access, And Cryptographic Audit Controls."
         />
       </FadeUp>
 

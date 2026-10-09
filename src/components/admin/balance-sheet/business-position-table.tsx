@@ -28,11 +28,11 @@ export function BusinessPositionTable({
             />
           </svg>
           <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
-            Business Financial Position Comparison
+            BUSINESS BREAKDOWN
           </h2>
         </div>
         <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-          SEGREGATED ENTITY PERFORMANCE & POSITION BREAKDOWN
+          ENTITY FINANCIAL POSITION & PROFITABILITY
         </span>
       </div>
 
@@ -41,20 +41,22 @@ export function BusinessPositionTable({
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/70 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-              <th className="px-5 py-3.5 font-bold">ENTITY</th>
-              <th className="px-4 py-3.5 font-bold text-right">COMMITTED CAPITAL</th>
-              <th className="px-4 py-3.5 font-bold text-right">BULLION STOCK</th>
-              <th className="px-4 py-3.5 font-bold text-right">REALIZED SALES</th>
-              <th className="px-4 py-3.5 font-bold text-right">OPERATING PROFIT</th>
-              <th className="px-4 py-3.5 font-bold text-right">PENDING DISBURSAL</th>
-              <th className="px-5 py-3.5 font-bold text-center">STATUS</th>
+              <th className="px-5 py-3.5 font-bold">BUSINESS</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">INVESTED CAPITAL</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">INVENTORY VALUE</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">SALES</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">PURCHASE COST</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">OPERATING EXPENSES</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">NET PROFIT</th>
+              <th className="px-3.5 py-3.5 font-bold text-right">PENDING DISBURSAL</th>
+              <th className="px-4 py-3.5 font-bold text-center">STATUS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {businesses.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   className="px-5 py-8 text-center text-gray-400 font-medium text-xs"
                 >
                   No entities found matching active filters.
@@ -97,12 +99,10 @@ export function BusinessPositionTable({
                       </div>
                     </td>
 
-                    {/* Committed Capital */}
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
-                      <div className="text-[10px] text-gray-500 font-bold uppercase leading-none">
-                        AED
-                      </div>
-                      <span className="text-xs sm:text-[13px] text-gray-950 font-bold">
+                    {/* Invested Capital */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
+                      <span className="text-xs text-gray-950 font-bold">
+                        AED{" "}
                         {biz.committedCapitalAED.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -110,9 +110,9 @@ export function BusinessPositionTable({
                       </span>
                     </td>
 
-                    {/* Bullion Stock / Carrying Value */}
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
-                      <span className="text-xs sm:text-[13px] text-gray-900 font-semibold">
+                    {/* Inventory Value */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
+                      <span className="text-xs text-gray-900 font-semibold">
                         AED{" "}
                         {biz.inventoryValueAED.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
@@ -123,16 +123,14 @@ export function BusinessPositionTable({
                         {biz.stockGrams.toLocaleString("en-US", {
                           maximumFractionDigits: 1,
                         })}{" "}
-                        gms
+                        g
                       </div>
                     </td>
 
-                    {/* Realized Sales */}
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
-                      <div className="text-[10px] text-gray-500 font-bold uppercase leading-none">
-                        AED
-                      </div>
-                      <span className="text-xs sm:text-[13px] text-gray-900 font-semibold">
+                    {/* Sales */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
+                      <span className="text-xs text-gray-900 font-semibold">
+                        AED{" "}
                         {biz.salesAED.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -140,11 +138,30 @@ export function BusinessPositionTable({
                       </span>
                     </td>
 
-                    {/* Operating Profit */}
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
-                      <div className="text-[10px] text-gray-500 font-bold uppercase leading-none">
-                        AED
-                      </div>
+                    {/* Purchase Cost */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
+                      <span className="text-xs text-gray-800 font-medium">
+                        AED{" "}
+                        {biz.purchaseAED.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </td>
+
+                    {/* Operating Expenses */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
+                      <span className="text-xs text-gray-700 font-medium">
+                        AED{" "}
+                        {biz.expensesAED.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </td>
+
+                    {/* Net Profit */}
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
                       <span
                         className={`text-xs sm:text-[13px] font-bold ${
                           biz.operatingProfitAED >= 0
@@ -152,6 +169,7 @@ export function BusinessPositionTable({
                             : "text-rose-600"
                         }`}
                       >
+                        AED{" "}
                         {biz.operatingProfitAED.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -160,7 +178,7 @@ export function BusinessPositionTable({
                     </td>
 
                     {/* Pending Disbursal */}
-                    <td className="px-4 py-4 text-right whitespace-nowrap">
+                    <td className="px-3.5 py-4 text-right whitespace-nowrap">
                       <span
                         className={`text-xs sm:text-[13px] font-semibold ${
                           biz.pendingDisbursalAED > 0
@@ -177,10 +195,10 @@ export function BusinessPositionTable({
                     </td>
 
                     {/* Status Badge */}
-                    <td className="px-5 py-4 text-center whitespace-nowrap">
+                    <td className="px-4 py-4 text-center whitespace-nowrap">
                       <Badge
                         variant={isConsolidated ? "neutral" : "active"}
-                        className="px-3 py-0.5 text-[10.5px] font-bold tracking-wider"
+                        className="px-2.5 py-0.5 text-[10px] font-bold tracking-wider"
                       >
                         {isConsolidated ? "CONSOLIDATED" : "ACTIVE"}
                       </Badge>

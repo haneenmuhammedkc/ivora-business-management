@@ -11,7 +11,6 @@ import {
   BalanceSheetFilters,
   BalanceSheetStatement,
   BusinessPositionTable,
-  CompositionAnalyticsPanels,
 } from "@/components/admin/balance-sheet";
 import { exportBalanceSheetToPdf } from "@/lib/export/export-balance-sheet-pdf";
 import { exportBalanceSheetToExcel } from "@/lib/export/export-balance-sheet-excel";
@@ -149,12 +148,12 @@ export default function BalanceSheetPage() {
   };
 
   return (
-    <div className="space-y-6 pb-14">
+    <div className="space-y-6 pb-14 print:space-y-4 print:pb-0">
       {/* Page Header */}
       <FadeUp delay={0.05}>
         <PageHeader
           title="Balance Sheet"
-          subtitle="Point-In-Time Statement Of Financial Position (Capital, Bullion Inventory, Trading & Settlements) Across Trading Businesses."
+          subtitle="Financial Position & Holdings"
         />
       </FadeUp>
 
@@ -185,8 +184,8 @@ export default function BalanceSheetPage() {
       {/* Loading Skeleton */}
       {isLoading && !bsResponse && (
         <div className="space-y-6 animate-pulse">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            {[...Array(5)].map((_, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {[...Array(4)].map((_, i) => (
               <div key={i} className="h-24 rounded-xl bg-gray-100" />
             ))}
           </div>
@@ -208,21 +207,23 @@ export default function BalanceSheetPage() {
 
           {/* Filter Bar */}
           <FadeUp delay={0.16}>
-            <BalanceSheetFilters
-              searchTerm={searchTerm}
-              onSearchChange={setSearchTerm}
-              selectedBusiness={selectedBusiness}
-              onBusinessChange={setSelectedBusiness}
-              businessesList={businessesList}
-              selectedStatus={selectedStatus}
-              onStatusChange={setSelectedStatus}
-              selectedProduct={selectedProduct}
-              onProductChange={setSelectedProduct}
-              availableProducts={availableProducts}
-            />
+            <div className="print:hidden">
+              <BalanceSheetFilters
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                selectedBusiness={selectedBusiness}
+                onBusinessChange={setSelectedBusiness}
+                businessesList={businessesList}
+                selectedStatus={selectedStatus}
+                onStatusChange={setSelectedStatus}
+                selectedProduct={selectedProduct}
+                onProductChange={setSelectedProduct}
+                availableProducts={availableProducts}
+              />
+            </div>
           </FadeUp>
 
-          {/* 2-Column Statement of Financial Position */}
+          {/* 2-Column Statement: Investment & Inventory / Sales, Costs & Profit */}
           <FadeUp delay={0.2}>
             <BalanceSheetStatement
               capital={bsResponse.capital}
@@ -235,14 +236,6 @@ export default function BalanceSheetPage() {
           {/* Business Financial Position Comparison Table */}
           <FadeUp delay={0.24}>
             <BusinessPositionTable businesses={filteredBusinesses} />
-          </FadeUp>
-
-          {/* Bottom Composition Analytics Breakdown Panels */}
-          <FadeUp delay={0.28}>
-            <CompositionAnalyticsPanels
-              capital={bsResponse.capital}
-              inventory={bsResponse.inventory}
-            />
           </FadeUp>
         </>
       )}

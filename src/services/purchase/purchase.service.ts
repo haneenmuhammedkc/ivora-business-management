@@ -208,7 +208,7 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
       vaultHandlingLabour: vhlDecimal,
       customsSecurity: csDecimal,
       totalLandedCost: totalLandedCostDecimal,
-      status: input.status || PurchaseStatus.DRAFT,
+      status: input.status || PurchaseStatus.CLEARED,
     },
     include: { business: { select: { id: true, name: true, code: true } } },
   });

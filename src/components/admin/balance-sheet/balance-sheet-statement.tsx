@@ -107,12 +107,38 @@ export function BalanceSheetStatement({
 }: BalanceSheetStatementProps) {
   const totalCapitalAndInventory =
     capital.totalCommittedCapitalAED + inventory.totalCarryingValueAED;
-  const netRetainedSpread =
+  const netRetainedProfit =
     trading.operatingProfitAED - settlement.profitDisbursedAED;
+
+  // Format capital items with simple user-friendly labels
+  const cleanCapitalBreakdown = [
+    {
+      name: "Admin Capital",
+      amountAED: capital.adminCapitalAED,
+      drilldown: `${capital.adminSharePercent.toFixed(1)}% of capital pool`,
+      note: "Institutional & founder contribution",
+    },
+    {
+      name: "Partner Capital",
+      amountAED: capital.partnerCapitalAED,
+      drilldown: `${capital.partnerSharePercent.toFixed(1)}% of capital pool`,
+      note: "External partner contributions",
+    },
+  ];
+
+  // Format inventory items cleanly
+  const cleanInventoryBreakdown = inventory.items.map((item) => ({
+    name: `${item.businessName} — ${item.productType.replace(/_/g, " ")}`,
+    amountAED: item.carryingValueAED,
+    drilldown: `${item.remainingQuantity.toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+    })} gms @ AED ${item.averageCostPerUnitAED.toFixed(2)}/g`,
+    badge: "In Stock",
+  }));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-      {/* LEFT COLUMN: CAPITAL & BULLION ASSETS */}
+      {/* SECTION 1: INVESTMENT & INVENTORY */}
       <div className="w-full rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden flex flex-col justify-between">
         <div>
           {/* Header */}
@@ -132,7 +158,7 @@ export function BalanceSheetStatement({
                 />
               </svg>
               <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
-                CAPITAL & INVENTORY POSITION
+                1. INVESTMENT & INVENTORY
               </h2>
             </div>
             <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
@@ -141,26 +167,26 @@ export function BalanceSheetStatement({
           </div>
 
           <div className="p-5 space-y-5">
-            {/* 1. CAPITAL POSITION POOL */}
+            {/* 1.1 INVESTED CAPITAL */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                 <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  1. COMMITTED ENTITY CAPITAL POOL
+                  INVESTED CAPITAL
                 </span>
                 <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
                   EQUITY SHARE
                 </span>
               </div>
               <div className="space-y-1 divide-y divide-gray-100/80">
-                {capital.breakdown.map((item, idx) => (
+                {cleanCapitalBreakdown.map((item, idx) => (
                   <ItemRow key={idx} item={item} />
                 ))}
               </div>
 
-              {/* Subtotal */}
+              {/* Capital Subtotal */}
               <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
                 <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  TOTAL COMMITTED CAPITAL
+                  TOTAL INVESTED CAPITAL
                 </span>
                 <span className="font-extrabold text-sm text-gray-950">
                   AED{" "}
@@ -172,26 +198,36 @@ export function BalanceSheetStatement({
               </div>
             </div>
 
-            {/* 2. PHYSICAL BULLION INVENTORY */}
+            {/* 1.2 INVENTORY ON HAND */}
             <div className="space-y-2.5 pt-4 border-t border-gray-200">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                 <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  2. PHYSICAL BULLION INVENTORY
+                  INVENTORY ON HAND
                 </span>
                 <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  VALUATION
+                  LANDED COST
                 </span>
               </div>
               <div className="space-y-1 divide-y divide-gray-100/80">
-                {inventory.breakdown.map((item, idx) => (
-                  <ItemRow key={idx} item={item} />
-                ))}
+                {cleanInventoryBreakdown.length === 0 ? (
+                  <div className="py-2.5 text-gray-400 text-xs italic">
+                    No active inventory in stock.
+                  </div>
+                ) : (
+                  cleanInventoryBreakdown.map((item, idx) => (
+                    <ItemRow key={idx} item={item} />
+                  ))
+                )}
               </div>
 
-              {/* Subtotal */}
+              {/* Inventory Subtotal */}
               <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
                 <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  TOTAL INVENTORY VALUATION
+                  TOTAL INVENTORY VALUE (
+                  {inventory.totalStockGrams.toLocaleString("en-US", {
+                    maximumFractionDigits: 1,
+                  })}{" "}
+                  G)
                 </span>
                 <span className="font-extrabold text-sm text-gray-950">
                   AED{" "}
@@ -205,14 +241,11 @@ export function BalanceSheetStatement({
           </div>
         </div>
 
-        {/* Consolidated Total Box */}
+        {/* Section 1 Total Box */}
         <div className="p-5 pt-0">
           <div className="h-12 px-4 rounded-lg bg-[#edf4f8] border border-[#d6e3ed] flex items-center justify-between font-bold text-gray-950 shadow-2xs">
             <span className="uppercase text-xs tracking-wider font-black">
-              TOTAL COMMITTED & BULLION BASE{" "}
-              <span className="text-gray-500 font-bold text-[11px]">
-                (CAPITAL + STOCK)
-              </span>
+              TOTAL INVESTED CAPITAL & INVENTORY
             </span>
             <span className="text-base sm:text-lg font-black">
               AED{" "}
@@ -225,7 +258,7 @@ export function BalanceSheetStatement({
         </div>
       </div>
 
-      {/* RIGHT COLUMN: TRADING & SETTLEMENT POSITION */}
+      {/* SECTION 2: SALES, COSTS & PROFIT */}
       <div className="w-full rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden flex flex-col justify-between">
         <div>
           {/* Header */}
@@ -245,7 +278,7 @@ export function BalanceSheetStatement({
                 />
               </svg>
               <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
-                TRADING & SETTLEMENT POSITION
+                2. SALES, COSTS & PROFIT
               </h2>
             </div>
             <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
@@ -254,26 +287,75 @@ export function BalanceSheetStatement({
           </div>
 
           <div className="p-5 space-y-5">
-            {/* 1. CUMULATIVE TRADING POSITION */}
+            {/* 2.1 CUMULATIVE TRADING FLOW */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                 <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  1. CUMULATIVE TRADING PERFORMANCE
+                  CUMULATIVE PERFORMANCE
                 </span>
                 <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  REALIZATION
+                  AMOUNT
                 </span>
               </div>
+
+              {/* Clean Waterfall Rows */}
               <div className="space-y-1 divide-y divide-gray-100/80">
-                {trading.breakdown.map((item, idx) => (
-                  <ItemRow key={idx} item={item} />
-                ))}
+                {/* Sales */}
+                <div className="py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-900 text-xs">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Sales
+                    </span>
+                  </div>
+                  <span className="font-bold text-xs sm:text-[13px] text-gray-950">
+                    AED{" "}
+                    {trading.realizedSalesAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+
+                {/* Purchase Cost */}
+                <div className="py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-900 text-xs">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Purchase Cost
+                    </span>
+                  </div>
+                  <span className="font-bold text-xs sm:text-[13px] text-rose-600">
+                    -AED{" "}
+                    {trading.purchaseSourcingCostAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+
+                {/* Operating Expenses */}
+                <div className="py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-gray-900 text-xs">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Operating Expenses
+                    </span>
+                  </div>
+                  <span className="font-bold text-xs sm:text-[13px] text-rose-600">
+                    -AED{" "}
+                    {trading.operatingExpensesAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
               </div>
 
-              {/* Subtotal */}
+              {/* Net Profit Subtotal */}
               <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
                 <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  NET OPERATING SPREAD / PROFIT
+                  NET PROFIT (MARGIN: {trading.operatingMarginPercent.toFixed(2)}%)
                 </span>
                 <span
                   className={`font-extrabold text-sm ${
@@ -291,26 +373,54 @@ export function BalanceSheetStatement({
               </div>
             </div>
 
-            {/* 2. PARTNER SETTLEMENT POSITION */}
+            {/* 2.2 PARTNER SETTLEMENT SUBSECTION */}
             <div className="space-y-2.5 pt-4 border-t border-gray-200">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                 <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  2. PARTNER PROFIT SETTLEMENTS
+                  PARTNER SETTLEMENT
                 </span>
                 <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  DISBURSAL STATUS
+                  STATUS
                 </span>
               </div>
+
               <div className="space-y-1 divide-y divide-gray-100/80">
-                {settlement.breakdown.map((item, idx) => (
-                  <ItemRow key={idx} item={item} />
-                ))}
+                {/* Entitlement */}
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-700 font-medium">
+                    Partner Profit Entitlement
+                  </span>
+                  <span className="font-semibold text-xs text-gray-900">
+                    AED{" "}
+                    {settlement.totalPartnerEntitlementAED.toLocaleString(
+                      "en-US",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      }
+                    )}
+                  </span>
+                </div>
+
+                {/* Paid Disbursals */}
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-700 font-medium">
+                    Less: Paid Disbursals
+                  </span>
+                  <span className="font-semibold text-xs text-rose-600">
+                    -AED{" "}
+                    {settlement.profitDisbursedAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
               </div>
 
-              {/* Subtotal */}
+              {/* Pending Partner Disbursal Subtotal */}
               <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
                 <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  PENDING PARTNER DISBURSALS
+                  PENDING PARTNER DISBURSAL
                 </span>
                 <span className="font-extrabold text-sm text-gray-950">
                   AED{" "}
@@ -327,22 +437,22 @@ export function BalanceSheetStatement({
           </div>
         </div>
 
-        {/* Consolidated Total Box */}
+        {/* Section 2 Total Box: Retained Net Profit */}
         <div className="p-5 pt-0">
-          <div className="h-12 px-4 rounded-lg bg-[#edf4f8] border border-[#d6e3ed] flex items-center justify-between font-bold text-gray-950 shadow-2xs">
+          <div className="h-12 px-4 rounded-lg bg-[#0c0d12] text-white flex items-center justify-between font-bold shadow-2xs">
             <span className="uppercase text-xs tracking-wider font-black">
-              NET RETAINED OPERATING POSITION{" "}
-              <span className="text-gray-500 font-bold text-[11px]">
-                (SPREAD - DISBURSED)
+              RETAINED NET PROFIT{" "}
+              <span className="text-gray-400 font-normal text-[11px]">
+                (NET PROFIT - DISBURSED)
               </span>
             </span>
             <span
               className={`text-base sm:text-lg font-black ${
-                netRetainedSpread >= 0 ? "text-gray-950" : "text-rose-600"
+                netRetainedProfit >= 0 ? "text-white" : "text-rose-400"
               }`}
             >
               AED{" "}
-              {netRetainedSpread.toLocaleString("en-US", {
+              {netRetainedProfit.toLocaleString("en-US", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}

@@ -31,15 +31,3 @@ export interface PartnerProfitShareItem {
   overrideStatus: string;
 }
 
-export interface ActiveDeviceSession {
-  id: string;
-  deviceName: string;
-  isCurrentDevice?: boolean;
-  securityBadge?: string;
-  locationDetails: string;
-  ipAddress: string;
-  tlsVersion: string;
-  isActiveNow?: boolean;
-  lastActiveText?: string;
-  deviceType: "laptop" | "phone";
-}

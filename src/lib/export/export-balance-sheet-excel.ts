@@ -14,61 +14,67 @@ export function exportBalanceSheetToExcel(
   // SHEET 1: Position Summary
   // ==========================================
   const summarySheetData: (string | number)[][] = [
-    ["IVORA — TRANSACTION-BASED FINANCIAL POSITION STATEMENT"],
+    ["IVORA — BALANCE SHEET"],
+    ["Financial Position & Holdings"],
     ["Generated At", new Date().toISOString()],
     ["Entity Scope", businessName],
     ["As of Date", asOfDate],
     ["Currency", "AED"],
     [],
     ["--- KEY PERFORMANCE METRICS ---", ""],
-    ["Total Committed Capital (AED)", data.kpis.totalCommittedCapitalAED],
-    ["Inventory Carrying Value (AED)", data.kpis.inventoryCarryingValueAED],
-    ["Total Realized Sales (AED)", data.kpis.totalRealizedSalesAED],
-    ["Net Operating Profit (AED)", data.kpis.netOperatingProfitAED],
+    ["Total Invested Capital (AED)", data.kpis.totalCommittedCapitalAED],
+    ["Inventory on Hand (AED)", data.kpis.inventoryCarryingValueAED],
+    ["Sales (AED)", data.kpis.totalRealizedSalesAED],
+    ["Net Profit (AED)", data.kpis.netOperatingProfitAED],
     ["Pending Partner Disbursal (AED)", data.kpis.pendingPartnerDisbursalAED],
     [],
-    ["--- 1. CAPITAL POSITION POOL ---", "AMOUNT (AED)", "DETAILS"],
+    ["--- 1. INVESTMENT & INVENTORY ---", "AMOUNT (AED)", "ALLOCATION / DETAILS"],
+    ["Admin Capital", data.capital.adminCapitalAED, `${data.capital.adminSharePercent.toFixed(1)}% of capital pool`],
+    ["Partner Capital", data.capital.partnerCapitalAED, `${data.capital.partnerSharePercent.toFixed(1)}% of capital pool`],
+    ["Total Invested Capital", data.capital.totalCommittedCapitalAED, "100.0% of capital pool"],
+    [
+      "Inventory on Hand (at Landed Cost)",
+      data.inventory.totalCarryingValueAED,
+      `${data.inventory.totalStockGrams.toFixed(1)} gms stock @ avg AED ${data.inventory.averageCostPerGramAED.toFixed(2)}/g`,
+    ],
+    [],
+    ["--- 2. SALES, COSTS & PROFIT ---", "AMOUNT (AED)", "DETAILS"],
+    ["Sales", data.trading.realizedSalesAED, "Cumulative recognized revenue"],
+    ["Purchase Cost", -data.trading.purchaseSourcingCostAED, "Cumulative purchases at landed cost"],
+    ["Operating Expenses", -data.trading.operatingExpensesAED, "Cumulative operational overheads"],
+    ["Net Profit", data.trading.operatingProfitAED, `Net Margin: ${data.trading.operatingMarginPercent.toFixed(2)}%`],
+    [],
+    ["--- 3. PARTNER SETTLEMENT ---", "AMOUNT (AED)", "DETAILS"],
+    ["Partner Profit Entitlement", data.settlement.totalPartnerEntitlementAED, "Agreed equity profit share"],
+    ["Paid Disbursals", -data.settlement.profitDisbursedAED, "Cumulative disbursed profits"],
+    ["Pending Partner Disbursal", data.settlement.pendingPartnerDisbursalAED, "Unsettled payable balance"],
   ];
-
-  for (const item of data.capital.breakdown) {
-    summarySheetData.push([item.name, item.amountAED, item.note || item.drilldown || ""]);
-  }
-
-  summarySheetData.push([], ["--- 2. CUMULATIVE TRADING POSITION ---", "AMOUNT (AED)", "DETAILS"]);
-  for (const item of data.trading.breakdown) {
-    summarySheetData.push([item.name, item.amountAED, item.note || item.drilldown || ""]);
-  }
-
-  summarySheetData.push([], ["--- 3. PARTNER SETTLEMENT POSITION ---", "AMOUNT (AED)", "DETAILS"]);
-  for (const item of data.settlement.breakdown) {
-    summarySheetData.push([item.name, item.amountAED, item.note || item.drilldown || ""]);
-  }
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
   wsSummary["!cols"] = [{ wch: 45 }, { wch: 22 }, { wch: 50 }];
-  XLSX.utils.book_append_sheet(wb, wsSummary, "Position Statement");
+  XLSX.utils.book_append_sheet(wb, wsSummary, "Balance Sheet");
 
   // ==========================================
-  // SHEET 2: Bullion Inventory Valuation
+  // SHEET 2: Inventory on Hand
   // ==========================================
   const invSheetData: (string | number)[][] = [
-    ["PHYSICAL BULLION INVENTORY POSITION"],
+    ["INVENTORY ON HAND"],
     ["Entity Scope", businessName],
     ["As of Date", asOfDate],
     [],
     [
-      "Entity",
+      "Business",
       "Product Type",
-      "Remaining Stock (Grams)",
+      "Stock Quantity (Grams)",
       "Avg Cost / Gram (AED)",
-      "Carrying Value (AED)",
+      "Inventory Value (AED)",
     ],
   ];
 
   for (const item of data.inventory.items) {
     invSheetData.push([
       item.businessName,
-      item.productType,
+      item.productType.replace(/_/g, " "),
       item.remainingQuantity,
       item.averageCostPerUnitAED,
       item.carryingValueAED,
@@ -77,7 +83,7 @@ export function exportBalanceSheetToExcel(
 
   invSheetData.push([
     "CONSOLIDATED TOTAL",
-    "ALL BULLION",
+    "ALL INVENTORY",
     data.inventory.totalStockGrams,
     data.inventory.averageCostPerGramAED,
     data.inventory.totalCarryingValueAED,
@@ -85,25 +91,25 @@ export function exportBalanceSheetToExcel(
 
   const wsInventory = XLSX.utils.aoa_to_sheet(invSheetData);
   wsInventory["!cols"] = [{ wch: 25 }, { wch: 20 }, { wch: 24 }, { wch: 22 }, { wch: 24 }];
-  XLSX.utils.book_append_sheet(wb, wsInventory, "Inventory Position");
+  XLSX.utils.book_append_sheet(wb, wsInventory, "Inventory on Hand");
 
   // ==========================================
-  // SHEET 3: Business Entity Comparison
+  // SHEET 3: Business Breakdown
   // ==========================================
   const bizSheetData: (string | number)[][] = [
-    ["ENTITY FINANCIAL POSITION COMPARISON"],
+    ["BUSINESS BREAKDOWN"],
     ["As of Date", asOfDate],
     [],
     [
-      "Entity Name",
+      "Business Name",
       "Code",
-      "Committed Capital (AED)",
+      "Invested Capital (AED)",
       "Inventory Value (AED)",
       "Stock (Grams)",
-      "Realized Sales (AED)",
+      "Sales (AED)",
       "Purchase Cost (AED)",
       "Operating Expenses (AED)",
-      "Operating Profit (AED)",
+      "Net Profit (AED)",
       "Pending Disbursal (AED)",
     ],
   ];
@@ -136,21 +142,21 @@ export function exportBalanceSheetToExcel(
     { wch: 22 },
     { wch: 22 },
   ];
-  XLSX.utils.book_append_sheet(wb, wsBiz, "Entity Comparison");
+  XLSX.utils.book_append_sheet(wb, wsBiz, "Business Breakdown");
 
   // ==========================================
   // SHEET 4: Partner Settlement Ledger
   // ==========================================
   const settlementSheetData: (string | number)[][] = [
-    ["PARTNER PROFIT SETTLEMENT LEDGER"],
+    ["PARTNER SETTLEMENT"],
     ["As of Date", asOfDate],
     [],
     [
-      "Entity Name",
+      "Business Name",
       "Partner Equity Share",
-      "Entitlement (AED)",
-      "Disbursed (AED)",
-      "Pending Disbursal (AED)",
+      "Partner Profit Entitlement (AED)",
+      "Paid Disbursals (AED)",
+      "Pending Partner Disbursal (AED)",
     ],
   ];
 
@@ -176,13 +182,13 @@ export function exportBalanceSheetToExcel(
   wsSettlement["!cols"] = [
     { wch: 28 },
     { wch: 22 },
-    { wch: 20 },
-    { wch: 20 },
-    { wch: 24 },
+    { wch: 30 },
+    { wch: 22 },
+    { wch: 30 },
   ];
   XLSX.utils.book_append_sheet(wb, wsSettlement, "Partner Settlements");
 
   // Trigger download
   const sanitizedBiz = businessName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-  XLSX.writeFile(wb, `ivora-financial-position-${sanitizedBiz}-${asOfDate}.xlsx`);
+  XLSX.writeFile(wb, `ivora-balance-sheet-${sanitizedBiz}-${asOfDate}.xlsx`);
 }

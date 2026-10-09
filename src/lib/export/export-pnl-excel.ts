@@ -14,6 +14,20 @@ export function exportProfitLossToExcel(
       ? `${options.startDate} to ${options.endDate}`
       : period;
 
+  const formatRevenueTitle = (title: string) => {
+    if (title.includes("India Sales") || title.includes("Realization Protocol") || title.includes("Sales Transactions")) {
+      return "Sales";
+    }
+    return title;
+  };
+
+  const formatPurchaseTitle = (title: string) => {
+    if (title.includes("Dubai Physical Bullion") || title.includes("Fine Sourcing") || title.includes("Purchase Transactions")) {
+      return "Purchase Cost";
+    }
+    return title;
+  };
+
   // ==========================================
   // SHEET 1: P&L Summary & Statement
   // ==========================================
@@ -26,49 +40,40 @@ export function exportProfitLossToExcel(
     [],
     ["--- KEY PERFORMANCE METRICS ---", ""],
     ["Total Sales (AED)", data.kpis.totalSalesAED],
-    ["Total Purchase Cost (AED)", data.kpis.purchaseCostAED],
-    ["Total Operating Expenses (AED)", data.kpis.totalExpensesAED],
+    ["Purchase Cost (AED)", data.kpis.purchaseCostAED],
+    ["Operating Expenses (AED)", data.kpis.totalExpensesAED],
     ["Gross Profit (AED)", data.kpis.grossProfitAED],
-    ["Net Operating Profit (AED)", data.kpis.netProfitAED],
+    ["Net Profit (AED)", data.kpis.netProfitAED],
     [],
-    ["--- PROFIT & LOSS STATEMENT LEDGER ---", "AMOUNT (AED)"],
-    ["1. TRADING REVENUE", ""],
+    ["--- PROFIT & LOSS STATEMENT ---", "AMOUNT (AED)"],
+    ["1. REVENUE (TOTAL SALES)", ""],
   ];
 
   for (const item of data.statement.tradingRevenue) {
-    summarySheetData.push([`   ${item.title}`, item.amountAED]);
+    summarySheetData.push([`   ${formatRevenueTitle(item.title)}`, item.amountAED]);
   }
-  summarySheetData.push(["   TOTAL REVENUE", data.statement.totalRevenueAED]);
+  summarySheetData.push(["   TOTAL SALES", data.statement.totalRevenueAED]);
 
-  summarySheetData.push(["2. COST OF BULLION PURCHASED", ""]);
+  summarySheetData.push(["2. LESS: PURCHASE COST", ""]);
   for (const item of data.statement.costOfBullion) {
-    summarySheetData.push([`   ${item.title}`, item.amountAED]);
+    summarySheetData.push([`   ${formatPurchaseTitle(item.title)}`, item.amountAED]);
   }
-  summarySheetData.push(["   TOTAL PURCHASE COST", data.statement.totalPurchaseCostAED]);
+  summarySheetData.push(["   PURCHASE COST", data.statement.totalPurchaseCostAED]);
 
   summarySheetData.push([
-    `GROSS PROFIT (Spread Margin: ${data.statement.grossSpreadMarginPercent.toFixed(2)}%)`,
+    `GROSS PROFIT (Gross Margin: ${data.statement.grossSpreadMarginPercent.toFixed(2)}%)`,
     data.statement.grossProfitAED,
   ]);
 
-  summarySheetData.push(["3. OPERATING & TRADING LOGISTICS EXPENSES", ""]);
+  summarySheetData.push(["3. LESS: OPERATING EXPENSES", ""]);
   for (const exp of data.statement.operatingExpenses) {
     summarySheetData.push([`   ${exp.title}`, exp.amountAED]);
   }
-  summarySheetData.push(["   TOTAL EXPENSES", data.statement.totalExpensesAED]);
+  summarySheetData.push(["   OPERATING EXPENSES", data.statement.totalExpensesAED]);
 
   summarySheetData.push([
-    `NET OPERATING PROFIT (Net Margin: ${data.statement.netMarginPercent.toFixed(2)}%)`,
+    `NET PROFIT (Net Margin: ${data.statement.netMarginPercent.toFixed(2)}%)`,
     data.statement.netProfitAED ?? data.statement.auditedNetProfitAED ?? 0,
-  ]);
-
-  summarySheetData.push([
-    `4. LESS CONTRACTED INVESTOR SHARE (${data.statement.investorSharePercent.toFixed(2)}%)`,
-    -data.statement.investorShareAED,
-  ]);
-  summarySheetData.push([
-    `NET DESK RETAINED PROFIT (${data.statement.deskRetainedPercent.toFixed(2)}%)`,
-    data.statement.netDeskRetainedProfitAED,
   ]);
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
@@ -84,7 +89,7 @@ export function exportProfitLossToExcel(
       ["Scope", businessName],
       ["Period", dateRange],
       [],
-      ["Business Name", "Sales (AED)", "Purchase (AED)", "Expenses (AED)", "Gross Profit (AED)", "Net Profit (AED)", "Net Margin (%)"],
+      ["Business Name", "Total Sales (AED)", "Purchase Cost (AED)", "Operating Expenses (AED)", "Gross Profit (AED)", "Net Profit (AED)", "Net Margin (%)"],
     ];
 
     for (const b of data.businesses) {
@@ -100,7 +105,7 @@ export function exportProfitLossToExcel(
     }
 
     const wsBiz = XLSX.utils.aoa_to_sheet(bizSheetData);
-    wsBiz["!cols"] = [{ wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 14 }];
+    wsBiz["!cols"] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsBiz, "Business Profitability");
   }
 
@@ -125,34 +130,6 @@ export function exportProfitLossToExcel(
     const wsExp = XLSX.utils.aoa_to_sheet(expSheetData);
     wsExp["!cols"] = [{ wch: 45 }, { wch: 18 }, { wch: 22 }];
     XLSX.utils.book_append_sheet(wb, wsExp, "Operating Expenses");
-  }
-
-  // ==========================================
-  // SHEET 4: Partner / Investor Allocations
-  // ==========================================
-  if (data.allocations?.partners && data.allocations.partners.length > 0) {
-    const allocSheetData: (string | number)[][] = [
-      ["INVESTOR & PARTNER ALLOCATIONS"],
-      ["Total Net Profit (AED)", data.allocations.totalNetProfitAED],
-      ["Total Investor Share (AED)", data.allocations.investorShareAED],
-      ["Total Desk Retained (AED)", data.allocations.deskShareAED],
-      [],
-      ["Partner Name", "Business Entity", "Allocated Profit (AED)", "Paid Disbursals (AED)", "Pending Balance (AED)"],
-    ];
-
-    for (const p of data.allocations.partners) {
-      allocSheetData.push([
-        p.partnerName,
-        p.businessName,
-        p.allocatedProfitAED,
-        p.paidAED,
-        p.pendingAED,
-      ]);
-    }
-
-    const wsAlloc = XLSX.utils.aoa_to_sheet(allocSheetData);
-    wsAlloc["!cols"] = [{ wch: 25 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(wb, wsAlloc, "Partner Allocations");
   }
 
   const safeBizSlug = businessName.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase();

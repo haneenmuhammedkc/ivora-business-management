@@ -12,59 +12,49 @@ export function BalanceSheetKpiCards({ kpis }: BalanceSheetKpiCardsProps) {
   const stats: (StatCardProps & { id: string })[] = [
     {
       id: "total-capital",
-      label: "TOTAL COMMITTED CAPITAL",
+      label: "TOTAL INVESTED CAPITAL",
       currency: "AED",
       value: kpis.totalCommittedCapitalAED.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      description: "Admin & Partner Equity Pool",
+      description: "Admin + Partner Capital",
     },
     {
-      id: "inventory-carrying-value",
-      label: "INVENTORY VALUATION",
+      id: "inventory-on-hand",
+      label: "INVENTORY ON HAND",
       currency: "AED",
       value: kpis.inventoryCarryingValueAED.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      description: "Physical Gold in Vault",
+      description: "Valued at Landed Cost",
     },
     {
-      id: "realized-sales",
-      label: "REALIZED SALES",
-      currency: "AED",
-      value: kpis.totalRealizedSalesAED.toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-      description: "Gross Trading Revenue",
-    },
-    {
-      id: "net-operating-profit",
-      label: "NET OPERATING PROFIT",
+      id: "net-profit",
+      variant: "highlight",
+      label: "NET PROFIT",
       currency: "AED",
       value: kpis.netOperatingProfitAED.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      description: "Sales - Sourcing & Overheads",
+      description: "Cumulative Trading Profit",
     },
     {
-      id: "pending-disbursal",
-      variant: "highlight",
-      label: "PENDING DISBURSAL",
+      id: "partner-balance",
+      label: "PARTNER BALANCE",
       currency: "AED",
       value: kpis.pendingPartnerDisbursalAED.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
-      description: "Unsettled Partner Share",
+      description: "Pending Disbursal",
     },
   ];
 
   return (
-    <StatCardGrid className="grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+    <StatCardGrid className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat) => (
         <StaggerItem key={stat.id}>
           <StatCard
