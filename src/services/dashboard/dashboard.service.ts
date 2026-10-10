@@ -1,19 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { SessionPayload } from "@/lib/auth/session";
-import { requireBusinessAccess, getAuthorizedBusinessIds } from "@/lib/auth/authorization";
-import { Prisma, UserRole } from "@prisma/client";
+import { getAuthorizedBusinessIds } from "@/lib/auth/authorization";
+import { AuthError } from "@/lib/auth/guards";
+import { Prisma, UserRole, TransactionType } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
-import {
-  getFullProfitLossData,
-  getFullBalanceSheetData,
-} from "@/services/financials/financials.service";
 import {
   DashboardQuery,
   DashboardResponseData,
   DashboardRange,
   DashboardChartPoint,
   BusinessPerformanceRecord,
+  DashboardPartnerOption,
 } from "@/types/dashboard";
 
 /**
@@ -128,86 +126,312 @@ function generateTimeBuckets(range: DashboardRange): Array<{
 }
 
 /**
- * Fetch and aggregate complete authoritative Dashboard dataset.
+ * Fetch and aggregate complete authoritative Dashboard dataset scoped by Partner.
  */
 export async function getDashboardData(
   session: SessionPayload,
   query: DashboardQuery = {}
 ): Promise<DashboardResponseData> {
-  const { businessId, range = "30d" } = query;
-  let businessFilter: Prisma.StringFilter | undefined;
-  let businessScopeName = "All Businesses";
+  const { range = "30d" } = query;
+  let targetPartnerId = query.partnerId;
 
-  if (businessId && businessId !== "all") {
-    await requireBusinessAccess(businessId, session);
-    businessFilter = { equals: businessId };
+  // 1. Authorization & Role Scoping
+  if (session.role === UserRole.PARTNER) {
+    if (targetPartnerId && targetPartnerId !== "all" && targetPartnerId !== session.userId) {
+      throw new AuthError("You do not have permission to access another partner's dashboard", 403);
+    }
+    // Force Partner role to own scope
+    targetPartnerId = session.userId;
+  }
+
+  // 2. Fetch Partner list for the selector
+  let partnersList: DashboardPartnerOption[] = [];
+  if (session.role === UserRole.ADMIN) {
+    const partners = await prisma.user.findMany({
+      where: { role: UserRole.PARTNER },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    });
+    partnersList = partners.map((p) => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+    }));
   } else {
-    const authorized = await getAuthorizedBusinessIds(session);
-    if (authorized !== "ALL") {
-      businessFilter = { in: authorized };
+    const selfPartner = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, name: true, email: true },
+    });
+    if (selfPartner) {
+      partnersList = [
+        {
+          id: selfPartner.id,
+          name: selfPartner.name,
+          email: selfPartner.email,
+        },
+      ];
     }
   }
 
+  // 3. Resolve Partner Scope & Business IDs
+  let partnerScopeName = "All Partners";
+  let scopedBusinessFilter: Prisma.StringFilter | undefined;
+
+  if (targetPartnerId && targetPartnerId !== "all") {
+    const partnerUser = await prisma.user.findFirst({
+      where: { id: targetPartnerId, role: UserRole.PARTNER },
+      select: { id: true, name: true },
+    });
+
+    if (!partnerUser) {
+      throw new AuthError("Partner not found", 404);
+    }
+
+    partnerScopeName = partnerUser.name;
+
+    const partnerBusinesses = await prisma.business.findMany({
+      where: { partnerId: targetPartnerId },
+      select: { id: true },
+    });
+
+    const partnerBusinessIds = partnerBusinesses.map((b) => b.id);
+    scopedBusinessFilter = { in: partnerBusinessIds };
+  } else {
+    // All Partners (Admin-wide)
+    const authorized = await getAuthorizedBusinessIds(session);
+    if (authorized !== "ALL") {
+      scopedBusinessFilter = { in: authorized };
+    }
+  }
+
+  // 4. Redis Cache Retrieval / Computation
   const cacheKey = CacheKeys.dashboard.data(
     session.role,
     session.userId,
-    businessId || "all",
+    targetPartnerId || "all",
     range || "30d"
   );
 
   return getOrSetCache(cacheKey, CacheTTL.SHORT, async () => {
-    // 1. Parallel execution: authoritative P&L, Balance Sheet, Authorized Businesses
-    const [pnlData, balanceSheetData, businessesList] = await Promise.all([
-      getFullProfitLossData(session, {
-        businessId: businessId && businessId !== "all" ? businessId : undefined,
-      }),
-      getFullBalanceSheetData(session, {
-        businessId: businessId && businessId !== "all" ? businessId : undefined,
-      }),
+    // If business filter is scoped to an empty list of businesses (e.g. Partner has no businesses assigned)
+    if (
+      scopedBusinessFilter &&
+      "in" in scopedBusinessFilter &&
+      Array.isArray(scopedBusinessFilter.in) &&
+      scopedBusinessFilter.in.length === 0
+    ) {
+      const buckets = generateTimeBuckets(range);
+      return {
+        success: true,
+        scope: {
+          selectedPartnerId: targetPartnerId || "all",
+          partnerName: partnerScopeName,
+          role: session.role === UserRole.ADMIN ? "ADMIN" : "PARTNER",
+          asOfDate: new Date().toISOString().split("T")[0],
+        },
+        partners: partnersList,
+        kpis: {
+          totalInvestmentAED: 0,
+          purchaseCostAED: 0,
+          totalExpensesAED: 0,
+          totalSalesAED: 0,
+          netProfitAED: 0,
+          netMarginPercent: 0,
+          profitAllocatedAED: 0,
+        },
+        businessPerformance: [],
+        tradingPerformance: {
+          range,
+          points: buckets.map((b) => ({
+            date: b.label,
+            sales: 0,
+            purchase: 0,
+            profit: 0,
+            hasMarker: b.hasMarker,
+          })),
+        },
+        investorOverview: {
+          totalInvestorsCount: 0,
+          totalInvestedAED: 0,
+          profitAllocatedAED: 0,
+          pendingSettlementAED: 0,
+        },
+      };
+    }
+
+    // Parallel fetch: Scoped Businesses, Sales, Purchases, Expenses, Investments, Settlements
+    const [
+      allScopedBusinesses,
+      top3Businesses,
+      allSales,
+      allPurchases,
+      allExpenses,
+      allInvestments,
+      allDisbursalTransactions,
+    ] = await Promise.all([
+      // A. All businesses in scope (for total capital sum)
       prisma.business.findMany({
-        where: businessFilter ? { id: businessFilter } : {},
+        where: scopedBusinessFilter ? { id: scopedBusinessFilter } : {},
+        select: {
+          id: true,
+          totalInvestmentAED: true,
+        },
+      }),
+
+      // B. Top 3 latest created businesses in scope (ordered strictly by createdAt DESC)
+      prisma.business.findMany({
+        where: scopedBusinessFilter ? { id: scopedBusinessFilter } : {},
+        orderBy: { createdAt: "desc" },
+        take: 3,
         select: {
           id: true,
           name: true,
           code: true,
           businessType: true,
-          description: true,
           status: true,
           totalInvestmentAED: true,
+          createdAt: true,
         },
-        orderBy: { name: "asc" },
+      }),
+
+      // C. All recognized sales in scope
+      prisma.sale.findMany({
+        where: scopedBusinessFilter ? { businessId: scopedBusinessFilter } : {},
+        select: {
+          businessId: true,
+          saleDate: true,
+          aedEquivalent: true,
+        },
+      }),
+
+      // D. All cleared/in-progress purchases in scope
+      prisma.purchase.findMany({
+        where: {
+          ...(scopedBusinessFilter ? { businessId: scopedBusinessFilter } : {}),
+          status: { in: ["CLEARED", "IN_PROGRESS"] },
+        },
+        select: {
+          businessId: true,
+          purchaseDate: true,
+          totalLandedCost: true,
+        },
+      }),
+
+      // E. All operating expenses in scope (excluding purchase landed costs)
+      prisma.expense.findMany({
+        where: {
+          ...(scopedBusinessFilter ? { businessId: scopedBusinessFilter } : {}),
+          isPurchaseLandedCost: false,
+        },
+        select: {
+          businessId: true,
+          expenseDate: true,
+          amount: true,
+        },
+      }),
+
+      // F. All investments in scope for external investors & settlement
+      prisma.investment.findMany({
+        where: scopedBusinessFilter ? { businessId: scopedBusinessFilter } : {},
+        select: {
+          id: true,
+          investorId: true,
+          businessId: true,
+          committedAmount: true,
+          allocatedProfitAmount: true,
+          profitSharePct: true,
+          investor: {
+            select: {
+              id: true,
+              type: true,
+            },
+          },
+        },
+      }),
+
+      // G. Disbursal transactions for settlement pending calculation
+      prisma.transaction.findMany({
+        where: {
+          ...(scopedBusinessFilter ? { businessId: scopedBusinessFilter } : {}),
+          type: { in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL] },
+        },
+        select: {
+          investorId: true,
+          businessId: true,
+          amount: true,
+        },
       }),
     ]);
 
-    if (businessId && businessId !== "all" && businessesList.length > 0) {
-      businessScopeName = businessesList[0].name;
-    }
-
-    // 2. Compute KPIs
-    const totalInvestmentAED = balanceSheetData.capital.totalCommittedCapitalAED;
-    const purchaseCostAED = pnlData.kpis.purchaseCostAED;
-    const totalExpensesAED = pnlData.kpis.totalExpensesAED;
-    const totalSalesAED = pnlData.kpis.totalSalesAED;
-    const netProfitAED = pnlData.kpis.netProfitAED;
-    const netMarginPercent =
-      totalSalesAED > 0 ? Number(((netProfitAED / totalSalesAED) * 100).toFixed(2)) : 0;
-
-    // Sum profit allocated from authoritative settlement breakdown
-    const profitAllocatedAED = balanceSheetData.settlementBreakdown.reduce(
-      (sum, s) => sum + s.profitAmountAED,
+    // 5. Compute Authoritative KPIs across scoped businesses
+    const totalSalesAED = allSales.reduce(
+      (sum, s) => sum + Number(s.aedEquivalent || 0),
       0
     );
 
-    // 3. Compute Business Performance Table records
-    // Map P&L business profitability items with Business metadata
-    const pnlBizMap = new Map(pnlData.businesses.map((b) => [b.id, b]));
-    const businessPerformance: BusinessPerformanceRecord[] = businessesList.map((biz) => {
-      const pnlBiz = pnlBizMap.get(biz.id);
-      const investmentAED = Number(biz.totalInvestmentAED || 0);
-      const salesAED = pnlBiz ? pnlBiz.salesAED : 0;
-      const purchaseAED = pnlBiz ? pnlBiz.purchaseAED : 0;
-      const expensesAED = pnlBiz ? pnlBiz.expensesAED : 0;
-      const bizNetProfit = pnlBiz ? pnlBiz.netProfitAED : 0;
+    const purchaseCostAED = allPurchases.reduce(
+      (sum, p) => sum + Number(p.totalLandedCost || 0),
+      0
+    );
+
+    const totalExpensesAED = allExpenses.reduce(
+      (sum, e) => sum + Number(e.amount || 0),
+      0
+    );
+
+    const netProfitAED = Math.round((totalSalesAED - purchaseCostAED - totalExpensesAED) * 100) / 100;
+
+    const netMarginPercent =
+      totalSalesAED > 0
+        ? Number(((netProfitAED / totalSalesAED) * 100).toFixed(2))
+        : 0;
+
+    const totalInvestmentAED = allScopedBusinesses.reduce(
+      (sum, b) => sum + Number(b.totalInvestmentAED || 0),
+      0
+    );
+
+    // Map business-level net profits for default profit allocations
+    const businessSalesMap = new Map<string, number>();
+    const businessPurchaseMap = new Map<string, number>();
+    const businessExpenseMap = new Map<string, number>();
+
+    for (const s of allSales) {
+      businessSalesMap.set(s.businessId, (businessSalesMap.get(s.businessId) || 0) + Number(s.aedEquivalent || 0));
+    }
+    for (const p of allPurchases) {
+      businessPurchaseMap.set(p.businessId, (businessPurchaseMap.get(p.businessId) || 0) + Number(p.totalLandedCost || 0));
+    }
+    for (const e of allExpenses) {
+      businessExpenseMap.set(e.businessId, (businessExpenseMap.get(e.businessId) || 0) + Number(e.amount || 0));
+    }
+
+    const getBusinessNetProfit = (bId: string): number => {
+      const s = businessSalesMap.get(bId) || 0;
+      const p = businessPurchaseMap.get(bId) || 0;
+      const e = businessExpenseMap.get(bId) || 0;
+      return s - p - e;
+    };
+
+    // Calculate profit allocations across all investments in scope
+    let totalProfitAllocatedAED = 0;
+    for (const inv of allInvestments) {
+      if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+        totalProfitAllocatedAED += Number(inv.allocatedProfitAmount);
+      } else {
+        const bNet = Math.max(0, getBusinessNetProfit(inv.businessId));
+        const share = Number(inv.profitSharePct) || 0;
+        totalProfitAllocatedAED += (bNet * share) / 100;
+      }
+    }
+    totalProfitAllocatedAED = Math.round(totalProfitAllocatedAED * 100) / 100;
+
+    // 6. Compute Business Performance Table (Top 3 Latest Created Businesses)
+    const businessPerformance: BusinessPerformanceRecord[] = top3Businesses.map((biz) => {
+      const bSales = businessSalesMap.get(biz.id) || 0;
+      const bPurchase = businessPurchaseMap.get(biz.id) || 0;
+      const bExpenses = businessExpenseMap.get(biz.id) || 0;
+      const bNetProfit = Math.round((bSales - bPurchase - bExpenses) * 100) / 100;
 
       const partitionSubtitle = `${biz.code ? biz.code + " • " : ""}${
         biz.businessType ? biz.businessType.toUpperCase().replace(/_/g, " ") : "COMMODITY TRADING"
@@ -219,67 +443,28 @@ export async function getDashboardData(
         code: biz.code || "",
         businessType: biz.businessType || "COMMODITY_TRADING",
         partitionSubtitle,
-        investmentAED,
-        purchaseAED,
-        salesAED,
-        expensesAED,
-        netProfitAED: bizNetProfit,
+        investmentAED: Number(biz.totalInvestmentAED || 0),
+        purchaseAED: Math.round(bPurchase * 100) / 100,
+        salesAED: Math.round(bSales * 100) / 100,
+        expensesAED: Math.round(bExpenses * 100) / 100,
+        netProfitAED: bNetProfit,
         status: (biz.status as "ACTIVE" | "PENDING" | "COMPLETED") || "ACTIVE",
+        createdAt: biz.createdAt.toISOString(),
       };
     });
 
-    // 4. Compute Trading Performance time-series points
+    // 7. Compute Trading Performance Time-Series (Aggregated across all businesses in Partner scope)
     const buckets = generateTimeBuckets(range);
-    const earliestStart = buckets[0].startDate;
-    const latestEnd = buckets[buckets.length - 1].endDate;
-
-    // Fetch transactions matching exact P&L inclusion rules within range
-    const [periodSales, periodPurchases, periodExpenses] = await Promise.all([
-      prisma.sale.findMany({
-        where: {
-          ...(businessFilter ? { businessId: businessFilter } : {}),
-          saleDate: { gte: earliestStart, lte: latestEnd },
-        },
-        select: {
-          saleDate: true,
-          aedEquivalent: true,
-        },
-      }),
-      prisma.purchase.findMany({
-        where: {
-          ...(businessFilter ? { businessId: businessFilter } : {}),
-          purchaseDate: { gte: earliestStart, lte: latestEnd },
-          status: { in: ["CLEARED", "IN_PROGRESS"] },
-        },
-        select: {
-          purchaseDate: true,
-          totalLandedCost: true,
-        },
-      }),
-      prisma.expense.findMany({
-        where: {
-          ...(businessFilter ? { businessId: businessFilter } : {}),
-          expenseDate: { gte: earliestStart, lte: latestEnd },
-          isPurchaseLandedCost: false,
-        },
-        select: {
-          expenseDate: true,
-          amount: true,
-        },
-      }),
-    ]);
-
-    // Group transactions into buckets
     const points: DashboardChartPoint[] = buckets.map((bucket) => {
-      const bucketSales = periodSales
+      const bucketSales = allSales
         .filter((s) => s.saleDate >= bucket.startDate && s.saleDate <= bucket.endDate)
         .reduce((sum, s) => sum + Number(s.aedEquivalent || 0), 0);
 
-      const bucketPurchase = periodPurchases
+      const bucketPurchase = allPurchases
         .filter((p) => p.purchaseDate >= bucket.startDate && p.purchaseDate <= bucket.endDate)
         .reduce((sum, p) => sum + Number(p.totalLandedCost || 0), 0);
 
-      const bucketExpenses = periodExpenses
+      const bucketExpenses = allExpenses
         .filter((e) => e.expenseDate >= bucket.startDate && e.expenseDate <= bucket.endDate)
         .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
@@ -294,52 +479,60 @@ export async function getDashboardData(
       };
     });
 
-    // 5. Compute Investor Overview data
-    const externalSettlementItems = balanceSheetData.settlementBreakdown.filter(
-      (s) => s.investorType === "INVESTOR" || !s.investorType
+    // 8. Compute Investor Overview (External Investors within Partner scope)
+    const externalInvestments = allInvestments.filter(
+      (inv) => inv.investor.type === "INVESTOR" || !inv.investor.type
     );
-    // If no explicit investor type filter applies, use all settlement items
-    const relevantSettlementItems =
-      externalSettlementItems.length > 0
-        ? externalSettlementItems
-        : balanceSheetData.settlementBreakdown;
+    const relevantInvestments =
+      externalInvestments.length > 0 ? externalInvestments : allInvestments;
 
-    const uniqueInvestors = new Set(relevantSettlementItems.map((s) => s.investorId));
-    const totalInvestorsCount = uniqueInvestors.size;
-    const totalInvestedAED = relevantSettlementItems.reduce(
-      (sum, s) => sum + s.totalInvestmentAED,
+    const uniqueInvestorIds = new Set(relevantInvestments.map((inv) => inv.investorId));
+    const totalInvestorsCount = uniqueInvestorIds.size;
+
+    const totalInvestedAED = relevantInvestments.reduce(
+      (sum, inv) => sum + Number(inv.committedAmount || 0),
       0
     );
-    const investorProfitAllocatedAED = relevantSettlementItems.reduce(
-      (sum, s) => sum + s.profitAmountAED,
-      0
-    );
-    const pendingSettlementAED = relevantSettlementItems.reduce(
-      (sum, s) => sum + s.pendingOutstandingAED,
-      0
+
+    let externalProfitAllocatedAED = 0;
+    for (const inv of relevantInvestments) {
+      if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+        externalProfitAllocatedAED += Number(inv.allocatedProfitAmount);
+      } else {
+        const bNet = Math.max(0, getBusinessNetProfit(inv.businessId));
+        const share = Number(inv.profitSharePct) || 0;
+        externalProfitAllocatedAED += (bNet * share) / 100;
+      }
+    }
+    externalProfitAllocatedAED = Math.round(externalProfitAllocatedAED * 100) / 100;
+
+    // Sum total disbursed to these relevant investments
+    const totalDisbursedAED = allDisbursalTransactions
+      .filter((tx) => Boolean(tx.investorId && uniqueInvestorIds.has(tx.investorId)))
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    const pendingSettlementAED = Math.max(
+      0,
+      Math.round((totalInvestedAED + externalProfitAllocatedAED - totalDisbursedAED) * 100) / 100
     );
 
     return {
       success: true,
       scope: {
-        selectedBusinessId: businessId || "all",
-        businessName: businessScopeName,
+        selectedPartnerId: targetPartnerId || "all",
+        partnerName: partnerScopeName,
         role: session.role === UserRole.ADMIN ? "ADMIN" : "PARTNER",
         asOfDate: new Date().toISOString().split("T")[0],
       },
-      businesses: businessesList.map((b) => ({
-        id: b.id,
-        name: b.name,
-        code: b.code || "",
-      })),
+      partners: partnersList,
       kpis: {
-        totalInvestmentAED,
-        purchaseCostAED,
-        totalExpensesAED,
-        totalSalesAED,
+        totalInvestmentAED: Math.round(totalInvestmentAED * 100) / 100,
+        purchaseCostAED: Math.round(purchaseCostAED * 100) / 100,
+        totalExpensesAED: Math.round(totalExpensesAED * 100) / 100,
+        totalSalesAED: Math.round(totalSalesAED * 100) / 100,
         netProfitAED,
         netMarginPercent,
-        profitAllocatedAED,
+        profitAllocatedAED: totalProfitAllocatedAED,
       },
       businessPerformance,
       tradingPerformance: {
@@ -348,8 +541,8 @@ export async function getDashboardData(
       },
       investorOverview: {
         totalInvestorsCount,
-        totalInvestedAED,
-        profitAllocatedAED: investorProfitAllocatedAED,
+        totalInvestedAED: Math.round(totalInvestedAED * 100) / 100,
+        profitAllocatedAED: externalProfitAllocatedAED,
         pendingSettlementAED,
       },
     };

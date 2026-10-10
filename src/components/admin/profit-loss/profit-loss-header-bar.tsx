@@ -57,7 +57,6 @@ export function ProfitLossHeaderBar({
         {/* Date Range Inputs */}
         <div className="flex items-center gap-1.5">
           <div className="flex items-center h-8 px-2 rounded-md border border-gray-200 bg-white gap-1.5">
-            <span className="text-gray-400">📅</span>
             <input
               type="date"
               value={startDate}
@@ -68,7 +67,6 @@ export function ProfitLossHeaderBar({
           </div>
           <span className="text-gray-400 font-medium">to</span>
           <div className="flex items-center h-8 px-2 rounded-md border border-gray-200 bg-white gap-1.5">
-            <span className="text-gray-400">📅</span>
             <input
               type="date"
               value={endDate}

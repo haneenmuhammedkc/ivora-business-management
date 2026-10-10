@@ -12,6 +12,8 @@ import {
   AlertTriangleIcon,
   PencilIcon,
   TrashIcon,
+  DownloadIcon,
+  PrinterIcon,
 } from "@/components/ui/icons";
 import { InvestorRecord } from "@/types/investors";
 import { InvestorSettlementOverview } from "@/services/investor/settlement.service";
@@ -23,6 +25,8 @@ import { ProfitAllocationSection } from "@/components/investors/settlement/profi
 import { InvestorDueSection } from "@/components/investors/settlement/investor-due-section";
 import { RecordDisbursalSection } from "@/components/investors/settlement/record-disbursal-section";
 import { DisbursalHistoryTable } from "@/components/investors/settlement/disbursal-history-table";
+import { exportInvestorToPdf } from "@/lib/export/export-investor-pdf";
+import { exportInvestorToExcel } from "@/lib/export/export-investor-excel";
 
 interface InvestorDetailPageProps {
   params: Promise<{ id: string }>;
@@ -64,10 +68,45 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const handleRefreshAll = () => {
     mutateInvestor();
     mutateSettlement();
+  };
+
+  const handleExportPdf = async () => {
+    if (!investor) return;
+    try {
+      setIsExportingPdf(true);
+      setExportError(null);
+      exportInvestorToPdf(investor, settlement);
+    } catch (err) {
+      console.error("[Export Investor PDF Error]", err);
+      setExportError("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!investor) return;
+    try {
+      setIsExportingExcel(true);
+      setExportError(null);
+      exportInvestorToExcel(investor, settlement);
+    } catch (err) {
+      console.error("[Export Investor Excel Error]", err);
+      setExportError("Failed to generate Excel workbook. Please try again.");
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const isLoading = isInvestorLoading || (isSettlementLoading && !settlement);
@@ -139,10 +178,10 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
   const isSettled = settlement?.isFullySettled || investor.status === "SETTLED";
 
   return (
-    <div className="space-y-6 pb-14">
+    <div className="space-y-6 pb-14 print:space-y-4 print:pb-0">
       {/* Top Back Navigation Link */}
       <FadeUp delay={0.05}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 print:hidden">
           <Link
             href={backHref}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
@@ -152,6 +191,13 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
           </Link>
         </div>
       </FadeUp>
+
+      {/* Export Error Banner if any */}
+      {exportError && (
+        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium print:hidden">
+          {exportError}
+        </div>
+      )}
 
       {/* Page Header */}
       <FadeUp delay={0.1}>
@@ -176,7 +222,50 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {/* Export Actions */}
+            <button
+              type="button"
+              onClick={handleExportPdf}
+              disabled={isExportingPdf}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+            >
+              <DownloadIcon size={13} />
+              <span>{isExportingPdf ? "Exporting PDF..." : "PDF"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={isExportingExcel}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+            >
+              <svg
+                className="w-3.5 h-3.5 text-gray-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+              <span>{isExportingExcel ? "Exporting Excel..." : "Excel"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
+            >
+              <PrinterIcon size={13} />
+              <span>Print</span>
+            </button>
+
+            {/* Admin Management Actions */}
             {isAdmin && pType === "INVESTOR" && (
               <>
                 <button
@@ -185,7 +274,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
                 >
                   <PencilIcon size={13} />
-                  <span>Edit Investor</span>
+                  <span>Edit</span>
                 </button>
                 <button
                   type="button"
@@ -193,7 +282,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-red-700 bg-red-50/70 border border-red-200 rounded-lg hover:bg-red-100/70 transition-colors shadow-2xs cursor-pointer"
                 >
                   <TrashIcon size={13} />
-                  <span>Delete / Deactivate</span>
+                  <span>Deactivate</span>
                 </button>
               </>
             )}
@@ -204,7 +293,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs"
               >
                 <BusinessesIcon size={14} />
-                <span>Open Business Workspace</span>
+                <span>Workspace</span>
               </Link>
             )}
           </div>
@@ -401,13 +490,15 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
 
       {/* SECTION 3 — PAYMENT / DISBURSAL */}
       {settlement && (
-        <FadeUp delay={0.35}>
-          <RecordDisbursalSection
-            settlement={settlement}
-            isAdmin={isAdmin}
-            onPaymentRecorded={handleRefreshAll}
-          />
-        </FadeUp>
+        <div className="print:hidden">
+          <FadeUp delay={0.35}>
+            <RecordDisbursalSection
+              settlement={settlement}
+              isAdmin={isAdmin}
+              onPaymentRecorded={handleRefreshAll}
+            />
+          </FadeUp>
+        </div>
       )}
 
       {/* SECTION 4 — SETTLEMENT PAYMENT HISTORY TABLE */}

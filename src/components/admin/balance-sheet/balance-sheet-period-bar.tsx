@@ -38,7 +38,6 @@ export function BalanceSheetPeriodBar({
               AS-OF DATE:
             </span>
             <div className="flex items-center h-8 px-2.5 rounded-md border border-gray-200 bg-white gap-2">
-              <span className="text-gray-400">📅</span>
               <input
                 type="date"
                 value={asOfDate}

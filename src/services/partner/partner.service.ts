@@ -5,7 +5,6 @@ import { logAuditEvent } from "@/lib/audit/audit.service";
 import { sanitizeUser, SafeUser } from "@/services/auth/auth.service";
 import { validatePhone, normalizePhone } from "@/validators/partner.validator";
 import {
-  AuthTokenType,
   Prisma,
   UserRole,
   UserStatus,

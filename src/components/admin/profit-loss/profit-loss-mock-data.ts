@@ -22,6 +22,7 @@ export const mockBusinessProfitabilityList: BusinessProfitability[] = [
     grossProfitAED: 30000,
     netProfitAED: 24000,
     netMarginPercent: 16.9,
+    createdAt: "2026-01-10T10:00:00.000Z",
   },
   {
     id: "biz-02",
@@ -32,6 +33,7 @@ export const mockBusinessProfitabilityList: BusinessProfitability[] = [
     grossProfitAED: 20200,
     netProfitAED: 13350,
     netMarginPercent: 14.26,
+    createdAt: "2026-01-20T10:00:00.000Z",
   },
   {
     id: "consolidated",

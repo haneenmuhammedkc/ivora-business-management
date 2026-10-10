@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useAuth } from "@/context/auth-context";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { StatCardGrid } from "@/components/ui/stat-card-grid";
@@ -15,13 +16,16 @@ import {
 import { DashboardResponseData, DashboardRange } from "@/types/dashboard";
 
 export default function DashboardPage() {
-  const [selectedBusiness, setSelectedBusiness] = useState("all");
+  const { user } = useAuth();
+  const [selectedPartner, setSelectedPartner] = useState("all");
   const [selectedRange, setSelectedRange] = useState<DashboardRange>("30d");
+
+  const isAdmin = user?.role === "ADMIN";
 
   // Construct dynamic Dashboard API endpoint
   const queryParams = new URLSearchParams();
-  if (selectedBusiness && selectedBusiness !== "all") {
-    queryParams.set("businessId", selectedBusiness);
+  if (selectedPartner && selectedPartner !== "all" && isAdmin) {
+    queryParams.set("partnerId", selectedPartner);
   }
   if (selectedRange) {
     queryParams.set("range", selectedRange);
@@ -55,29 +59,29 @@ export default function DashboardPage() {
     }).format(new Date());
   }, []);
 
-  // Business options for the selector
-  const businesses = dashboardData?.businesses;
-  const businessOptions = useMemo(() => {
-    const defaultOpt = [{ value: "all", label: "All Businesses" }];
-    if (!businesses) return defaultOpt;
+  // Partner options for the selector
+  const partners = dashboardData?.partners;
+  const partnerOptions = useMemo(() => {
+    const defaultOpt = [{ value: "all", label: "All Partners" }];
+    if (!partners) return defaultOpt;
     return [
       ...defaultOpt,
-      ...businesses.map((b) => ({
-        value: b.id,
-        label: b.name,
+      ...partners.map((p) => ({
+        value: p.id,
+        label: p.name,
       })),
     ];
-  }, [businesses]);
+  }, [partners]);
 
   // Derive dynamic KPI cards from authoritative response
   const kpis = dashboardData?.kpis;
-  const businessScopeName = dashboardData?.scope?.businessName;
+  const partnerScopeName = dashboardData?.scope?.partnerName;
   const dashboardKpiCards = useMemo(() => {
     if (!kpis) return [];
 
-    const isFiltered = selectedBusiness !== "all";
+    const isFiltered = selectedPartner !== "all";
     const scopeLabel = isFiltered
-      ? businessScopeName || "Selected entity"
+      ? partnerScopeName || "Selected partner"
       : "Across all authorized businesses";
 
     return [
@@ -143,7 +147,7 @@ export default function DashboardPage() {
         description: "Allocated profit entitlement",
       },
     ];
-  }, [kpis, selectedBusiness, businessScopeName]);
+  }, [kpis, selectedPartner, partnerScopeName]);
 
   return (
     <div className="space-y-7 pb-10">
@@ -153,20 +157,22 @@ export default function DashboardPage() {
           title={greeting}
           subtitle={currentDateSubtitle}
           actions={
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                CURRENT BUSINESS
-              </span>
-              <div className="relative inline-flex items-center">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-black pointer-events-none z-10" />
-                <Select
-                  options={businessOptions}
-                  value={selectedBusiness}
-                  onChange={(e) => setSelectedBusiness(e.target.value)}
-                  className="w-48 pl-6 text-xs font-semibold"
-                />
+            isAdmin ? (
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  PARTNER
+                </span>
+                <div className="relative inline-flex items-center">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-black pointer-events-none z-10" />
+                  <Select
+                    options={partnerOptions}
+                    value={selectedPartner}
+                    onChange={(e) => setSelectedPartner(e.target.value)}
+                    className="w-48 pl-6 text-xs font-semibold"
+                  />
+                </div>
               </div>
-            </div>
+            ) : undefined
           }
         />
       </FadeUp>
@@ -176,7 +182,7 @@ export default function DashboardPage() {
         <FadeUp delay={0.05}>
           <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
             Unable to load dashboard data. Please check your network connection
-            or business permissions.
+            or account permissions.
           </div>
         </FadeUp>
       )}
@@ -215,7 +221,7 @@ export default function DashboardPage() {
             ))}
           </StatCardGrid>
 
-          {/* 3. Business Performance Section */}
+          {/* 3. Business Performance Section (Latest 3 Created Businesses) */}
           <FadeUp delay={0.12} duration={0.35}>
             <BusinessPerformance
               records={dashboardData.businessPerformance || []}
@@ -225,7 +231,7 @@ export default function DashboardPage() {
           {/* 4. Bottom Grid: Trading Performance & Investor Overview */}
           <FadeUp delay={0.24} duration={0.35}>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Trading Performance Card */}
+              {/* Trading Performance Card (Aggregated across scoped businesses) */}
               <div className="lg:col-span-8">
                 <TradingPerformance
                   data={dashboardData.tradingPerformance?.points || []}
@@ -234,7 +240,7 @@ export default function DashboardPage() {
                 />
               </div>
 
-              {/* Investor Overview Card */}
+              {/* Investor Overview Card (External investors in scoped businesses) */}
               <div className="lg:col-span-4">
                 <InvestorOverview overview={dashboardData.investorOverview} />
               </div>

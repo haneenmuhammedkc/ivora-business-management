@@ -600,13 +600,24 @@ export async function listInvestors(session: SessionPayload, businessId?: string
  * Fetch a single Investor or Participant by ID.
  */
 export async function getInvestorById(session: SessionPayload, investorId: string): Promise<InvestorRecord> {
+  // 1. Enforce RBAC and business/resource access before cache lookup
+  if (investorId.startsWith("admin-")) {
+    const businessId = investorId.replace("admin-", "");
+    await requireBusinessAccess(businessId, session);
+  } else if (investorId.startsWith("partner-")) {
+    const parts = investorId.split("-");
+    const businessId = parts[1];
+    await requireBusinessAccess(businessId, session);
+  } else {
+    await requireResourceAccess("Investor", investorId, "READ", session);
+  }
+
   const cacheKey = CacheKeys.investors.detail(investorId);
 
   return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
     // 1. Synthetic ADMIN participant
     if (investorId.startsWith("admin-")) {
       const businessId = investorId.replace("admin-", "");
-      await requireBusinessAccess(businessId, session);
       const business = await prisma.business.findUnique({
         where: { id: businessId },
         include: { partner: true },
@@ -666,7 +677,6 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
     if (investorId.startsWith("partner-")) {
       const parts = investorId.split("-");
       const businessId = parts[1];
-      await requireBusinessAccess(businessId, session);
       const business = await prisma.business.findUnique({
         where: { id: businessId },
         include: { partner: true },
@@ -720,8 +730,6 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
     }
 
     // 3. External INVESTOR
-    await requireResourceAccess("Investor", investorId, "READ", session);
-
     const investor = await prisma.investor.findUnique({
       where: { id: investorId },
       include: {

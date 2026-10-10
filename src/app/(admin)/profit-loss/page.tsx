@@ -262,7 +262,6 @@ export default function ProfitLossPage() {
       <FadeUp delay={0.25}>
         <BusinessProfitabilityTable
           businesses={pnlResponse?.businesses || []}
-          onSelectBusiness={(bizId) => setSelectedBusiness(bizId)}
         />
       </FadeUp>
     </div>

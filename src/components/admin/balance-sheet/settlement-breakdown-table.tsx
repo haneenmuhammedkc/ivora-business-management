@@ -15,8 +15,11 @@ export function SettlementBreakdownTable({
 }: SettlementBreakdownTableProps) {
   const [filterQuery, setFilterQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [prevFiltered, setPrevFiltered] = useState<InvestorSettlementBreakdownItem[]>([]);
+  const pageSize = 10;
 
-  // Filtered list
+  // 1. Filtered list
   const filteredSettlements = useMemo(() => {
     return settlements.filter((item) => {
       // Status filter
@@ -40,7 +43,64 @@ export function SettlementBreakdownTable({
     });
   }, [settlements, filterQuery, searchTerm, statusFilter]);
 
-  // Aggregate totals for the filtered set
+  // Reset page to 1 during render when filtered list reference changes
+  if (prevFiltered !== filteredSettlements) {
+    setPrevFiltered(filteredSettlements);
+    setCurrentPage(1);
+  }
+
+  // 2. Sort list by createdAt DESC (newest first) with deterministic id DESC tiebreaker
+  const sortedSettlements = useMemo(() => {
+    return [...filteredSettlements].sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return b.id.localeCompare(a.id);
+    });
+  }, [filteredSettlements]);
+
+  // 3. Paginate sorted list (10 items per page)
+  const totalRecords = sortedSettlements.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = (validPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRecords);
+
+  const paginatedSettlements = useMemo(() => {
+    return sortedSettlements.slice(startIndex, endIndex);
+  }, [sortedSettlements, startIndex, endIndex]);
+
+  const handlePrevPage = () => {
+    if (validPage > 1) {
+      setCurrentPage((prev) => prev - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (validPage < totalPages) {
+      setCurrentPage((prev) => prev + 1);
+    }
+  };
+
+  const handlePageSelect = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      pages.push(i);
+    }
+    return pages;
+  }, [totalPages]);
+
+  // Aggregate totals for the filtered set (full filtered portfolio summary)
   const totals = useMemo(() => {
     return filteredSettlements.reduce(
       (acc, curr) => {
@@ -116,10 +176,13 @@ export function SettlementBreakdownTable({
               d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
             />
           </svg>
-          <div>
+          <div className="flex items-center gap-2">
             <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
               Settlement Breakdown
             </h2>
+            <span className="text-[11px] font-semibold text-gray-500">
+              ({totalRecords} {totalRecords === 1 ? "Record" : "Records"})
+            </span>
           </div>
         </div>
 
@@ -173,7 +236,7 @@ export function SettlementBreakdownTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
-            {filteredSettlements.length === 0 ? (
+            {paginatedSettlements.length === 0 ? (
               <tr>
                 <td
                   colSpan={8}
@@ -183,7 +246,7 @@ export function SettlementBreakdownTable({
                 </td>
               </tr>
             ) : (
-              filteredSettlements.map((item) => (
+              paginatedSettlements.map((item) => (
                 <tr
                   key={item.id}
                   className="transition-colors hover:bg-gray-50/60"
@@ -349,6 +412,107 @@ export function SettlementBreakdownTable({
           )}
         </table>
       </div>
+
+      {/* Pagination Footer */}
+      {totalRecords > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3.5 border-t border-gray-100 bg-white text-xs text-gray-600 print:hidden">
+          <div className="flex items-center gap-2">
+            <span>
+              Showing{" "}
+              <strong className="text-gray-900 font-semibold">
+                {startIndex + 1}-{endIndex}
+              </strong>{" "}
+              of{" "}
+              <strong className="text-gray-900 font-semibold">
+                {totalRecords}
+              </strong>{" "}
+              {totalRecords === 1 ? "settlement" : "settlements"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handlePrevPage}
+              disabled={validPage <= 1}
+              className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+            >
+              ← Prev
+            </button>
+
+            <div className="flex items-center gap-1">
+              {totalPages <= 7 ? (
+                pageNumbers.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => handlePageSelect(page)}
+                    className={`inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      page === validPage
+                        ? "bg-[#0c0d12] text-white shadow-2xs"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handlePageSelect(1)}
+                    className={`inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      1 === validPage
+                        ? "bg-[#0c0d12] text-white shadow-2xs"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    1
+                  </button>
+                  {validPage > 3 && <span className="px-1 text-gray-400">…</span>}
+                  {pageNumbers
+                    .filter((p) => p > 1 && p < totalPages && Math.abs(p - validPage) <= 1)
+                    .map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => handlePageSelect(page)}
+                        className={`inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 text-xs font-semibold rounded-md transition-colors ${
+                          page === validPage
+                            ? "bg-[#0c0d12] text-white shadow-2xs"
+                            : "text-gray-700 hover:bg-gray-100"
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  {validPage < totalPages - 2 && <span className="px-1 text-gray-400">…</span>}
+                  <button
+                    type="button"
+                    onClick={() => handlePageSelect(totalPages)}
+                    className={`inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      totalPages === validPage
+                        ? "bg-[#0c0d12] text-white shadow-2xs"
+                        : "text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {totalPages}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleNextPage}
+              disabled={validPage >= totalPages}
+              className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

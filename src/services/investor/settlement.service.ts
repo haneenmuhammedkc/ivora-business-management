@@ -6,6 +6,8 @@ import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, TransactionType, PaymentMethod, UserRole } from "@prisma/client";
 import { getFullProfitLossData } from "@/services/financials/financials.service";
 import { invalidateInvestorCaches, invalidateBusinessFinancials } from "@/lib/redis/invalidation";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 
 export interface DisbursalPaymentGroup {
   id: string;
@@ -114,249 +116,260 @@ export async function getInvestorSettlementOverview(
   businessId: string,
   investorId: string
 ): Promise<InvestorSettlementOverview> {
+  // 1. Authorize session & access checks first
   await requireBusinessAccess(businessId, session);
 
-  // 1. Fetch authoritative business
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      partner: {
-        select: { id: true, name: true, email: true, phone: true },
-      },
-    },
-  });
-
-  if (!business) {
-    throw new AuthError("Business not found", 404);
+  if (
+    !investorId.startsWith("admin-") &&
+    !investorId.startsWith("partner-") &&
+    investorId !== `INV-ADM-${businessId}` &&
+    investorId !== `INV-PTR-${businessId}`
+  ) {
+    await requireResourceAccess("Investor", investorId, "READ", session);
   }
 
-  // 2. Fetch authoritative business Net Profit from existing P&L engine
-  const pnlData = await getFullProfitLossData(session, { businessId });
-  const rawNetProfit = pnlData.kpis?.netProfitAED ?? pnlData.statement?.netProfitAED ?? 0;
-  const netProfitAED = Math.max(0, Number(rawNetProfit));
+  const cacheKey = CacheKeys.investors.settlement(businessId, investorId);
 
-  // 3. Resolve participant / investor details
-  let participantName = "";
-  let participantCode = "";
-  let participantEmail: string | null = null;
-  let participantPhone: string | null = null;
-  let participantType: "ADMIN" | "PARTNER" | "INVESTOR" = "INVESTOR";
-  let committedAmount = 0;
-  let contractualSharePct = 0;
-  let persistedAllocatedProfitAED: number | null = null;
-
-  if (investorId.startsWith("admin-") || investorId === `INV-ADM-${business.code}`) {
-    participantType = "ADMIN";
-    participantName = "Ivora Admin";
-    participantCode = `INV-ADM-${business.code}`;
-    participantEmail = "admin@ivora.trade";
-    committedAmount = Number(business.adminInvestmentAED) || 0;
-    const totalBizInv = Number(business.totalInvestmentAED) || 0;
-    contractualSharePct =
-      totalBizInv > 0 && committedAmount > 0
-        ? Number(((committedAmount / totalBizInv) * 100).toFixed(2))
-        : 0;
-  } else if (
-    investorId.startsWith("partner-") ||
-    investorId === `INV-PTR-${business.code}` ||
-    investorId === business.partnerId
-  ) {
-    participantType = "PARTNER";
-    participantName = business.partner?.name || "Partner";
-    participantCode = `INV-PTR-${business.code}`;
-    participantEmail = business.partner?.email || null;
-    participantPhone = business.partner?.phone || null;
-    committedAmount = Number(business.partnerInvestmentAED) || 0;
-    contractualSharePct = Number(business.partnerEquityPct) || 0;
-  } else {
-    // External Investor
-    await requireResourceAccess("Investor", investorId, "READ", session);
-    const investor = await prisma.investor.findUnique({
-      where: { id: investorId },
+  return getOrSetCache(cacheKey, CacheTTL.MEDIUM, async () => {
+    // 1. Fetch authoritative business
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
       include: {
-        investments: {
-          where: { businessId },
-          orderBy: { createdAt: "desc" },
+        partner: {
+          select: { id: true, name: true, email: true, phone: true },
         },
       },
     });
 
-    if (!investor) {
-      throw new AuthError("Investor not found", 404);
+    if (!business) {
+      throw new AuthError("Business not found", 404);
     }
 
-    participantType = "INVESTOR";
-    participantName = investor.name;
-    participantCode = investor.code;
-    participantEmail = investor.email || null;
-    participantPhone = investor.phone || null;
+    // 2. Fetch authoritative business Net Profit from existing P&L engine
+    const pnlData = await getFullProfitLossData(session, { businessId });
+    const rawNetProfit = pnlData.kpis?.netProfitAED ?? pnlData.statement?.netProfitAED ?? 0;
+    const netProfitAED = Math.max(0, Number(rawNetProfit));
 
-    const primaryInvestment = investor.investments[0];
-    if (primaryInvestment) {
-      committedAmount = Number(primaryInvestment.committedAmount) || 0;
-      contractualSharePct = Number(primaryInvestment.profitSharePct) || 0;
-      if (primaryInvestment.allocatedProfitAmount !== null && primaryInvestment.allocatedProfitAmount !== undefined) {
-        persistedAllocatedProfitAED = Number(primaryInvestment.allocatedProfitAmount);
-      }
+    // 3. Resolve participant / investor details
+    let participantName = "";
+    let participantCode = "";
+    let participantEmail: string | null = null;
+    let participantPhone: string | null = null;
+    let participantType: "ADMIN" | "PARTNER" | "INVESTOR" = "INVESTOR";
+    let committedAmount = 0;
+    let contractualSharePct = 0;
+    let persistedAllocatedProfitAED: number | null = null;
+
+    if (investorId.startsWith("admin-") || investorId === `INV-ADM-${business.code}`) {
+      participantType = "ADMIN";
+      participantName = "Ivora Admin";
+      participantCode = `INV-ADM-${business.code}`;
+      participantEmail = "admin@ivora.trade";
+      committedAmount = Number(business.adminInvestmentAED) || 0;
+      const totalBizInv = Number(business.totalInvestmentAED) || 0;
+      contractualSharePct =
+        totalBizInv > 0 && committedAmount > 0
+          ? Number(((committedAmount / totalBizInv) * 100).toFixed(2))
+          : 0;
+    } else if (
+      investorId.startsWith("partner-") ||
+      investorId === `INV-PTR-${business.code}` ||
+      investorId === business.partnerId
+    ) {
+      participantType = "PARTNER";
+      participantName = business.partner?.name || "Partner";
+      participantCode = `INV-PTR-${business.code}`;
+      participantEmail = business.partner?.email || null;
+      participantPhone = business.partner?.phone || null;
+      committedAmount = Number(business.partnerInvestmentAED) || 0;
+      contractualSharePct = Number(business.partnerEquityPct) || 0;
     } else {
-      committedAmount = 0;
-      contractualSharePct = Number(investor.defaultSharePct) || 0;
-    }
-  }
-
-  // 4. Calculate default vs persisted profit allocation
-  const defaultAllocatedProfitAED =
-    netProfitAED > 0 && contractualSharePct > 0
-      ? Number(((netProfitAED * contractualSharePct) / 100).toFixed(2))
-      : 0;
-
-  const allocatedProfitAED =
-    persistedAllocatedProfitAED !== null ? persistedAllocatedProfitAED : defaultAllocatedProfitAED;
-
-  // 5. Query all historical settlement transactions for this investor and business
-  const transactions = await prisma.transaction.findMany({
-    where: {
-      businessId,
-      ...(participantType === "INVESTOR"
-        ? { investorId }
-        : {
-            // For synthetic Admin/Partner participants, match by investorId if recorded or null
-            investorId: investorId,
-          }),
-      type: {
-        in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
-      },
-    },
-    orderBy: { transactionDate: "desc" },
-  });
-
-  // 6. Aggregate paid totals with Decimal safety
-  let totalCapitalPaidDecimal = new Prisma.Decimal(0);
-  let totalProfitPaidDecimal = new Prisma.Decimal(0);
-
-  for (const tx of transactions) {
-    if (tx.type === TransactionType.CAPITAL_RETURN) {
-      totalCapitalPaidDecimal = totalCapitalPaidDecimal.plus(tx.amount);
-    } else if (tx.type === TransactionType.PROFIT_DISBURSAL) {
-      totalProfitPaidDecimal = totalProfitPaidDecimal.plus(tx.amount);
-    }
-  }
-
-  const totalCapitalPaidAED = Number(totalCapitalPaidDecimal.toFixed(2));
-  const totalProfitPaidAED = Number(totalProfitPaidDecimal.toFixed(2));
-  const totalPaidAED = Number(totalCapitalPaidDecimal.plus(totalProfitPaidDecimal).toFixed(2));
-
-  // 7. Calculate outstanding balances
-  const totalInvestmentAED = Number(new Prisma.Decimal(committedAmount).toFixed(2));
-  const outstandingCapitalAED = Math.max(
-    0,
-    Number(new Prisma.Decimal(totalInvestmentAED).minus(totalCapitalPaidDecimal).toFixed(2))
-  );
-  const outstandingProfitAED = Math.max(
-    0,
-    Number(new Prisma.Decimal(allocatedProfitAED).minus(totalProfitPaidDecimal).toFixed(2))
-  );
-  const totalDueAED = Number(
-    new Prisma.Decimal(totalInvestmentAED).plus(new Prisma.Decimal(allocatedProfitAED)).toFixed(2)
-  );
-  const totalOutstandingAED = Number(
-    new Prisma.Decimal(outstandingCapitalAED).plus(new Prisma.Decimal(outstandingProfitAED)).toFixed(2)
-  );
-
-  const isAllocationLocked = totalPaidAED > 0;
-  const isFullySettled = totalOutstandingAED <= 0.005 && totalPaidAED > 0;
-
-  // 8. Build grouped payment history
-  // Group pairs of CAPITAL_RETURN and PROFIT_DISBURSAL created together
-  const groupedMap = new Map<string, DisbursalPaymentGroup>();
-
-  for (const tx of transactions) {
-    const txDateStr = formatDate(new Date(tx.transactionDate));
-    const txTimeKey = new Date(tx.transactionDate).toISOString().slice(0, 16); // Minute granularity
-    const refKey = tx.bankReference?.trim() ? `ref:${tx.bankReference.trim()}` : `time:${txTimeKey}`;
-    const groupKey = `${tx.paymentMethod}_${refKey}`;
-
-    const amt = Number(tx.amount);
-    const existing = groupedMap.get(groupKey);
-
-    if (!existing) {
-      groupedMap.set(groupKey, {
-        id: tx.id,
-        date: txDateStr,
-        dateRaw: tx.transactionDate.toISOString(),
-        paymentReference: tx.bankReference || tx.transactionCode,
-        capitalReturned: tx.type === TransactionType.CAPITAL_RETURN ? amt : 0,
-        profitDisbursed: tx.type === TransactionType.PROFIT_DISBURSAL ? amt : 0,
-        totalPayment: amt,
-        paymentMethod: tx.paymentMethod.replace(/_/g, " "),
-        bankReference: tx.bankReference,
-        escrowAccount: tx.escrowAccount,
-        status: "CLEARED",
-        transactions: [
-          {
-            id: tx.id,
-            transactionCode: tx.transactionCode,
-            amount: amt,
-            type: tx.type,
+      // External Investor
+      const investor = await prisma.investor.findUnique({
+        where: { id: investorId },
+        include: {
+          investments: {
+            where: { businessId },
+            orderBy: { createdAt: "desc" },
           },
-        ],
+        },
       });
-    } else {
-      if (tx.type === TransactionType.CAPITAL_RETURN) {
-        existing.capitalReturned = Number((existing.capitalReturned + amt).toFixed(2));
-      } else if (tx.type === TransactionType.PROFIT_DISBURSAL) {
-        existing.profitDisbursed = Number((existing.profitDisbursed + amt).toFixed(2));
+
+      if (!investor) {
+        throw new AuthError("Investor not found", 404);
       }
-      existing.totalPayment = Number((existing.totalPayment + amt).toFixed(2));
-      existing.transactions.push({
-        id: tx.id,
-        transactionCode: tx.transactionCode,
-        amount: amt,
-        type: tx.type,
-      });
+
+      participantType = "INVESTOR";
+      participantName = investor.name;
+      participantCode = investor.code;
+      participantEmail = investor.email || null;
+      participantPhone = investor.phone || null;
+
+      const primaryInvestment = investor.investments[0];
+      if (primaryInvestment) {
+        committedAmount = Number(primaryInvestment.committedAmount) || 0;
+        contractualSharePct = Number(primaryInvestment.profitSharePct) || 0;
+        if (primaryInvestment.allocatedProfitAmount !== null && primaryInvestment.allocatedProfitAmount !== undefined) {
+          persistedAllocatedProfitAED = Number(primaryInvestment.allocatedProfitAmount);
+        }
+      } else {
+        committedAmount = 0;
+        contractualSharePct = Number(investor.defaultSharePct) || 0;
+      }
     }
-  }
 
-  const paymentHistory = Array.from(groupedMap.values()).sort(
-    (a, b) => new Date(b.dateRaw).getTime() - new Date(a.dateRaw).getTime()
-  );
+    // 4. Calculate default vs persisted profit allocation
+    const defaultAllocatedProfitAED =
+      netProfitAED > 0 && contractualSharePct > 0
+        ? Number(((netProfitAED * contractualSharePct) / 100).toFixed(2))
+        : 0;
 
-  return {
-    investor: {
-      id: investorId,
-      name: participantName,
-      code: participantCode,
-      email: participantEmail,
-      phone: participantPhone,
-      participantType,
-    },
-    business: {
-      id: business.id,
-      name: business.name,
-      code: business.code,
-      businessType: business.businessType || "Trading",
-      totalInvestmentAED: Number(business.totalInvestmentAED) || 0,
-      adminInvestmentAED: Number(business.adminInvestmentAED) || 0,
-      partnerInvestmentAED: Number(business.partnerInvestmentAED) || 0,
-      partnerEquityPct: Number(business.partnerEquityPct) || 0,
-    },
-    netProfitAED,
-    contractualSharePct,
-    defaultAllocatedProfitAED,
-    persistedAllocatedProfitAED,
-    allocatedProfitAED,
-    totalInvestmentAED,
-    totalCapitalPaidAED,
-    totalProfitPaidAED,
-    totalPaidAED,
-    outstandingCapitalAED,
-    outstandingProfitAED,
-    totalDueAED,
-    totalOutstandingAED,
-    isAllocationLocked,
-    isFullySettled,
-    paymentHistory,
-  };
+    const allocatedProfitAED =
+      persistedAllocatedProfitAED !== null ? persistedAllocatedProfitAED : defaultAllocatedProfitAED;
+
+    // 5. Query all historical settlement transactions for this investor and business
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        businessId,
+        ...(participantType === "INVESTOR"
+          ? { investorId }
+          : {
+              investorId: investorId,
+            }),
+        type: {
+          in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
+        },
+      },
+      orderBy: { transactionDate: "desc" },
+    });
+
+    // 6. Aggregate paid totals with Decimal safety
+    let totalCapitalPaidDecimal = new Prisma.Decimal(0);
+    let totalProfitPaidDecimal = new Prisma.Decimal(0);
+
+    for (const tx of transactions) {
+      if (tx.type === TransactionType.CAPITAL_RETURN) {
+        totalCapitalPaidDecimal = totalCapitalPaidDecimal.plus(tx.amount);
+      } else if (tx.type === TransactionType.PROFIT_DISBURSAL) {
+        totalProfitPaidDecimal = totalProfitPaidDecimal.plus(tx.amount);
+      }
+    }
+
+    const totalCapitalPaidAED = Number(totalCapitalPaidDecimal.toFixed(2));
+    const totalProfitPaidAED = Number(totalProfitPaidDecimal.toFixed(2));
+    const totalPaidAED = Number(totalCapitalPaidDecimal.plus(totalProfitPaidDecimal).toFixed(2));
+
+    // 7. Calculate outstanding balances
+    const totalInvestmentAED = Number(new Prisma.Decimal(committedAmount).toFixed(2));
+    const outstandingCapitalAED = Math.max(
+      0,
+      Number(new Prisma.Decimal(totalInvestmentAED).minus(totalCapitalPaidDecimal).toFixed(2))
+    );
+    const outstandingProfitAED = Math.max(
+      0,
+      Number(new Prisma.Decimal(allocatedProfitAED).minus(totalProfitPaidDecimal).toFixed(2))
+    );
+    const totalDueAED = Number(
+      new Prisma.Decimal(totalInvestmentAED).plus(new Prisma.Decimal(allocatedProfitAED)).toFixed(2)
+    );
+    const totalOutstandingAED = Number(
+      new Prisma.Decimal(outstandingCapitalAED).plus(new Prisma.Decimal(outstandingProfitAED)).toFixed(2)
+    );
+
+    const isAllocationLocked = totalPaidAED > 0;
+    const isFullySettled = totalOutstandingAED <= 0.005 && totalPaidAED > 0;
+
+    // 8. Build grouped payment history
+    const groupedMap = new Map<string, DisbursalPaymentGroup>();
+
+    for (const tx of transactions) {
+      const txDateStr = formatDate(new Date(tx.transactionDate));
+      const txTimeKey = new Date(tx.transactionDate).toISOString().slice(0, 16);
+      const refKey = tx.bankReference?.trim() ? `ref:${tx.bankReference.trim()}` : `time:${txTimeKey}`;
+      const groupKey = `${tx.paymentMethod}_${refKey}`;
+
+      const amt = Number(tx.amount);
+      const existing = groupedMap.get(groupKey);
+
+      if (!existing) {
+        groupedMap.set(groupKey, {
+          id: tx.id,
+          date: txDateStr,
+          dateRaw: tx.transactionDate.toISOString(),
+          paymentReference: tx.bankReference || tx.transactionCode,
+          capitalReturned: tx.type === TransactionType.CAPITAL_RETURN ? amt : 0,
+          profitDisbursed: tx.type === TransactionType.PROFIT_DISBURSAL ? amt : 0,
+          totalPayment: amt,
+          paymentMethod: tx.paymentMethod.replace(/_/g, " "),
+          bankReference: tx.bankReference,
+          escrowAccount: tx.escrowAccount,
+          status: "CLEARED",
+          transactions: [
+            {
+              id: tx.id,
+              transactionCode: tx.transactionCode,
+              amount: amt,
+              type: tx.type,
+            },
+          ],
+        });
+      } else {
+        if (tx.type === TransactionType.CAPITAL_RETURN) {
+          existing.capitalReturned = Number((existing.capitalReturned + amt).toFixed(2));
+        } else if (tx.type === TransactionType.PROFIT_DISBURSAL) {
+          existing.profitDisbursed = Number((existing.profitDisbursed + amt).toFixed(2));
+        }
+        existing.totalPayment = Number((existing.totalPayment + amt).toFixed(2));
+        existing.transactions.push({
+          id: tx.id,
+          transactionCode: tx.transactionCode,
+          amount: amt,
+          type: tx.type,
+        });
+      }
+    }
+
+    const paymentHistory = Array.from(groupedMap.values()).sort(
+      (a, b) => new Date(b.dateRaw).getTime() - new Date(a.dateRaw).getTime()
+    );
+
+    return {
+      investor: {
+        id: investorId,
+        name: participantName,
+        code: participantCode,
+        email: participantEmail,
+        phone: participantPhone,
+        participantType,
+      },
+      business: {
+        id: business.id,
+        name: business.name,
+        code: business.code,
+        businessType: business.businessType || "Trading",
+        totalInvestmentAED: Number(business.totalInvestmentAED) || 0,
+        adminInvestmentAED: Number(business.adminInvestmentAED) || 0,
+        partnerInvestmentAED: Number(business.partnerInvestmentAED) || 0,
+        partnerEquityPct: Number(business.partnerEquityPct) || 0,
+      },
+      netProfitAED,
+      contractualSharePct,
+      defaultAllocatedProfitAED,
+      persistedAllocatedProfitAED,
+      allocatedProfitAED,
+      totalInvestmentAED,
+      totalCapitalPaidAED,
+      totalProfitPaidAED,
+      totalPaidAED,
+      outstandingCapitalAED,
+      outstandingProfitAED,
+      totalDueAED,
+      totalOutstandingAED,
+      isAllocationLocked,
+      isFullySettled,
+      paymentHistory,
+    };
+  });
 }
 
 /**

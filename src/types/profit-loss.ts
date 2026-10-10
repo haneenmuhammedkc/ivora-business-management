@@ -8,6 +8,7 @@ export interface BusinessProfitability {
   netProfitAED: number;
   netMarginPercent: number;
   isConsolidated?: boolean;
+  createdAt?: string | Date;
 }
 
 export interface ProfitLossSummaryKPIs {
