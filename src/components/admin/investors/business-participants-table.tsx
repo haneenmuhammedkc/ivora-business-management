@@ -1,14 +1,19 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import Link from "next/link";
 import { InvestorRecord } from "@/types/investors";
-import { ArrowRightIcon } from "@/components/ui/icons";
+import { ArrowRightIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
+import { useAuth } from "@/context/auth-context";
+import { EditInvestorModal } from "./edit-investor-modal";
+import { DeleteInvestorModal } from "./delete-investor-modal";
 
 export interface BusinessParticipantsTableProps {
   participants: InvestorRecord[];
-  selectedParticipantId: string | null;
-  onSelectParticipant: (participant: InvestorRecord) => void;
+  selectedParticipantId?: string | null;
+  onSelectParticipant?: (participant: InvestorRecord) => void;
   isLoading?: boolean;
+  onRefresh?: () => void;
 }
 
 export function BusinessParticipantsTable({
@@ -16,7 +21,14 @@ export function BusinessParticipantsTable({
   selectedParticipantId,
   onSelectParticipant,
   isLoading = false,
+  onRefresh,
 }: BusinessParticipantsTableProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
+
+  const [editingInvestor, setEditingInvestor] = useState<InvestorRecord | null>(null);
+  const [deletingInvestor, setDeletingInvestor] = useState<InvestorRecord | null>(null);
+
   const activeParticipants = participants.filter((p) => p.investmentAED > 0);
 
   return (
@@ -76,7 +88,7 @@ export function BusinessParticipantsTable({
                 return (
                   <tr
                     key={p.id}
-                    onClick={() => onSelectParticipant(p)}
+                    onClick={() => onSelectParticipant?.(p)}
                     className={`transition-colors cursor-pointer hover:bg-gray-50/70 ${
                       isCurrent ? "bg-gray-50/60" : ""
                     }`}
@@ -154,17 +166,43 @@ export function BusinessParticipantsTable({
 
                     {/* Action */}
                     <td className="px-5 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectParticipant(p);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors shadow-2xs"
-                      >
-                        <span>View</span>
-                        <ArrowRightIcon size={12} />
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <Link
+                          href={`/investors/${encodeURIComponent(p.id)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors shadow-2xs"
+                        >
+                          <span>View</span>
+                          <ArrowRightIcon size={12} />
+                        </Link>
+
+                        {isAdmin && pType === "INVESTOR" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingInvestor(p);
+                              }}
+                              title="Edit Investor"
+                              className="inline-flex items-center p-1 text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors shadow-2xs cursor-pointer"
+                            >
+                              <PencilIcon size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeletingInvestor(p);
+                              }}
+                              title="Delete or Deactivate Investor"
+                              className="inline-flex items-center p-1 text-red-600 bg-white border border-red-200 rounded hover:bg-red-50 transition-colors shadow-2xs cursor-pointer"
+                            >
+                              <TrashIcon size={12} />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -173,6 +211,30 @@ export function BusinessParticipantsTable({
           </tbody>
         </table>
       </div>
+
+      {/* Quick Edit Modal */}
+      {editingInvestor && (
+        <EditInvestorModal
+          isOpen={!!editingInvestor}
+          onClose={() => setEditingInvestor(null)}
+          investor={editingInvestor}
+          onSuccess={() => {
+            onRefresh?.();
+          }}
+        />
+      )}
+
+      {/* Quick Delete Modal */}
+      {deletingInvestor && (
+        <DeleteInvestorModal
+          isOpen={!!deletingInvestor}
+          onClose={() => setDeletingInvestor(null)}
+          investor={deletingInvestor}
+          onSuccess={() => {
+            onRefresh?.();
+          }}
+        />
+      )}
     </div>
   );
 }

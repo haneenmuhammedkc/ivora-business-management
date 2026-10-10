@@ -6,3 +6,4 @@ export * from "./sale.validator";
 export * from "./expense.validator";
 export * from "./profit-loss.validator";
 export * from "./balance-sheet.validator";
+export * from "./partner.validator";

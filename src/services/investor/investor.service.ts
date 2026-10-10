@@ -29,14 +29,6 @@ export interface CreateInvestorInput {
   status?: string;
 }
 
-export interface UpdateInvestorInput {
-  name?: string;
-  email?: string;
-  phone?: string;
-  defaultSharePct?: number;
-  status?: string;
-}
-
 /**
  * Generate a unique investor code (INV-001, INV-002, etc.).
  */
@@ -371,6 +363,7 @@ export async function getBusinessInvestorDetails(
             id: true,
             name: true,
             email: true,
+            phone: true,
           },
         },
         investments: {
@@ -393,10 +386,16 @@ export async function getBusinessInvestorDetails(
     }
 
     const businessDateFormatted = formatDate(new Date(b.createdAt));
+    const totalInvestmentVal = Number(b.totalInvestmentAED) || 0;
     const adminInvestmentVal = Number(b.adminInvestmentAED) || 0;
     const partnerInvestmentVal = Number(b.partnerInvestmentAED) || 0;
     const partnerEquityVal = Number(b.partnerEquityPct) || 0;
     const partnerName = b.partner?.name || "Partner";
+
+    const adminShareVal =
+      totalInvestmentVal > 0 && adminInvestmentVal > 0
+        ? Number(((adminInvestmentVal / totalInvestmentVal) * 100).toFixed(2))
+        : 0;
 
     const participants: InvestorRecord[] = [];
 
@@ -407,6 +406,8 @@ export async function getBusinessInvestorDetails(
         participantType: "ADMIN",
         name: "Ivora Admin",
         code: `INV-ADM-${b.code}`,
+        email: "admin@ivora.trade",
+        phone: null,
         emailOrSubtitle: "admin@ivora.trade",
         businessId: b.id,
         business: b.name,
@@ -414,7 +415,7 @@ export async function getBusinessInvestorDetails(
         entityLabel: `${b.name} (${b.code}) • ADMIN`,
         investmentAED: adminInvestmentVal,
         date: businessDateFormatted,
-        sharePercent: null, // Admin share percentage not defined as ratio in table
+        sharePercent: adminShareVal,
         allocatedProfitAED: 0,
         paidAED: 0,
         outstandingAED: 0,
@@ -422,8 +423,8 @@ export async function getBusinessInvestorDetails(
         selected: false,
         details: {
           totalInvestmentAED: adminInvestmentVal,
-          profitShare: "—",
-          profitShareContract: "System Admin Capital Account",
+          profitShare: `${adminShareVal}%`,
+          profitShareContract: `Admin Treasury Allocation (${adminShareVal}%)`,
           allocatedProfit: 0,
           outstandingBalance: 0,
           paidAmount: 0,
@@ -448,6 +449,8 @@ export async function getBusinessInvestorDetails(
         participantType: "PARTNER",
         name: partnerName,
         code: `INV-PTR-${b.code}`,
+        email: b.partner?.email || null,
+        phone: b.partner?.phone || null,
         emailOrSubtitle: b.partner?.email ? b.partner.email : "PARTNER • Operating Stake",
         businessId: b.id,
         business: b.name,
@@ -499,6 +502,8 @@ export async function getBusinessInvestorDetails(
         participantType: "INVESTOR",
         name: inv.investor.name,
         code: inv.investor.code,
+        email: inv.investor.email || null,
+        phone: inv.investor.phone || null,
         emailOrSubtitle: `${inv.investor.code} • ${inv.investor.email || "investor@ivora-trade.ae"}`,
         businessId: b.id,
         business: b.name,
@@ -594,55 +599,218 @@ export async function listInvestors(session: SessionPayload, businessId?: string
 /**
  * Fetch a single Investor or Participant by ID.
  */
-export async function getInvestorById(session: SessionPayload, investorId: string) {
-  if (investorId.startsWith("admin-")) {
-    const businessId = investorId.replace("admin-", "");
-    await requireBusinessAccess(businessId, session);
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      include: { partner: true },
-    });
-    if (!business) throw new AuthError("Business not found", 404);
-    return {
-      id: investorId,
-      participantType: "ADMIN",
-      name: "Ivora Admin",
-      businessId: business.id,
-      business: business.name,
-      investmentAED: Number(business.adminInvestmentAED),
-      status: "ACTIVE",
-    };
-  }
+export async function getInvestorById(session: SessionPayload, investorId: string): Promise<InvestorRecord> {
+  const cacheKey = CacheKeys.investors.detail(investorId);
 
-  if (investorId.startsWith("partner-")) {
-    const parts = investorId.split("-");
-    const businessId = parts[1];
-    await requireBusinessAccess(businessId, session);
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      include: { partner: true },
-    });
-    if (!business) throw new AuthError("Business not found", 404);
-    return {
-      id: investorId,
-      participantType: "PARTNER",
-      name: business.partner?.name || "Partner",
-      businessId: business.id,
-      business: business.name,
-      investmentAED: Number(business.partnerInvestmentAED),
-      sharePercent: Number(business.partnerEquityPct),
-      status: "ACTIVE",
-    };
-  }
+  return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+    // 1. Synthetic ADMIN participant
+    if (investorId.startsWith("admin-")) {
+      const businessId = investorId.replace("admin-", "");
+      await requireBusinessAccess(businessId, session);
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        include: { partner: true },
+      });
+      if (!business) throw new AuthError("Business not found", 404);
 
-  const { resource } = await requireResourceAccess("Investor", investorId, "READ", session);
-  return resource;
+      const businessDateFormatted = formatDate(new Date(business.createdAt));
+      const totalInvestmentVal = Number(business.totalInvestmentAED) || 0;
+      const adminInvestmentVal = Number(business.adminInvestmentAED) || 0;
+      const adminShareVal =
+        totalInvestmentVal > 0 && adminInvestmentVal > 0
+          ? Number(((adminInvestmentVal / totalInvestmentVal) * 100).toFixed(2))
+          : 0;
+
+      return {
+        id: investorId,
+        participantType: "ADMIN",
+        name: "Ivora Admin",
+        code: `INV-ADM-${business.code}`,
+        email: "admin@ivora.trade",
+        phone: null,
+        emailOrSubtitle: "admin@ivora.trade",
+        businessId: business.id,
+        business: business.name,
+        businessEntity: `${business.code} • ${business.businessType || "Trading"}`,
+        entityLabel: `${business.name} (${business.code}) • ADMIN`,
+        investmentAED: adminInvestmentVal,
+        date: businessDateFormatted,
+        sharePercent: adminShareVal,
+        allocatedProfitAED: 0,
+        paidAED: 0,
+        outstandingAED: 0,
+        status: "ACTIVE" as InvestorStatus,
+        selected: false,
+        details: {
+          totalInvestmentAED: adminInvestmentVal,
+          profitShare: `${adminShareVal}%`,
+          profitShareContract: `Admin Treasury Allocation (${adminShareVal}%)`,
+          allocatedProfit: 0,
+          outstandingBalance: 0,
+          paidAmount: 0,
+          recentTransactions: [
+            {
+              id: `CAP-ADM-${business.code}`,
+              title: "Admin Initial Capital",
+              date: businessDateFormatted,
+              reference: `Direct Treasury (${business.code})`,
+              amountFormatted: `AED ${adminInvestmentVal.toLocaleString()} Cleared`,
+              type: "INWARD REMITTANCE",
+            },
+          ],
+        },
+      };
+    }
+
+    // 2. Synthetic PARTNER participant
+    if (investorId.startsWith("partner-")) {
+      const parts = investorId.split("-");
+      const businessId = parts[1];
+      await requireBusinessAccess(businessId, session);
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+        include: { partner: true },
+      });
+      if (!business) throw new AuthError("Business not found", 404);
+
+      const businessDateFormatted = formatDate(new Date(business.createdAt));
+      const partnerInvestmentVal = Number(business.partnerInvestmentAED) || 0;
+      const partnerEquityVal = Number(business.partnerEquityPct) || 0;
+      const partnerName = business.partner?.name || "Partner";
+
+      return {
+        id: investorId,
+        participantType: "PARTNER",
+        name: partnerName,
+        code: `INV-PTR-${business.code}`,
+        email: business.partner?.email || null,
+        phone: business.partner?.phone || null,
+        emailOrSubtitle: business.partner?.email ? business.partner.email : "PARTNER • Operating Stake",
+        businessId: business.id,
+        business: business.name,
+        businessEntity: `${business.code} • Partner Equity`,
+        entityLabel: `${business.name} (${business.code}) • PARTNER`,
+        investmentAED: partnerInvestmentVal,
+        date: businessDateFormatted,
+        sharePercent: partnerEquityVal,
+        allocatedProfitAED: 0,
+        paidAED: 0,
+        outstandingAED: 0,
+        status: "ACTIVE" as InvestorStatus,
+        selected: false,
+        details: {
+          totalInvestmentAED: partnerInvestmentVal,
+          profitShare: `${partnerEquityVal}%`,
+          profitShareContract: `Partner Equity (${partnerEquityVal}%)`,
+          allocatedProfit: 0,
+          outstandingBalance: 0,
+          paidAmount: 0,
+          recentTransactions: [
+            {
+              id: `CAP-PTR-${business.code}`,
+              title: "Partner Capital Contribution",
+              date: businessDateFormatted,
+              reference: `Partner Escrow (${business.code})`,
+              amountFormatted: `AED ${partnerInvestmentVal.toLocaleString()} Cleared`,
+              type: "INWARD REMITTANCE",
+            },
+          ],
+        },
+      };
+    }
+
+    // 3. External INVESTOR
+    await requireResourceAccess("Investor", investorId, "READ", session);
+
+    const investor = await prisma.investor.findUnique({
+      where: { id: investorId },
+      include: {
+        business: {
+          include: {
+            partner: true,
+          },
+        },
+        investments: {
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!investor || !investor.business) {
+      throw new AuthError("Investor record not found", 404);
+    }
+
+    const b = investor.business;
+    const totalCommitted = investor.investments.reduce(
+      (acc, inv) => acc + (Number(inv.committedAmount) || 0),
+      0
+    );
+
+    const firstInv = investor.investments[0];
+    const invDateFormatted = firstInv
+      ? formatDate(new Date(firstInv.depositDate || firstInv.createdAt))
+      : formatDate(new Date(investor.createdAt));
+
+    const totalBizInv = Number(b.totalInvestmentAED) || 0;
+    const calculatedShare =
+      totalBizInv > 0
+        ? Number(((totalCommitted / totalBizInv) * 100).toFixed(2))
+        : Number(investor.defaultSharePct) || 0;
+
+    const recentTx = investor.investments.map((inv) => ({
+      id: `CAP-${investor.code}-${inv.id.slice(-4)}`,
+      title: "External Investment Capital",
+      date: formatDate(new Date(inv.depositDate || inv.createdAt)),
+      reference: `Escrow Account (${b.code})`,
+      amountFormatted: `AED ${(Number(inv.committedAmount) || 0).toLocaleString()} Cleared`,
+      type: "INWARD REMITTANCE",
+    }));
+
+    return {
+      id: investor.id,
+      participantType: "INVESTOR",
+      name: investor.name,
+      code: investor.code,
+      email: investor.email || null,
+      phone: investor.phone || null,
+      emailOrSubtitle: `${investor.code} • ${investor.email || "investor@ivora-trade.ae"}`,
+      businessId: b.id,
+      business: b.name,
+      businessEntity: `${b.code} • External Capital`,
+      entityLabel: `${b.name} (${b.code}) • ${investor.code}`,
+      investmentAED: totalCommitted,
+      date: invDateFormatted,
+      sharePercent: calculatedShare,
+      allocatedProfitAED: 0,
+      paidAED: 0,
+      outstandingAED: 0,
+      status: (investor.status || "ACTIVE") as InvestorStatus,
+      selected: false,
+      details: {
+        totalInvestmentAED: totalCommitted,
+        profitShare: `${calculatedShare}%`,
+        profitShareContract: `Standard Contract (${calculatedShare}%)`,
+        allocatedProfit: 0,
+        outstandingBalance: 0,
+        paidAmount: 0,
+        recentTransactions: recentTx.length > 0 ? recentTx : [
+          {
+            id: `CAP-${investor.code}`,
+            title: "External Investment Capital",
+            date: invDateFormatted,
+            reference: `Escrow Account (${b.code})`,
+            amountFormatted: `AED ${totalCommitted.toLocaleString()} Cleared`,
+            type: "INWARD REMITTANCE",
+          },
+        ],
+      },
+    };
+  });
 }
 
 /**
  * Register a new external Investor and record their investment against an existing Business.
- * The server calculates the authoritative equity percentage based on Business.totalInvestmentAED.
- * Total investment of the business remains unchanged.
+ * Transactional capacity validation guarantees that total commitments cannot exceed totalInvestmentAED.
  */
 export async function createInvestor(session: SessionPayload, input: CreateInvestorInput) {
   const {
@@ -671,37 +839,12 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
   // Enforce access control for the selected business
   await requireBusinessAccess(businessId.trim(), session);
 
-  // Load business from database to retrieve authoritative totalInvestmentAED
-  const business = await prisma.business.findUnique({
-    where: { id: businessId.trim() },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      totalInvestmentAED: true,
-      status: true,
-    },
-  });
-
-  if (!business) {
-    throw new AuthError("Selected business does not exist.", 404);
-  }
-
-  const businessTotalInvestment = Number(business.totalInvestmentAED) || 0;
-  if (businessTotalInvestment <= 0) {
-    throw new AuthError("Assigned business has no valid total investment capital.", 400);
-  }
-
   // Parse and validate investment capital
   const rawCapital = investmentCapitalAED ?? investmentAmount ?? committedAmount;
   const capitalNum = Number(rawCapital);
   if (rawCapital === undefined || rawCapital === null || isNaN(capitalNum) || capitalNum <= 0) {
     throw new AuthError("Please provide a valid investment capital amount greater than 0.", 400);
   }
-
-  // Authoritative server-side calculation:
-  // Investor Equity % = (Investor Investment Capital / Business.totalInvestmentAED) * 100
-  const calculatedEquityPct = Number(((capitalNum / businessTotalInvestment) * 100).toFixed(2));
 
   // Determine unique investor code
   let finalCode = code?.trim().toUpperCase();
@@ -718,33 +861,95 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
 
   const contactEmailVal = (email || contactEmail)?.trim() || null;
 
-  // Persist external Investor with type INVESTOR
-  const investor = await prisma.investor.create({
-    data: {
-      name: name.trim(),
-      code: finalCode,
-      email: contactEmailVal,
-      phone: phone?.trim() || null,
-      type: InvestorType.INVESTOR,
-      defaultSharePct: new Prisma.Decimal(calculatedEquityPct),
-      businessId: business.id,
-      status: status || "ACTIVE",
-    },
-    include: {
-      business: { select: { id: true, name: true, code: true, totalInvestmentAED: true } },
-    },
-  });
+  // Transactional Capacity Validation and Creation
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Load business with active external investments inside transaction
+    const business = await tx.business.findUnique({
+      where: { id: businessId.trim() },
+      include: {
+        investments: {
+          where: {
+            status: "ACTIVE",
+            investor: {
+              type: InvestorType.INVESTOR,
+            },
+          },
+          select: {
+            committedAmount: true,
+          },
+        },
+      },
+    });
 
-  // Persist Investment record
-  const investment = await prisma.investment.create({
-    data: {
-      investorId: investor.id,
+    if (!business) {
+      throw new AuthError("Selected business does not exist.", 404);
+    }
+
+    const businessTotalInvestment = Number(business.totalInvestmentAED) || 0;
+    if (businessTotalInvestment <= 0) {
+      throw new AuthError("Assigned business has no valid total investment capital.", 400);
+    }
+
+    // 2. Authoritative Capacity Rule:
+    // Total Committed = Admin + Partner + SUM(Active External Commitments)
+    const adminInv = Number(business.adminInvestmentAED) || 0;
+    const partnerInv = Number(business.partnerInvestmentAED) || 0;
+    const existingExternalCommitments = business.investments.reduce(
+      (acc, inv) => acc + (Number(inv.committedAmount) || 0),
+      0
+    );
+
+    const totalCommitted = adminInv + partnerInv + existingExternalCommitments;
+    const remainingCapacity = Math.max(0, Math.round((businessTotalInvestment - totalCommitted) * 100) / 100);
+
+    if (capitalNum > remainingCapacity) {
+      const formattedAmount = capitalNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const formattedCapacity = remainingCapacity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      throw new AuthError(
+        `Investment amount (AED ${formattedAmount}) exceeds the remaining investment capacity (AED ${formattedCapacity}) for this business.`,
+        400
+      );
+    }
+
+    // 3. Authoritative server-side equity percentage calculation
+    const calculatedEquityPct = Number(((capitalNum / businessTotalInvestment) * 100).toFixed(2));
+
+    // 4. Persist external Investor with type INVESTOR
+    const investor = await tx.investor.create({
+      data: {
+        name: name.trim(),
+        code: finalCode,
+        email: contactEmailVal,
+        phone: phone?.trim() || null,
+        type: InvestorType.INVESTOR,
+        defaultSharePct: new Prisma.Decimal(calculatedEquityPct),
+        businessId: business.id,
+        status: status || "ACTIVE",
+      },
+      include: {
+        business: { select: { id: true, name: true, code: true, totalInvestmentAED: true } },
+      },
+    });
+
+    // 5. Persist Investment record
+    const investment = await tx.investment.create({
+      data: {
+        investorId: investor.id,
+        businessId: business.id,
+        committedAmount: new Prisma.Decimal(capitalNum),
+        profitSharePct: new Prisma.Decimal(calculatedEquityPct),
+        depositDate: new Date(),
+        status: "ACTIVE",
+      },
+    });
+
+    return {
+      investor,
+      investment,
+      calculatedEquityPct,
       businessId: business.id,
-      committedAmount: new Prisma.Decimal(capitalNum),
-      profitSharePct: new Prisma.Decimal(calculatedEquityPct),
-      depositDate: new Date(),
-      status: "ACTIVE",
-    },
+      businessName: business.name,
+    };
   });
 
   // Log audit events
@@ -752,15 +957,15 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
     userId: session.userId,
     action: "INVESTOR_CREATED",
     entity: "Investor",
-    entityId: investor.id,
+    entityId: result.investor.id,
     newValues: {
-      name: investor.name,
-      code: investor.code,
-      type: investor.type,
-      businessId: business.id,
-      businessName: business.name,
+      name: result.investor.name,
+      code: result.investor.code,
+      type: result.investor.type,
+      businessId: result.businessId,
+      businessName: result.businessName,
       investmentCapitalAED: capitalNum,
-      calculatedEquityPct,
+      calculatedEquityPct: result.calculatedEquityPct,
     },
   });
 
@@ -768,41 +973,174 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
     userId: session.userId,
     action: "INVESTMENT_CREATED",
     entity: "Investment",
-    entityId: investment.id,
+    entityId: result.investment.id,
     newValues: {
-      investorId: investor.id,
-      businessId: business.id,
+      investorId: result.investor.id,
+      businessId: result.businessId,
       committedAmount: capitalNum,
-      profitSharePct: calculatedEquityPct,
+      profitSharePct: result.calculatedEquityPct,
     },
   });
 
   // Invalidate Redis caches
-  await invalidateInvestorCaches(business.id);
+  await invalidateInvestorCaches(result.businessId, undefined, result.investor.id);
 
   return {
-    investor,
-    investment,
-    equityPct: calculatedEquityPct,
+    investor: result.investor,
+    investment: result.investment,
+    equityPct: result.calculatedEquityPct,
   };
 }
 
+export interface UpdateInvestorInput {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  defaultSharePct?: number;
+  investmentAmount?: number | string;
+  committedAmount?: number | string;
+  status?: "ACTIVE" | "INACTIVE";
+}
+
 /**
- * Update an external Investor's details.
+ * Update an external Investor's details with capacity validation on investment changes.
+ * Restricted to ADMIN role with resource-level authorization.
  */
 export async function updateInvestor(session: SessionPayload, investorId: string, input: UpdateInvestorInput) {
+  if (session.role !== UserRole.ADMIN) {
+    throw new AuthError("Forbidden: Admin privileges required to edit investors", 403);
+  }
+
+  if (investorId.startsWith("admin-") || investorId.startsWith("partner-")) {
+    throw new AuthError("Core Admin and Partner participants cannot be edited as external investors.", 400);
+  }
+
   await requireResourceAccess("Investor", investorId, "WRITE", session);
 
-  const updated = await prisma.investor.update({
-    where: { id: investorId },
-    data: {
-      name: input.name?.trim(),
-      email: input.email !== undefined ? input.email?.trim() || null : undefined,
-      phone: input.phone !== undefined ? input.phone?.trim() || null : undefined,
-      defaultSharePct: input.defaultSharePct !== undefined ? new Prisma.Decimal(input.defaultSharePct) : undefined,
-      status: input.status,
-    },
-    include: { business: { select: { id: true, name: true, code: true } } },
+  const rawCapital = input.investmentAmount ?? input.committedAmount;
+  const hasCapitalUpdate = rawCapital !== undefined && rawCapital !== null && rawCapital !== "";
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const existingInvestor = await tx.investor.findUnique({
+      where: { id: investorId },
+      include: {
+        investments: true,
+        business: {
+          include: {
+            investments: {
+              where: {
+                status: "ACTIVE",
+                investor: { type: InvestorType.INVESTOR },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!existingInvestor) {
+      throw new AuthError("Investor not found", 404);
+    }
+
+    if (existingInvestor.type !== InvestorType.INVESTOR) {
+      throw new AuthError("Only external investors can be edited.", 400);
+    }
+
+    const business = existingInvestor.business;
+    if (!business) {
+      throw new AuthError("Associated business entity not found", 400);
+    }
+
+    const businessTotalInvestment = Number(business.totalInvestmentAED) || 0;
+    const adminInv = Number(business.adminInvestmentAED) || 0;
+    const partnerInv = Number(business.partnerInvestmentAED) || 0;
+
+    // Active investments excluding the current investor
+    const otherExternalCommitments = business.investments
+      .filter((inv) => inv.investorId !== investorId && inv.status === "ACTIVE")
+      .reduce((acc, inv) => acc + (Number(inv.committedAmount) || 0), 0);
+
+    const maxAllowedCapacity = Math.max(
+      0,
+      Math.round((businessTotalInvestment - adminInv - partnerInv - otherExternalCommitments) * 100) / 100
+    );
+
+    let calculatedEquityPct: number | undefined;
+
+    // 1. Handle Capital Amount Update
+    if (hasCapitalUpdate) {
+      const newCapitalNum = Number(rawCapital);
+      if (isNaN(newCapitalNum) || newCapitalNum <= 0) {
+        throw new AuthError("Please provide a valid investment amount greater than 0.", 400);
+      }
+
+      if (newCapitalNum > maxAllowedCapacity) {
+        const formattedAmount = newCapitalNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formattedMax = maxAllowedCapacity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formattedTotal = businessTotalInvestment.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        throw new AuthError(
+          `Updated investment amount (AED ${formattedAmount}) exceeds the available investment capacity (AED ${formattedMax} available out of AED ${formattedTotal} total capacity) for this business.`,
+          400
+        );
+      }
+
+      calculatedEquityPct = businessTotalInvestment > 0
+        ? Number(((newCapitalNum / businessTotalInvestment) * 100).toFixed(2))
+        : 0;
+
+      // Update primary investment record or create if not present
+      const primaryInvestment = existingInvestor.investments[0];
+      if (primaryInvestment) {
+        await tx.investment.update({
+          where: { id: primaryInvestment.id },
+          data: {
+            committedAmount: new Prisma.Decimal(newCapitalNum),
+            profitSharePct: new Prisma.Decimal(calculatedEquityPct),
+            ...(input.status ? { status: input.status } : {}),
+          },
+        });
+      }
+    } else if (input.status) {
+      // 2. Handle Status Change (e.g. Inactive -> Active or Active -> Inactive)
+      if (input.status === "ACTIVE" && existingInvestor.status === "INACTIVE") {
+        // Re-activating an investor: ensure their current commitment fits within remaining capacity
+        const currentActiveInvestment = existingInvestor.investments.find((inv) => inv.status === "ACTIVE") || existingInvestor.investments[0];
+        const neededCapital = currentActiveInvestment ? Number(currentActiveInvestment.committedAmount) : 0;
+        if (neededCapital > maxAllowedCapacity) {
+          const formattedNeeded = neededCapital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const formattedMax = maxAllowedCapacity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          throw new AuthError(
+            `Cannot activate investor: commitment of AED ${formattedNeeded} exceeds available capacity of AED ${formattedMax}.`,
+            400
+          );
+        }
+      }
+
+      // Synchronize Investment status with Investor status
+      await tx.investment.updateMany({
+        where: { investorId: existingInvestor.id },
+        data: { status: input.status },
+      });
+    }
+
+    const nextSharePct =
+      calculatedEquityPct !== undefined
+        ? new Prisma.Decimal(calculatedEquityPct)
+        : input.defaultSharePct !== undefined
+        ? new Prisma.Decimal(input.defaultSharePct)
+        : undefined;
+
+    return tx.investor.update({
+      where: { id: investorId },
+      data: {
+        name: input.name !== undefined ? input.name.trim() : undefined,
+        email: input.email !== undefined ? (input.email ? input.email.trim() : null) : undefined,
+        phone: input.phone !== undefined ? (input.phone ? input.phone.trim() : null) : undefined,
+        defaultSharePct: nextSharePct,
+        status: input.status,
+      },
+      include: { business: { select: { id: true, name: true, code: true, partnerId: true } } },
+    });
   });
 
   await logAuditEvent({
@@ -815,8 +1153,151 @@ export async function updateInvestor(session: SessionPayload, investorId: string
 
   // Invalidate Redis caches
   if (updated.businessId) {
-    await invalidateInvestorCaches(updated.businessId);
+    await invalidateInvestorCaches(updated.businessId, updated.business?.partnerId, updated.id);
   }
 
   return updated;
 }
+
+export interface DeleteInvestorResult {
+  success: boolean;
+  action: "DELETED" | "DEACTIVATED";
+  message: string;
+  investorId: string;
+  investorName: string;
+  businessId: string;
+  releasedCapacityAED: number;
+}
+
+/**
+ * Delete or safely deactivate an external Investor.
+ * - If 0 transactions: permanently deletes Investment records and Investor entity (releasing capacity).
+ * - If transactions exist: blocks permanent hard-deletion to protect the accounting ledger; marks Investor and Investment as INACTIVE.
+ * - Restricted to ADMIN role only.
+ */
+export async function deleteInvestor(
+  session: SessionPayload,
+  investorId: string,
+  options?: { forceDeactivate?: boolean }
+): Promise<DeleteInvestorResult> {
+  if (session.role !== UserRole.ADMIN) {
+    throw new AuthError("Forbidden: Admin privileges required to delete investors", 403);
+  }
+
+  if (investorId.startsWith("admin-") || investorId.startsWith("partner-")) {
+    throw new AuthError("Core Admin and Partner participants cannot be deleted.", 400);
+  }
+
+  await requireResourceAccess("Investor", investorId, "DELETE", session);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existingInvestor = await tx.investor.findUnique({
+      where: { id: investorId },
+      include: {
+        business: { select: { id: true, name: true, code: true, partnerId: true } },
+        investments: true,
+        transactions: true,
+      },
+    });
+
+    if (!existingInvestor) {
+      throw new AuthError("Investor not found", 404);
+    }
+
+    if (existingInvestor.type !== InvestorType.INVESTOR) {
+      throw new AuthError("Only external investor entities can be deleted or deactivated.", 400);
+    }
+
+    const businessId = existingInvestor.businessId || existingInvestor.business?.id;
+    if (!businessId) {
+      throw new AuthError("Associated business not found", 400);
+    }
+
+    const hasTransactions = existingInvestor.transactions.length > 0;
+    const activeInvestments = existingInvestor.investments.filter((inv) => inv.status === "ACTIVE");
+    const releasedCapacity = activeInvestments.reduce(
+      (acc, inv) => acc + (Number(inv.committedAmount) || 0),
+      0
+    );
+
+    // Case C & D: If transactions exist, permanent hard delete is strictly blocked
+    if (hasTransactions) {
+      if (!options?.forceDeactivate) {
+        throw new AuthError(
+          `This investor has ${existingInvestor.transactions.length} recorded financial ledger entries. Permanent deletion is blocked to preserve accounting history. Please deactivate the investor instead.`,
+          400
+        );
+      }
+
+      // Soft Deactivate: Mark Investor and all its Investments as INACTIVE
+      await tx.investment.updateMany({
+        where: { investorId: existingInvestor.id, status: "ACTIVE" },
+        data: { status: "INACTIVE" },
+      });
+
+      await tx.investor.update({
+        where: { id: existingInvestor.id },
+        data: { status: "INACTIVE" },
+      });
+
+      return {
+        action: "DEACTIVATED" as const,
+        investorId: existingInvestor.id,
+        investorName: existingInvestor.name,
+        businessId,
+        partnerId: existingInvestor.business?.partnerId,
+        releasedCapacityAED: releasedCapacity,
+        message: `Investor ${existingInvestor.name} has financial ledger history and was deactivated (status set to INACTIVE). Capacity of AED ${releasedCapacity.toLocaleString()} was released.`,
+      };
+    }
+
+    // Case A & B: Zero transactions. Hard delete allowed.
+    if (existingInvestor.investments.length > 0) {
+      await tx.investment.deleteMany({
+        where: { investorId: existingInvestor.id },
+      });
+    }
+
+    await tx.investor.delete({
+      where: { id: existingInvestor.id },
+    });
+
+    return {
+      action: "DELETED" as const,
+      investorId: existingInvestor.id,
+      investorName: existingInvestor.name,
+      businessId,
+      partnerId: existingInvestor.business?.partnerId,
+      releasedCapacityAED: releasedCapacity,
+      message: `Investor ${existingInvestor.name} and related investment allocations were permanently deleted. Capacity of AED ${releasedCapacity.toLocaleString()} was released.`,
+    };
+  });
+
+  // Audit Log
+  await logAuditEvent({
+    userId: session.userId,
+    action: result.action === "DELETED" ? "INVESTOR_DELETED" : "INVESTOR_DEACTIVATED",
+    entity: "Investor",
+    entityId: result.investorId,
+    oldValues: {
+      name: result.investorName,
+      businessId: result.businessId,
+      releasedCapacityAED: result.releasedCapacityAED,
+    },
+  });
+
+  // Invalidate Redis Caches
+  await invalidateInvestorCaches(result.businessId, result.partnerId, result.investorId);
+
+  return {
+    success: true,
+    action: result.action,
+    message: result.message,
+    investorId: result.investorId,
+    investorName: result.investorName,
+    businessId: result.businessId,
+    releasedCapacityAED: result.releasedCapacityAED,
+  };
+}
+
+

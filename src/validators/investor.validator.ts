@@ -318,3 +318,278 @@ export function validateCreateInvestor(input: unknown): InvestorValidationResult
     data: isValid ? sanitizeInvestorInput(raw) : undefined,
   };
 }
+
+export interface UpdateInvestorInputData {
+  name?: unknown;
+  email?: unknown;
+  contactEmail?: unknown;
+  phone?: unknown;
+  investmentAmount?: unknown;
+  investmentCapitalAED?: unknown;
+  committedAmount?: unknown;
+  status?: unknown;
+}
+
+export interface UpdateInvestorValidatedData {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  investmentAmount?: number;
+  status?: "ACTIVE" | "INACTIVE";
+}
+
+export interface UpdateInvestorValidationResult {
+  isValid: boolean;
+  errors: InvestorValidationErrors;
+  data?: UpdateInvestorValidatedData;
+}
+
+/**
+ * Validates and sanitizes update investor input.
+ * Allows partial updates for editable fields (name, email, phone, investmentAmount, status).
+ * Rejects illegal status values and ignores immutable fields (id, code, type, businessId, createdAt).
+ */
+export function validateUpdateInvestor(input: unknown): UpdateInvestorValidationResult {
+  const errors: InvestorValidationErrors = {};
+
+  if (!input || typeof input !== "object") {
+    return {
+      isValid: false,
+      errors: {
+        general: "Invalid submission data.",
+      },
+    };
+  }
+
+  const raw = input as UpdateInvestorInputData;
+  const sanitized: UpdateInvestorValidatedData = {};
+
+  // 1. Name Validation (optional for partial update, but if present must be valid)
+  if (raw.name !== undefined) {
+    const nameError = validateInvestorName(raw.name);
+    if (nameError) {
+      errors.name = nameError;
+    } else if (typeof raw.name === "string") {
+      sanitized.name = raw.name.trim().replace(/\s+/g, " ");
+    }
+  }
+
+  // 2. Email Validation
+  const rawEmail = raw.email !== undefined ? raw.email : raw.contactEmail;
+  if (rawEmail !== undefined) {
+    const emailError = validateInvestorEmail(rawEmail);
+    if (emailError) {
+      errors.email = emailError;
+    } else if (rawEmail === null || rawEmail === "") {
+      sanitized.email = null;
+    } else if (typeof rawEmail === "string") {
+      const trimmed = rawEmail.trim().toLowerCase();
+      sanitized.email = trimmed.length > 0 ? trimmed : null;
+    }
+  }
+
+  // 3. Phone Validation
+  if (raw.phone !== undefined) {
+    const phoneError = validateInvestorPhone(raw.phone);
+    if (phoneError) {
+      errors.phone = phoneError;
+    } else if (raw.phone === null || raw.phone === "") {
+      sanitized.phone = null;
+    } else if (typeof raw.phone === "string") {
+      const trimmed = raw.phone.trim();
+      sanitized.phone = trimmed.length > 0 ? trimmed : null;
+    }
+  }
+
+  // 4. Investment Capital Validation
+  const rawCapital =
+    raw.investmentCapitalAED !== undefined
+      ? raw.investmentCapitalAED
+      : raw.investmentAmount !== undefined
+      ? raw.investmentAmount
+      : raw.committedAmount;
+
+  if (rawCapital !== undefined && rawCapital !== null && rawCapital !== "") {
+    const capitalError = validateInvestmentAmount(rawCapital);
+    if (capitalError) {
+      errors.investmentAmount = capitalError;
+    } else {
+      const parsed = parseFinancialAmount(rawCapital, "Investment capital", { required: true });
+      if (parsed.error) {
+        errors.investmentAmount = parsed.error;
+      } else if (parsed.parsedValue !== null) {
+        sanitized.investmentAmount = parsed.parsedValue;
+      }
+    }
+  }
+
+  // 5. Status Validation
+  if (raw.status !== undefined) {
+    if (raw.status === "ACTIVE" || raw.status === "INACTIVE") {
+      sanitized.status = raw.status;
+    } else {
+      errors.general = "Status must be either ACTIVE or INACTIVE.";
+    }
+  }
+
+  const isValid = Object.keys(errors).length === 0;
+
+  return {
+    isValid,
+    errors,
+    data: isValid ? sanitized : undefined,
+  };
+}
+
+export interface ProfitAllocationValidationResult {
+  isValid: boolean;
+  errors: Record<string, string>;
+  data?: {
+    allocatedProfitAmount: number;
+  };
+}
+
+/**
+ * Validates Profit Allocation amount.
+ */
+export function validateProfitAllocationInput(input: unknown): ProfitAllocationValidationResult {
+  const errors: Record<string, string> = {};
+
+  if (!input || typeof input !== "object") {
+    return { isValid: false, errors: { general: "Invalid allocation payload." } };
+  }
+
+  const raw = input as { allocatedProfitAmount?: unknown; allocatedProfitAED?: unknown; amount?: unknown };
+  const rawVal =
+    raw.allocatedProfitAmount !== undefined
+      ? raw.allocatedProfitAmount
+      : raw.allocatedProfitAED !== undefined
+      ? raw.allocatedProfitAED
+      : raw.amount;
+
+  if (rawVal === undefined || rawVal === null || rawVal === "") {
+    errors.allocatedProfitAmount = "Allocated profit amount is required.";
+  } else {
+    const rawStr = String(rawVal).trim();
+    if (!/^\d+(\.\d+)?$/.test(rawStr)) {
+      errors.allocatedProfitAmount = "Allocated profit must be a valid non-negative number.";
+    } else {
+      const num = Number(rawStr);
+      if (isNaN(num) || !isFinite(num) || num < 0) {
+        errors.allocatedProfitAmount = "Allocated profit cannot be negative.";
+      } else if (num > 999_999_999.99) {
+        errors.allocatedProfitAmount = "Allocated profit exceeds maximum allowed limit.";
+      } else {
+        const decimalPart = rawStr.split(".")[1];
+        if (decimalPart && decimalPart.length > 2) {
+          errors.allocatedProfitAmount = "Allocated profit cannot have more than 2 decimal places.";
+        }
+      }
+    }
+  }
+
+  const isValid = Object.keys(errors).length === 0;
+  return {
+    isValid,
+    errors,
+    data: isValid ? { allocatedProfitAmount: Number(Number(rawVal).toFixed(2)) } : undefined,
+  };
+}
+
+export interface DisbursalPaymentValidationResult {
+  isValid: boolean;
+  errors: Record<string, string>;
+  data?: {
+    capitalAmount: number;
+    profitAmount: number;
+    paymentMethod: "DIRECT_BANK_WIRE" | "ESCROW_TRANSFER" | "CASH_VAULT" | "CHEQUE";
+    bankReference?: string | null;
+    escrowAccount?: string | null;
+    transactionDate?: string;
+    notes?: string;
+  };
+}
+
+/**
+ * Validates Disbursal Payment submission.
+ */
+export function validateDisbursalPaymentInput(input: unknown): DisbursalPaymentValidationResult {
+  const errors: Record<string, string> = {};
+
+  if (!input || typeof input !== "object") {
+    return { isValid: false, errors: { general: "Invalid payment payload." } };
+  }
+
+  const raw = input as {
+    capitalAmount?: unknown;
+    profitAmount?: unknown;
+    paymentMethod?: unknown;
+    bankReference?: unknown;
+    escrowAccount?: unknown;
+    transactionDate?: unknown;
+    notes?: unknown;
+  };
+
+  let parsedCap = 0;
+  let parsedPrf = 0;
+
+  // Validate Capital Amount
+  if (raw.capitalAmount !== undefined && raw.capitalAmount !== null && raw.capitalAmount !== "") {
+    const capStr = String(raw.capitalAmount).trim();
+    if (!/^\d+(\.\d+)?$/.test(capStr)) {
+      errors.capitalAmount = "Capital amount must be a valid non-negative number.";
+    } else {
+      const num = Number(capStr);
+      if (isNaN(num) || !isFinite(num) || num < 0) {
+        errors.capitalAmount = "Capital amount cannot be negative.";
+      } else {
+        parsedCap = Number(num.toFixed(2));
+      }
+    }
+  }
+
+  // Validate Profit Amount
+  if (raw.profitAmount !== undefined && raw.profitAmount !== null && raw.profitAmount !== "") {
+    const prfStr = String(raw.profitAmount).trim();
+    if (!/^\d+(\.\d+)?$/.test(prfStr)) {
+      errors.profitAmount = "Profit amount must be a valid non-negative number.";
+    } else {
+      const num = Number(prfStr);
+      if (isNaN(num) || !isFinite(num) || num < 0) {
+        errors.profitAmount = "Profit amount cannot be negative.";
+      } else {
+        parsedPrf = Number(num.toFixed(2));
+      }
+    }
+  }
+
+  if (parsedCap + parsedPrf <= 0 && !errors.capitalAmount && !errors.profitAmount) {
+    errors.general = "Total payment amount (Capital + Profit) must be greater than zero.";
+  }
+
+  // Validate Payment Method
+  const validMethods = ["DIRECT_BANK_WIRE", "ESCROW_TRANSFER", "CASH_VAULT", "CHEQUE"];
+  const methodStr = typeof raw.paymentMethod === "string" ? raw.paymentMethod.trim().toUpperCase() : "DIRECT_BANK_WIRE";
+  if (!validMethods.includes(methodStr)) {
+    errors.paymentMethod = "Invalid payment method selected.";
+  }
+
+  const isValid = Object.keys(errors).length === 0;
+
+  return {
+    isValid,
+    errors,
+    data: isValid
+      ? {
+          capitalAmount: parsedCap,
+          profitAmount: parsedPrf,
+          paymentMethod: methodStr as "DIRECT_BANK_WIRE" | "ESCROW_TRANSFER" | "CASH_VAULT" | "CHEQUE",
+          bankReference: typeof raw.bankReference === "string" ? raw.bankReference.trim() : null,
+          escrowAccount: typeof raw.escrowAccount === "string" ? raw.escrowAccount.trim() : null,
+          transactionDate: typeof raw.transactionDate === "string" ? raw.transactionDate.trim() : undefined,
+          notes: typeof raw.notes === "string" ? raw.notes.trim() : undefined,
+        }
+      : undefined,
+  };
+}
+

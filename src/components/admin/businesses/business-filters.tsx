@@ -7,6 +7,8 @@ import { Select, SelectOption } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PlusIcon } from "@/components/ui/icons";
 
+import { useAuth } from "@/context/auth-context";
+
 export interface BusinessFiltersProps {
   searchTerm: string;
   onSearchChange: (value: string) => void;
@@ -18,6 +20,7 @@ export interface BusinessFiltersProps {
   onProductChange: (value: string) => void;
   businessOptions?: SelectOption[];
   onCreateBusinessClick?: () => void;
+  showAddBusiness?: boolean;
 }
 
 export function BusinessFilters({
@@ -31,7 +34,11 @@ export function BusinessFilters({
   onProductChange,
   businessOptions,
   onCreateBusinessClick,
+  showAddBusiness,
 }: BusinessFiltersProps) {
+  const { user } = useAuth();
+  const canAddBusiness = showAddBusiness !== undefined ? showAddBusiness : user?.role === "ADMIN";
+
   const defaultBusinessOptions: SelectOption[] = businessOptions || [
     { value: "all", label: "All Businesses" },
   ];
@@ -88,27 +95,30 @@ export function BusinessFilters({
           />
         </div>
 
-        {onCreateBusinessClick ? (
-          <Button
-            onClick={onCreateBusinessClick}
-            variant="primary"
-            icon={<PlusIcon size={15} />}
-            className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
-          >
-            Add Business
-          </Button>
-        ) : (
-          <Link href="/businesses/new" className="w-full sm:w-auto">
+        {canAddBusiness && (
+          onCreateBusinessClick ? (
             <Button
+              onClick={onCreateBusinessClick}
               variant="primary"
               icon={<PlusIcon size={15} />}
               className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
             >
               Add Business
             </Button>
-          </Link>
+          ) : (
+            <Link href="/businesses/new" className="w-full sm:w-auto">
+              <Button
+                variant="primary"
+                icon={<PlusIcon size={15} />}
+                className="h-10 px-4 text-xs font-bold rounded-lg shadow-xs shrink-0 w-full sm:w-auto"
+              >
+                Add Business
+              </Button>
+            </Link>
+          )
         )}
       </div>
     </div>
   );
 }
+

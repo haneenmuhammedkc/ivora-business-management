@@ -1,19 +1,26 @@
+
 import { prisma } from "@/lib/prisma";
 import { hashPassword, validatePasswordStrength } from "@/lib/auth/password";
-import { generateOtp, hashOtp, getOtpExpiryDate } from "@/lib/auth/otp";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { sendPartnerActivationOtpEmail } from "@/services/email/email.service";
 import { sanitizeUser, SafeUser } from "@/services/auth/auth.service";
-import { AuthTokenType, Prisma, UserRole, UserStatus } from "@prisma/client";
+import { validatePhone, normalizePhone } from "@/validators/partner.validator";
+import {
+  AuthTokenType,
+  Prisma,
+  UserRole,
+  UserStatus,
+} from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidatePartnerManagementCache } from "@/lib/redis/invalidation";
 import { PartnerProfitShareItem } from "@/types/settings";
 
+
 export interface CreatePartnerInput {
   adminUserId: string;
   name: string;
   email: string;
+  phone?: string;
   temporaryPassword?: string;
   businessId?: string;
   partnerEquityPct?: number;
@@ -22,7 +29,7 @@ export interface CreatePartnerInput {
 
 export interface CreatePartnerResult {
   success: boolean;
-  partner?: SafeUser & { assignedBusinessId?: string };
+  partner?: SafeUser & { assignedBusinessId?: string; phone?: string | null };
   temporaryPassword?: string;
   error?: string;
 }
@@ -43,7 +50,7 @@ function generateTemporaryPassword(): string {
  * Admin service to create and onboard a new Partner account.
  */
 export async function createPartnerUser(input: CreatePartnerInput): Promise<CreatePartnerResult> {
-  const { adminUserId, name, email, businessId, partnerEquityPct, ipAddress } = input;
+  const { adminUserId, name, email, phone, businessId, partnerEquityPct, ipAddress } = input;
 
   if (!name || !email) {
     return { success: false, error: "Partner name and email are required" };
@@ -59,6 +66,15 @@ export async function createPartnerUser(input: CreatePartnerInput): Promise<Crea
   if (existingUser) {
     return { success: false, error: "A user account with this email already exists" };
   }
+
+  if (phone) {
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      return { success: false, error: phoneError };
+    }
+  }
+
+  const normalizedPhone = normalizePhone(phone);
 
   const rawTemporaryPassword = input.temporaryPassword?.trim() || generateTemporaryPassword();
   const strength = validatePasswordStrength(rawTemporaryPassword);
@@ -77,34 +93,22 @@ export async function createPartnerUser(input: CreatePartnerInput): Promise<Crea
   }
 
   const passwordHash = await hashPassword(rawTemporaryPassword);
-  const otp = generateOtp();
-  const tokenHash = hashOtp(otp);
-  const otpExpiry = getOtpExpiryDate(10);
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // 1. Create Partner user
+    // 1. Create Partner user (ACTIVE with mandatory password change on first login)
     const newPartner = await tx.user.create({
       data: {
         email: normalizedEmail,
         name: name.trim(),
+        phone: normalizedPhone,
         passwordHash,
         role: UserRole.PARTNER,
-        status: UserStatus.PENDING_ACTIVATION,
+        status: UserStatus.ACTIVE,
         mustChangePassword: true,
       },
     });
 
-    // 2. Create Activation OTP token
-    await tx.authToken.create({
-      data: {
-        email: normalizedEmail,
-        tokenHash,
-        type: AuthTokenType.ACCOUNT_ACTIVATION,
-        expiresAt: otpExpiry,
-      },
-    });
-
-    // 3. Link to business if specified
+    // 2. Link to business if specified
     if (businessId) {
       await tx.business.update({
         where: { id: businessId },
@@ -118,15 +122,7 @@ export async function createPartnerUser(input: CreatePartnerInput): Promise<Crea
     return newPartner;
   });
 
-  // 4. Send Brevo invitation / activation email
-  await sendPartnerActivationOtpEmail({
-    email: normalizedEmail,
-    name: name.trim(),
-    otp,
-    temporaryPassword: rawTemporaryPassword,
-  });
-
-  // 5. Audit Log
+  // 3. Audit Log
   await logAuditEvent({
     userId: adminUserId,
     action: "PARTNER_CREATED",
@@ -135,6 +131,7 @@ export async function createPartnerUser(input: CreatePartnerInput): Promise<Crea
     newValues: {
       email: normalizedEmail,
       name: name.trim(),
+      phone: normalizedPhone,
       role: UserRole.PARTNER,
       assignedBusinessId: businessId || null,
     },
@@ -145,6 +142,7 @@ export async function createPartnerUser(input: CreatePartnerInput): Promise<Crea
     success: true,
     partner: {
       ...sanitizeUser(result),
+      phone: normalizedPhone,
       assignedBusinessId: businessId,
     },
     temporaryPassword: rawTemporaryPassword,
@@ -222,7 +220,7 @@ export async function updatePartnerProfile(params: {
   adminUserId: string;
   partnerId: string;
   name: string;
-  phone: string;
+  phone?: string | null;
   ipAddress?: string;
 }): Promise<{ success: boolean; partner?: SafeUser & { phone?: string | null }; error?: string }> {
   const { adminUserId, partnerId, name, phone, ipAddress } = params;
@@ -236,15 +234,18 @@ export async function updatePartnerProfile(params: {
   }
 
   const cleanName = typeof name === "string" ? name.trim() : "";
-  const cleanPhone = typeof phone === "string" ? phone.trim() : "";
-
   if (!cleanName) {
     return { success: false, error: "Partner name is required" };
   }
 
-  if (!cleanPhone) {
-    return { success: false, error: "Partner phone number is required" };
+  if (phone) {
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      return { success: false, error: phoneError };
+    }
   }
+
+  const cleanPhone = normalizePhone(phone);
 
   const oldValues = {
     name: partner.name,

@@ -10,6 +10,7 @@ export interface SafeUser {
   id: string;
   email: string;
   name: string;
+  phone?: string | null;
   role: UserRole;
   status: UserStatus;
   mustChangePassword: boolean;
@@ -43,6 +44,7 @@ export function sanitizeUser(user: {
   id: string;
   email: string;
   name: string;
+  phone?: string | null;
   role: UserRole;
   status: UserStatus;
   mustChangePassword: boolean;
@@ -55,6 +57,7 @@ export function sanitizeUser(user: {
     id: user.id,
     email: user.email,
     name: user.name,
+    phone: user.phone,
     role: user.role,
     status: user.status,
     mustChangePassword: user.mustChangePassword,
@@ -134,8 +137,8 @@ export async function authenticateUser(params: {
     return { success: false, error: "Invalid email or password" };
   }
 
-  // Account is PENDING_ACTIVATION
-  if (user.status === UserStatus.PENDING_ACTIVATION) {
+  // Account is PENDING_ACTIVATION or PARTNER first login requiring OTP verification
+  if (user.status === UserStatus.PENDING_ACTIVATION || (user.role === UserRole.PARTNER && user.mustChangePassword)) {
     // Generate new activation OTP and send to partner
     const otp = generateOtp();
     const tokenHash = hashOtp(otp);

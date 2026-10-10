@@ -10,7 +10,7 @@ import {
   BalanceSheetPeriodBar,
   BalanceSheetFilters,
   BalanceSheetStatement,
-  BusinessPositionTable,
+  SettlementBreakdownTable,
 } from "@/components/admin/balance-sheet";
 import { exportBalanceSheetToPdf } from "@/lib/export/export-balance-sheet-pdf";
 import { exportBalanceSheetToExcel } from "@/lib/export/export-balance-sheet-excel";
@@ -81,22 +81,6 @@ export default function BalanceSheetPage() {
     }
     return Array.from(set);
   }, [bsResponse]);
-
-  // Filtered businesses for the comparison table
-  const filteredBusinesses = useMemo(() => {
-    if (!bsResponse?.businesses) return [];
-    return bsResponse.businesses.filter((b) => {
-      if (searchTerm.trim()) {
-        const query = searchTerm.toLowerCase();
-        const matchesBusiness = b.business.toLowerCase().includes(query);
-        const matchesCode = b.code.toLowerCase().includes(query);
-        if (!matchesBusiness && !matchesCode) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [bsResponse, searchTerm]);
 
   // Export handlers
   const handleExportPdf = () => {
@@ -229,13 +213,18 @@ export default function BalanceSheetPage() {
               capital={bsResponse.capital}
               inventory={bsResponse.inventory}
               trading={bsResponse.trading}
-              settlement={bsResponse.settlement}
+              selectedBusiness={selectedBusiness}
+              onBusinessChange={setSelectedBusiness}
+              businessesList={businessesList}
             />
           </FadeUp>
 
-          {/* Business Financial Position Comparison Table */}
+          {/* Investor Settlement Breakdown Table */}
           <FadeUp delay={0.24}>
-            <BusinessPositionTable businesses={filteredBusinesses} />
+            <SettlementBreakdownTable
+              settlements={bsResponse.settlementBreakdown || []}
+              searchTerm={searchTerm}
+            />
           </FadeUp>
         </>
       )}

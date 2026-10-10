@@ -23,6 +23,7 @@ import {
   BalanceSheetSummaryKPIs,
   PartnerSettlementItem,
   BalanceSheetItem,
+  InvestorSettlementBreakdownItem,
 } from "@/types/balance-sheet";
 
 const CATEGORY_NAMES: Record<ExpenseCategory, string> = {
@@ -619,71 +620,107 @@ export async function getFullBalanceSheetData(
       productType && productType !== "all" ? { equals: productType } : undefined;
 
     // Fetch data in parallel
-    const [businesses, inventories, sales, purchases, expenses, disbursals] =
-      await Promise.all([
-        prisma.business.findMany({
-          where: businessFilter ? { id: businessFilter } : {},
-          include: {
-            investments: {
-              where: {
-                createdAt: { lte: asOfDateUtc },
-              },
+    const [
+      businesses,
+      inventories,
+      sales,
+      purchases,
+      expenses,
+      disbursals,
+      allInvestments,
+      allSettlementTransactions,
+    ] = await Promise.all([
+      prisma.business.findMany({
+        where: businessFilter ? { id: businessFilter } : {},
+        include: {
+          investments: {
+            where: {
+              createdAt: { lte: asOfDateUtc },
             },
           },
-          orderBy: { name: "asc" },
-        }),
-        prisma.inventory.findMany({
-          where: {
-            ...(businessFilter ? { businessId: businessFilter } : {}),
-            ...(productFilter ? { productType: productFilter } : {}),
-          },
-          include: {
-            business: { select: { id: true, name: true, code: true } },
-          },
-        }),
-        prisma.sale.findMany({
-          where: {
-            ...(businessFilter ? { businessId: businessFilter } : {}),
-            saleDate: { lte: asOfDateUtc },
-            ...(saleStatusFilter ? { status: saleStatusFilter } : {}),
-            ...(productFilter ? { productType: productFilter } : {}),
-          },
-          include: {
-            business: { select: { id: true, name: true, code: true } },
-          },
-        }),
-        prisma.purchase.findMany({
-          where: {
-            ...(businessFilter ? { businessId: businessFilter } : {}),
-            purchaseDate: { lte: asOfDateUtc },
-            ...(purchaseStatusFilter ? { status: purchaseStatusFilter } : {}),
-            ...(productFilter ? { productType: productFilter } : {}),
-          },
-          include: {
-            business: { select: { id: true, name: true, code: true } },
-          },
-        }),
-        prisma.expense.findMany({
-          where: {
-            ...(businessFilter ? { businessId: businessFilter } : {}),
-            expenseDate: { lte: asOfDateUtc },
-            isPurchaseLandedCost: false,
-          },
-          include: {
-            business: { select: { id: true, name: true, code: true } },
-          },
-        }),
-        prisma.transaction.findMany({
-          where: {
-            ...(businessFilter ? { businessId: businessFilter } : {}),
-            type: "PROFIT_DISBURSAL",
-            createdAt: { lte: asOfDateUtc },
-          },
-          include: {
-            business: { select: { id: true, name: true, code: true } },
-          },
-        }),
-      ]);
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.inventory.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          ...(productFilter ? { productType: productFilter } : {}),
+        },
+        include: {
+          business: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      prisma.sale.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          saleDate: { lte: asOfDateUtc },
+          ...(saleStatusFilter ? { status: saleStatusFilter } : {}),
+          ...(productFilter ? { productType: productFilter } : {}),
+        },
+        include: {
+          business: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      prisma.purchase.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          purchaseDate: { lte: asOfDateUtc },
+          ...(purchaseStatusFilter ? { status: purchaseStatusFilter } : {}),
+          ...(productFilter ? { productType: productFilter } : {}),
+        },
+        include: {
+          business: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      prisma.expense.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          expenseDate: { lte: asOfDateUtc },
+          isPurchaseLandedCost: false,
+        },
+        include: {
+          business: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      prisma.transaction.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          type: "PROFIT_DISBURSAL",
+          createdAt: { lte: asOfDateUtc },
+        },
+        include: {
+          business: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      prisma.investment.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          createdAt: { lte: asOfDateUtc },
+          status: { in: ["ACTIVE", "SETTLED"] },
+        },
+        include: {
+          investor: true,
+          business: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: [
+          { business: { name: "asc" } },
+          { investor: { name: "asc" } },
+        ],
+      }),
+      prisma.transaction.findMany({
+        where: {
+          ...(businessFilter ? { businessId: businessFilter } : {}),
+          type: { in: ["CAPITAL_RETURN", "PROFIT_DISBURSAL"] },
+          transactionDate: { lte: asOfDateUtc },
+        },
+        select: {
+          businessId: true,
+          investorId: true,
+          amount: true,
+          type: true,
+        },
+      }),
+    ]);
 
     if (businessId && businessId !== "all" && businesses.length > 0) {
       businessScopeName = businesses[0].name;
@@ -961,6 +998,82 @@ export async function getFullBalanceSheetData(
       });
     }
 
+    // Investor Settlement Breakdown Calculation
+    const investorSettlementBreakdown: InvestorSettlementBreakdownItem[] = [];
+
+    // Pre-calculate net profit per business
+    const bizNetProfitMap = new Map<string, number>();
+    for (const b of businesses) {
+      const bSales = sales
+        .filter((s) => s.businessId === b.id)
+        .reduce((sum, s) => sum + Number(s.aedEquivalent || 0), 0);
+      const bPurchases = purchases
+        .filter((p) => p.businessId === b.id)
+        .reduce((sum, p) => sum + Number(p.totalLandedCost || 0), 0);
+      const bExpenses = expenses
+        .filter((e) => e.businessId === b.id)
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      const bNet = Math.max(0, bSales - (bPurchases + bExpenses));
+      bizNetProfitMap.set(b.id, bNet);
+    }
+
+    for (const inv of allInvestments) {
+      const bNet = bizNetProfitMap.get(inv.businessId) || 0;
+      const totalInvestment = Number(inv.committedAmount || 0);
+
+      let profitAmount = 0;
+      if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+        profitAmount = Number(inv.allocatedProfitAmount);
+      } else {
+        const sharePct = Number(inv.profitSharePct || 0);
+        profitAmount = bNet > 0 && sharePct > 0 ? Number(((bNet * sharePct) / 100).toFixed(2)) : 0;
+      }
+
+      const totalDue = Number((totalInvestment + profitAmount).toFixed(2));
+
+      const invTx = allSettlementTransactions.filter(
+        (t) => t.businessId === inv.businessId && t.investorId === inv.investorId
+      );
+
+      let capitalPaid = 0;
+      let profitPaid = 0;
+      for (const t of invTx) {
+        if (t.type === "CAPITAL_RETURN") {
+          capitalPaid += Number(t.amount || 0);
+        } else if (t.type === "PROFIT_DISBURSAL") {
+          profitPaid += Number(t.amount || 0);
+        }
+      }
+      capitalPaid = Number(capitalPaid.toFixed(2));
+      profitPaid = Number(profitPaid.toFixed(2));
+      const totalPaid = Number((capitalPaid + profitPaid).toFixed(2));
+      const pending = Math.max(0, Number((totalDue - totalPaid).toFixed(2)));
+
+      let status: "Pending" | "Partially Settled" | "Settled" = "Pending";
+      if (totalPaid > 0.005) {
+        status = pending <= 0.005 ? "Settled" : "Partially Settled";
+      }
+
+      investorSettlementBreakdown.push({
+        id: inv.id,
+        businessId: inv.businessId,
+        businessName: inv.business.name,
+        businessCode: inv.business.code,
+        investorId: inv.investor.id,
+        investorName: inv.investor.name,
+        investorCode: inv.investor.code,
+        investorType: inv.investor.type,
+        totalInvestmentAED: totalInvestment,
+        profitAmountAED: profitAmount,
+        totalDueAED: totalDue,
+        capitalPaidAED: capitalPaid,
+        profitPaidAED: profitPaid,
+        totalPaidAED: totalPaid,
+        pendingOutstandingAED: pending,
+        status,
+      });
+    }
+
     // KPIs
     const kpis: BalanceSheetSummaryKPIs = {
       totalCommittedCapitalAED,
@@ -1006,6 +1119,7 @@ export async function getFullBalanceSheetData(
         breakdown: settlementBreakdown,
       },
       businesses: businessComparisonList,
+      settlementBreakdown: investorSettlementBreakdown,
     };
   });
 }

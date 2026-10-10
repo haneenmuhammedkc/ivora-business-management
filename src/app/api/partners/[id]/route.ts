@@ -71,15 +71,17 @@ export async function PATCH(
       if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
         return errorResponse("Partner name is required", 400);
       }
-      if (!body.phone || typeof body.phone !== "string" || !body.phone.trim()) {
-        return errorResponse("Partner phone number is required", 400);
-      }
+
+      const phone =
+        typeof body.phone === "string" && body.phone.trim().length > 0
+          ? body.phone.trim()
+          : null;
 
       const result = await updatePartnerProfile({
         adminUserId: adminSession.userId,
         partnerId: id,
         name: body.name.trim(),
-        phone: body.phone.trim(),
+        phone,
         ipAddress: ip,
       });
 

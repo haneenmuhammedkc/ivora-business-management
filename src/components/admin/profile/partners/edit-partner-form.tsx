@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MailIcon, CheckIcon, ArrowRightIcon } from "@/components/ui/icons";
+import { validatePhone } from "@/validators/partner.validator";
 
 export interface EditPartnerFormProps {
   partnerId: string;
@@ -92,8 +93,11 @@ export function EditPartnerForm({ partnerId }: EditPartnerFormProps) {
       newErrors.fullName = "Partner full name is required.";
     }
 
-    if (!phone.trim()) {
-      newErrors.phone = "Phone number is required.";
+    if (phone.trim()) {
+      const phoneError = validatePhone(phone);
+      if (phoneError) {
+        newErrors.phone = phoneError;
+      }
     }
 
     setErrors(newErrors);

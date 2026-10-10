@@ -5,3 +5,6 @@ export * from "./investor-table-view";
 export * from "./business-participants-table";
 export * from "./investor-details-panel";
 export * from "./new-investor-entry";
+export * from "./edit-investor-modal";
+export * from "./delete-investor-modal";
+
