@@ -76,8 +76,31 @@ export async function POST(
         ? unauthorizedResponse(error.message)
         : forbiddenErrorResponse(error.message);
     }
-    console.error("[Record Investor Disbursal API Error]", error);
-    const msg = error instanceof Error ? error.message : "Internal Server Error";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("[Record Investor Disbursal API Error]", {
+      message: errorMsg,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    if (errorMsg.includes("Transaction already closed") || errorMsg.includes("expired transaction") || errorMsg.includes("timeout")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "TRANSACTION_TIMEOUT",
+          message: "The database transaction timed out while processing disbursement. Please check the current balance and try again.",
+        },
+        { status: 504 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected error occurred while recording the disbursal payment. Please try again.",
+      },
+      { status: 500 }
+    );
   }
 }

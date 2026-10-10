@@ -549,172 +549,195 @@ export async function recordDisbursalPayment(
     }
   }
 
-  // ATOMIC DATABASE TRANSACTION
-  const result = await prisma.$transaction(async (tx) => {
-    // 1. Fetch business
-    const business = await tx.business.findUnique({
-      where: { id: businessId },
-    });
-    if (!business) {
-      throw new AuthError("Business not found", 404);
-    }
-
-    // 2. Fetch investor & investment
-    const investor = await tx.investor.findUnique({
-      where: { id: investorId },
-      include: {
-        investments: {
-          where: { businessId },
-        },
-      },
-    });
-
-    if (!investor) {
-      throw new AuthError("Investor not found", 404);
-    }
-
-    const investment = investor.investments[0];
-    if (!investment) {
-      throw new AuthError("No investment contract found for this investor in the business.", 404);
-    }
-
-    const totalCommittedDecimal = investment.committedAmount;
-
+  // 1. If profit is requested and not explicitly allocated on the investment contract,
+  // pre-fetch authoritative Net Profit outside the interactive transaction.
+  // This keeps the interactive transaction focused and well below timeout limits.
+  let precomputedNetProfitAED = 0;
+  try {
     const pnlData = await getFullProfitLossData(session, { businessId });
     const rawNetProfit = pnlData.kpis?.netProfitAED ?? pnlData.statement?.netProfitAED ?? 0;
-    const netProfitAED = Math.max(0, Number(rawNetProfit));
+    precomputedNetProfitAED = Math.max(0, Number(rawNetProfit));
+  } catch (err) {
+    console.warn(`[Record Disbursal] Failed to prefetch PnL net profit for business ${businessId}:`, err);
+  }
 
-    let allocatedProfitDecimal: Prisma.Decimal;
-    if (investment.allocatedProfitAmount !== null && investment.allocatedProfitAmount !== undefined) {
-      allocatedProfitDecimal = investment.allocatedProfitAmount;
-    } else {
-      const share = Number(investment.profitSharePct) || 0;
-      const defaultAlloc = (netProfitAED * share) / 100;
-      allocatedProfitDecimal = new Prisma.Decimal(defaultAlloc.toFixed(2));
-    }
-
-    // 4. Re-read all existing settlement transactions in the same transaction
-    const priorTransactions = await tx.transaction.findMany({
-      where: {
-        businessId,
-        investorId,
-        type: {
-          in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
-        },
-      },
-      select: {
-        amount: true,
-        type: true,
-      },
-    });
-
-    let priorCapitalPaid = new Prisma.Decimal(0);
-    let priorProfitPaid = new Prisma.Decimal(0);
-
-    for (const p of priorTransactions) {
-      if (p.type === TransactionType.CAPITAL_RETURN) {
-        priorCapitalPaid = priorCapitalPaid.plus(p.amount);
-      } else if (p.type === TransactionType.PROFIT_DISBURSAL) {
-        priorProfitPaid = priorProfitPaid.plus(p.amount);
+  // ATOMIC DATABASE TRANSACTION
+  const result = await prisma.$transaction(
+    async (tx) => {
+      // 1. Fetch business
+      const business = await tx.business.findUnique({
+        where: { id: businessId },
+        select: { id: true, partnerId: true, code: true },
+      });
+      if (!business) {
+        throw new AuthError("Business not found", 404);
       }
-    }
 
-    const outstandingCapital = Prisma.Decimal.max(new Prisma.Decimal(0), totalCommittedDecimal.minus(priorCapitalPaid));
-    const outstandingProfit = Prisma.Decimal.max(new Prisma.Decimal(0), allocatedProfitDecimal.minus(priorProfitPaid));
+      // 2. Fetch investor & investment
+      const investor = await tx.investor.findUnique({
+        where: { id: investorId },
+        select: {
+          id: true,
+          code: true,
+          investments: {
+            where: { businessId },
+            select: {
+              id: true,
+              committedAmount: true,
+              profitSharePct: true,
+              allocatedProfitAmount: true,
+            },
+          },
+        },
+      });
 
-    // 5. Strict Balance Validation with epsilon tolerance
-    const epsilon = new Prisma.Decimal("0.005");
+      if (!investor) {
+        throw new AuthError("Investor not found", 404);
+      }
 
-    if (capDecimal.gt(outstandingCapital.plus(epsilon))) {
-      throw new AuthError(
-        `Requested capital return (AED ${capDecimal.toFixed(2)}) exceeds remaining outstanding capital (AED ${outstandingCapital.toFixed(2)}).`,
-        400
-      );
-    }
+      const investment = investor.investments[0];
+      if (!investment) {
+        throw new AuthError("No investment contract found for this investor in the business.", 404);
+      }
 
-    if (prfDecimal.gt(outstandingProfit.plus(epsilon))) {
-      throw new AuthError(
-        `Requested profit disbursal (AED ${prfDecimal.toFixed(2)}) exceeds remaining outstanding profit (AED ${outstandingProfit.toFixed(2)}).`,
-        400
-      );
-    }
+      const totalCommittedDecimal = investment.committedAmount;
 
-    // 6. Create atomic transaction records
-    const createdTransactions: Array<{ id: string; transactionCode: string; amount: number; type: TransactionType }> = [];
+      let allocatedProfitDecimal: Prisma.Decimal;
+      if (investment.allocatedProfitAmount !== null && investment.allocatedProfitAmount !== undefined) {
+        allocatedProfitDecimal = investment.allocatedProfitAmount;
+      } else {
+        const share = Number(investment.profitSharePct) || 0;
+        const defaultAlloc = (precomputedNetProfitAED * share) / 100;
+        allocatedProfitDecimal = new Prisma.Decimal(defaultAlloc.toFixed(2));
+      }
 
-    // Common reference for grouping
-    const cleanRef = bankReference?.trim() || `DISB-${investor.code}-${Date.now().toString(36).toUpperCase()}`;
-
-    // A. Principal Capital Return ledger row
-    if (capDecimal.gt(0)) {
-      const capCode = generateDisbursalTransactionCode("CAP", investor.code);
-      const capTx = await tx.transaction.create({
-        data: {
-          transactionCode: capCode,
+      // 3. Re-read all existing settlement transactions in the same transaction
+      const priorTransactions = await tx.transaction.findMany({
+        where: {
           businessId,
           investorId,
-          amount: capDecimal,
+          type: {
+            in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
+          },
+        },
+        select: {
+          amount: true,
+          type: true,
+        },
+      });
+
+      let priorCapitalPaid = new Prisma.Decimal(0);
+      let priorProfitPaid = new Prisma.Decimal(0);
+
+      for (const p of priorTransactions) {
+        if (p.type === TransactionType.CAPITAL_RETURN) {
+          priorCapitalPaid = priorCapitalPaid.plus(p.amount);
+        } else if (p.type === TransactionType.PROFIT_DISBURSAL) {
+          priorProfitPaid = priorProfitPaid.plus(p.amount);
+        }
+      }
+
+      const outstandingCapital = Prisma.Decimal.max(new Prisma.Decimal(0), totalCommittedDecimal.minus(priorCapitalPaid));
+      const outstandingProfit = Prisma.Decimal.max(new Prisma.Decimal(0), allocatedProfitDecimal.minus(priorProfitPaid));
+
+      // 4. Strict Balance Validation with epsilon tolerance
+      const epsilon = new Prisma.Decimal("0.005");
+
+      if (capDecimal.gt(outstandingCapital.plus(epsilon))) {
+        throw new AuthError(
+          `Requested capital return (AED ${capDecimal.toFixed(2)}) exceeds remaining outstanding capital (AED ${outstandingCapital.toFixed(2)}).`,
+          400
+        );
+      }
+
+      if (prfDecimal.gt(outstandingProfit.plus(epsilon))) {
+        throw new AuthError(
+          `Requested profit disbursal (AED ${prfDecimal.toFixed(2)}) exceeds remaining outstanding profit (AED ${outstandingProfit.toFixed(2)}).`,
+          400
+        );
+      }
+
+      // 5. Create atomic transaction records
+      const createdTransactions: Array<{ id: string; transactionCode: string; amount: number; type: TransactionType }> = [];
+
+      // Common reference for grouping
+      const cleanRef = bankReference?.trim() || `DISB-${investor.code}-${Date.now().toString(36).toUpperCase()}`;
+
+      // A. Principal Capital Return ledger row
+      if (capDecimal.gt(0)) {
+        const capCode = generateDisbursalTransactionCode("CAP", investor.code);
+        const capTx = await tx.transaction.create({
+          data: {
+            transactionCode: capCode,
+            businessId,
+            investorId,
+            amount: capDecimal,
+            type: TransactionType.CAPITAL_RETURN,
+            paymentMethod,
+            bankReference: cleanRef,
+            escrowAccount: escrowAccount?.trim() || null,
+            transactionDate: effectiveDate,
+          },
+        });
+        createdTransactions.push({
+          id: capTx.id,
+          transactionCode: capTx.transactionCode,
+          amount: Number(capDecimal),
           type: TransactionType.CAPITAL_RETURN,
-          paymentMethod,
-          bankReference: cleanRef,
-          escrowAccount: escrowAccount?.trim() || null,
-          transactionDate: effectiveDate,
-        },
-      });
-      createdTransactions.push({
-        id: capTx.id,
-        transactionCode: capTx.transactionCode,
-        amount: Number(capDecimal),
-        type: TransactionType.CAPITAL_RETURN,
-      });
-    }
+        });
+      }
 
-    // B. Profit Disbursal ledger row
-    if (prfDecimal.gt(0)) {
-      const prfCode = generateDisbursalTransactionCode("PRF", investor.code);
-      const prfTx = await tx.transaction.create({
-        data: {
-          transactionCode: prfCode,
-          businessId,
-          investorId,
-          amount: prfDecimal,
+      // B. Profit Disbursal ledger row
+      if (prfDecimal.gt(0)) {
+        const prfCode = generateDisbursalTransactionCode("PRF", investor.code);
+        const prfTx = await tx.transaction.create({
+          data: {
+            transactionCode: prfCode,
+            businessId,
+            investorId,
+            amount: prfDecimal,
+            type: TransactionType.PROFIT_DISBURSAL,
+            paymentMethod,
+            bankReference: cleanRef,
+            escrowAccount: escrowAccount?.trim() || null,
+            transactionDate: effectiveDate,
+          },
+        });
+        createdTransactions.push({
+          id: prfTx.id,
+          transactionCode: prfTx.transactionCode,
+          amount: Number(prfDecimal),
           type: TransactionType.PROFIT_DISBURSAL,
-          paymentMethod,
-          bankReference: cleanRef,
-          escrowAccount: escrowAccount?.trim() || null,
-          transactionDate: effectiveDate,
-        },
-      });
-      createdTransactions.push({
-        id: prfTx.id,
-        transactionCode: prfTx.transactionCode,
-        amount: Number(prfDecimal),
-        type: TransactionType.PROFIT_DISBURSAL,
-      });
+        });
+      }
+
+      // 6. Check if newly updated total outstanding is <= 0
+      const newRemainingCapital = outstandingCapital.minus(capDecimal);
+      const newRemainingProfit = outstandingProfit.minus(prfDecimal);
+      const newTotalOutstanding = newRemainingCapital.plus(newRemainingProfit);
+
+      const isFullySettled = newTotalOutstanding.lte(new Prisma.Decimal("0.005"));
+
+      if (isFullySettled) {
+        await tx.investment.update({
+          where: { id: investment.id },
+          data: { status: "SETTLED" },
+        });
+      }
+
+      return {
+        createdTransactions,
+        isFullySettled,
+        partnerId: business.partnerId,
+      };
+    },
+    {
+      timeout: 15000,
+      maxWait: 5000,
     }
+  );
 
-    // 7. Check if newly updated total outstanding is <= 0
-    const newRemainingCapital = outstandingCapital.minus(capDecimal);
-    const newRemainingProfit = outstandingProfit.minus(prfDecimal);
-    const newTotalOutstanding = newRemainingCapital.plus(newRemainingProfit);
-
-    const isFullySettled = newTotalOutstanding.lte(new Prisma.Decimal("0.005"));
-
-    if (isFullySettled) {
-      await tx.investment.update({
-        where: { id: investment.id },
-        data: { status: "SETTLED" },
-      });
-    }
-
-    return {
-      createdTransactions,
-      isFullySettled,
-      partnerId: business.partnerId,
-    };
-  });
-
-  // 8. Audit Log
+  // 7. Audit Log
   await logAuditEvent({
     userId: session.userId,
     action: "INVESTOR_DISBURSAL_RECORDED",
@@ -733,7 +756,7 @@ export async function recordDisbursalPayment(
     },
   });
 
-  // 9. Cache Invalidation
+  // 8. Cache Invalidation
   try {
     await invalidateInvestorCaches(businessId, result.partnerId, investorId);
     await invalidateBusinessFinancials(businessId, result.partnerId);
