@@ -1,56 +1,8 @@
 import React from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ArrowRightIcon } from "@/components/ui/icons";
-
-export interface BusinessPerformanceRecord {
-  id: string;
-  name: string;
-  partitionSubtitle: string;
-  investment: string;
-  purchase: string;
-  sales: string;
-  expenses: string;
-  netProfit: string;
-  status: "ACTIVE" | "PENDING" | "COMPLETED";
-}
-
-export const MOCK_BUSINESS_RECORDS: BusinessPerformanceRecord[] = [
-  {
-    id: "b1",
-    name: "Business 01 (A + B)",
-    partitionSubtitle: "GOLD ARBITRAGE • DUBAI/SURAT",
-    investment: "AED 150,000",
-    purchase: "AED 112,000",
-    sales: "AED 142,000",
-    expenses: "AED 8,000",
-    netProfit: "AED 24,000",
-    status: "ACTIVE",
-  },
-  {
-    id: "b2",
-    name: "Business 02 (A + C)",
-    partitionSubtitle: "BULLION CONSIGNMENT • MUMBAI",
-    investment: "AED 100,000",
-    purchase: "AED 73,400",
-    sales: "AED 93,600",
-    expenses: "AED 4,850",
-    netProfit: "AED 13,350",
-    status: "ACTIVE",
-  },
-  {
-    id: "b3",
-    name: "Business 02 (A + C)",
-    partitionSubtitle: "BULLION CONSIGNMENT • MUMBAI",
-    investment: "AED 100,000",
-    purchase: "AED 73,400",
-    sales: "AED 93,600",
-    expenses: "AED 4,850",
-    netProfit: "AED 13,350",
-    status: "ACTIVE",
-  },
-];
+import { BusinessPerformanceRecord } from "@/types/dashboard";
 
 export interface BusinessPerformanceProps {
   records?: BusinessPerformanceRecord[];
@@ -58,9 +10,21 @@ export interface BusinessPerformanceProps {
 }
 
 export function BusinessPerformance({
-  records = MOCK_BUSINESS_RECORDS,
+  records = [],
   className = "",
 }: BusinessPerformanceProps) {
+  const getStatusBadgeVariant = (status: "ACTIVE" | "PENDING" | "COMPLETED") => {
+    switch (status) {
+      case "ACTIVE":
+        return "active";
+      case "COMPLETED":
+        return "neutral";
+      case "PENDING":
+      default:
+        return "neutral";
+    }
+  };
+
   return (
     <div
       className={`rounded-lg border border-gray-200/90 bg-white shadow-2xs overflow-hidden ${className}`}
@@ -100,59 +64,99 @@ export function BusinessPerformance({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
-            {records.map((record) => (
-              <tr
-                key={record.id}
-                className="transition-colors hover:bg-gray-50/70"
-              >
-                {/* Business Entity */}
-                <td className="px-5 py-3.5">
-                  <div className="font-bold text-xs sm:text-sm text-gray-900">
-                    {record.name}
-                  </div>
-                  <div className="text-[10px] text-gray-500 font-mono tracking-wider mt-0.5">
-                    {record.partitionSubtitle}
-                  </div>
-                </td>
-
-                {/* Investment */}
-                <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums">
-                  {record.investment}
-                </td>
-
-                {/* Purchase */}
-                <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums">
-                  {record.purchase}
-                </td>
-
-                {/* Sales */}
-                <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums">
-                  {record.sales}
-                </td>
-
-                {/* Expenses (Muted Gray Text per design) */}
-                <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-400 tabular-nums">
-                  {record.expenses}
-                </td>
-
-                {/* Net Profit */}
-                <td className="px-4 py-3.5 text-right font-bold text-xs sm:text-sm text-gray-900 tabular-nums">
-                  {record.netProfit}
-                </td>
-
-                {/* Status Badge */}
-                <td className="px-4 py-3.5 text-center">
-                  <Badge variant="active">{record.status}</Badge>
-                </td>
-
-                {/* Action Button */}
-                <td className="px-5 py-3.5 text-right">
-                  <Button variant="secondary" size="sm" className="shadow-2xs text-xs font-medium">
-                    View Details
-                  </Button>
+            {records.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={8}
+                  className="px-5 py-8 text-center text-gray-400 font-medium text-xs"
+                >
+                  No active business records found.
                 </td>
               </tr>
-            ))}
+            ) : (
+              records.map((record) => (
+                <tr
+                  key={record.id}
+                  className="transition-colors hover:bg-gray-50/70"
+                >
+                  {/* Business Entity */}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="font-bold text-xs sm:text-sm text-gray-900">
+                      {record.name}
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-mono tracking-wider mt-0.5">
+                      {record.partitionSubtitle}
+                    </div>
+                  </td>
+
+                  {/* Investment */}
+                  <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums whitespace-nowrap">
+                    AED{" "}
+                    {record.investmentAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+
+                  {/* Purchase */}
+                  <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums whitespace-nowrap">
+                    AED{" "}
+                    {record.purchaseAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+
+                  {/* Sales */}
+                  <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-900 tabular-nums whitespace-nowrap">
+                    AED{" "}
+                    {record.salesAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+
+                  {/* Expenses (Muted Gray Text per design) */}
+                  <td className="px-4 py-3.5 text-right font-medium text-xs sm:text-sm text-gray-400 tabular-nums whitespace-nowrap">
+                    AED{" "}
+                    {record.expensesAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+
+                  {/* Net Profit */}
+                  <td
+                    className={`px-4 py-3.5 text-right font-bold text-xs sm:text-sm tabular-nums whitespace-nowrap ${
+                      record.netProfitAED >= 0 ? "text-gray-900" : "text-rose-600"
+                    }`}
+                  >
+                    AED{" "}
+                    {record.netProfitAED.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+
+                  {/* Status Badge */}
+                  <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                    <Badge variant={getStatusBadgeVariant(record.status)}>
+                      {record.status}
+                    </Badge>
+                  </td>
+
+                  {/* Action Button */}
+                  <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                    <Link
+                      href={`/businesses/${record.id}`}
+                      className="inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-900 shadow-2xs hover:bg-gray-50 transition-colors"
+                    >
+                      View Details
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

@@ -26,7 +26,7 @@ export function exportBalanceSheetToExcel(
     ["Inventory on Hand (AED)", data.kpis.inventoryCarryingValueAED],
     ["Sales (AED)", data.kpis.totalRealizedSalesAED],
     ["Net Profit (AED)", data.kpis.netOperatingProfitAED],
-    ["Pending Partner Disbursal (AED)", data.kpis.pendingPartnerDisbursalAED],
+    ["Pending Disbursal (AED)", data.kpis.pendingPartnerDisbursalAED],
     [],
     ["--- 1. INVESTMENT & INVENTORY ---", "AMOUNT (AED)", "ALLOCATION / DETAILS"],
     ["Admin Capital", data.capital.adminCapitalAED, `${data.capital.adminSharePercent.toFixed(1)}% of capital pool`],
@@ -43,11 +43,6 @@ export function exportBalanceSheetToExcel(
     ["Purchase Cost", -data.trading.purchaseSourcingCostAED, "Cumulative purchases at landed cost"],
     ["Operating Expenses", -data.trading.operatingExpensesAED, "Cumulative operational overheads"],
     ["Net Profit", data.trading.operatingProfitAED, `Net Margin: ${data.trading.operatingMarginPercent.toFixed(2)}%`],
-    [],
-    ["--- 3. PARTNER SETTLEMENT ---", "AMOUNT (AED)", "DETAILS"],
-    ["Partner Profit Entitlement", data.settlement.totalPartnerEntitlementAED, "Agreed equity profit share"],
-    ["Paid Disbursals", -data.settlement.profitDisbursedAED, "Cumulative disbursed profits"],
-    ["Pending Partner Disbursal", data.settlement.pendingPartnerDisbursalAED, "Unsettled payable balance"],
   ];
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
@@ -94,99 +89,97 @@ export function exportBalanceSheetToExcel(
   XLSX.utils.book_append_sheet(wb, wsInventory, "Inventory on Hand");
 
   // ==========================================
-  // SHEET 3: Business Breakdown
+  // SHEET 3: Settlement Breakdown
   // ==========================================
-  const bizSheetData: (string | number)[][] = [
-    ["BUSINESS BREAKDOWN"],
-    ["As of Date", asOfDate],
-    [],
-    [
-      "Business Name",
-      "Code",
-      "Invested Capital (AED)",
-      "Inventory Value (AED)",
-      "Stock (Grams)",
-      "Sales (AED)",
-      "Purchase Cost (AED)",
-      "Operating Expenses (AED)",
-      "Net Profit (AED)",
-      "Pending Disbursal (AED)",
-    ],
-  ];
-
-  for (const b of data.businesses) {
-    bizSheetData.push([
-      b.business,
-      b.code,
-      b.committedCapitalAED,
-      b.inventoryValueAED,
-      b.stockGrams,
-      b.salesAED,
-      b.purchaseAED,
-      b.expensesAED,
-      b.operatingProfitAED,
-      b.pendingDisbursalAED,
-    ]);
-  }
-
-  const wsBiz = XLSX.utils.aoa_to_sheet(bizSheetData);
-  wsBiz["!cols"] = [
-    { wch: 28 },
-    { wch: 10 },
-    { wch: 22 },
-    { wch: 22 },
-    { wch: 16 },
-    { wch: 20 },
-    { wch: 20 },
-    { wch: 24 },
-    { wch: 22 },
-    { wch: 22 },
-  ];
-  XLSX.utils.book_append_sheet(wb, wsBiz, "Business Breakdown");
-
-  // ==========================================
-  // SHEET 4: Partner Settlement Ledger
-  // ==========================================
+  const settlementItems = data.settlementBreakdown || [];
   const settlementSheetData: (string | number)[][] = [
-    ["PARTNER SETTLEMENT"],
+    ["INVESTOR SETTLEMENT BREAKDOWN"],
     ["As of Date", asOfDate],
     [],
     [
       "Business Name",
-      "Partner Equity Share",
-      "Partner Profit Entitlement (AED)",
-      "Paid Disbursals (AED)",
-      "Pending Partner Disbursal (AED)",
+      "Business Code",
+      "Investor Name",
+      "Investor Code",
+      "Investor Type",
+      "Total Investment (AED)",
+      "Profit Allocation (AED)",
+      "Total Due (AED)",
+      "Capital Paid (AED)",
+      "Profit Paid (AED)",
+      "Total Paid / Disbursed (AED)",
+      "Outstanding Due (AED)",
+      "Settlement Status",
     ],
   ];
 
-  for (const p of data.settlement.partners) {
+  let totalInvSum = 0;
+  let totalProfitSum = 0;
+  let totalDueSum = 0;
+  let totalCapPaidSum = 0;
+  let totalProfPaidSum = 0;
+  let totalPaidSum = 0;
+  let totalOutstandingSum = 0;
+
+  for (const s of settlementItems) {
+    totalInvSum += s.totalInvestmentAED;
+    totalProfitSum += s.profitAmountAED;
+    totalDueSum += s.totalDueAED;
+    totalCapPaidSum += s.capitalPaidAED;
+    totalProfPaidSum += s.profitPaidAED;
+    totalPaidSum += s.totalPaidAED;
+    totalOutstandingSum += s.pendingOutstandingAED;
+
     settlementSheetData.push([
-      p.businessName,
-      p.partnerName,
-      p.entitlementAED,
-      p.disbursedAED,
-      p.pendingAED,
+      s.businessName,
+      s.businessCode,
+      s.investorName,
+      s.investorCode,
+      s.investorType || "INVESTOR",
+      s.totalInvestmentAED,
+      s.profitAmountAED,
+      s.totalDueAED,
+      s.capitalPaidAED,
+      s.profitPaidAED,
+      s.totalPaidAED,
+      s.pendingOutstandingAED,
+      s.status,
     ]);
   }
 
   settlementSheetData.push([
-    "CONSOLIDATED TOTAL",
+    "PORTFOLIO TOTAL",
     "-",
-    data.settlement.totalPartnerEntitlementAED,
-    data.settlement.profitDisbursedAED,
-    data.settlement.pendingPartnerDisbursalAED,
+    "-",
+    "-",
+    "-",
+    totalInvSum,
+    totalProfitSum,
+    totalDueSum,
+    totalCapPaidSum,
+    totalProfPaidSum,
+    totalPaidSum,
+    totalOutstandingSum,
+    "-",
   ]);
 
   const wsSettlement = XLSX.utils.aoa_to_sheet(settlementSheetData);
   wsSettlement["!cols"] = [
-    { wch: 28 },
+    { wch: 26 },
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 14 },
+    { wch: 14 },
     { wch: 22 },
-    { wch: 30 },
     { wch: 22 },
-    { wch: 30 },
+    { wch: 22 },
+    { wch: 20 },
+    { wch: 20 },
+    { wch: 26 },
+    { wch: 22 },
+    { wch: 18 },
   ];
-  XLSX.utils.book_append_sheet(wb, wsSettlement, "Partner Settlements");
+  XLSX.utils.book_append_sheet(wb, wsSettlement, "Settlement Breakdown");
 
   // Trigger download
   const sanitizedBiz = businessName.toLowerCase().replace(/[^a-z0-9]/g, "_");

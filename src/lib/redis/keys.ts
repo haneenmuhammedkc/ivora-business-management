@@ -15,6 +15,7 @@ export const CacheKeys = {
     overview: (role: string, userId: string) =>
       role === "ADMIN" ? `${PREFIX}:admin:investors:overview` : `${PREFIX}:partner:${userId}:investors:overview`,
     business: (businessId: string) => `${PREFIX}:biz:${businessId}:investors:detail`,
+    detail: (investorId: string) => `${PREFIX}:investor:${investorId}:detail`,
   },
   purchases: {
     list: (businessId?: string, role = "ADMIN", userId = "") =>
@@ -60,6 +61,10 @@ export const CacheKeys = {
   dashboard: {
     kpis: (role: string, userId: string) =>
       role === "ADMIN" ? `${PREFIX}:admin:dashboard:kpis` : `${PREFIX}:partner:${userId}:dashboard:kpis`,
+    data: (role: string, userId: string, businessId = "all", range = "30d") => {
+      const scope = role === "ADMIN" ? "admin" : `partner:${userId}`;
+      return `${PREFIX}:${scope}:dashboard:${businessId || "all"}:${range || "30d"}`;
+    },
   },
   reports: {
     overview: (scope: string, queryHash: string) => `${PREFIX}:reports:overview:${scope}:${queryHash}`,

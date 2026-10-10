@@ -89,6 +89,25 @@ export interface CompositionLegendItem {
   colorClass: string;
 }
 
+export interface InvestorSettlementBreakdownItem {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessCode: string;
+  investorId: string;
+  investorName: string;
+  investorCode: string;
+  investorType?: "ADMIN" | "PARTNER" | "INVESTOR";
+  totalInvestmentAED: number;
+  profitAmountAED: number;
+  totalDueAED: number;
+  capitalPaidAED: number;
+  profitPaidAED: number;
+  totalPaidAED: number;
+  pendingOutstandingAED: number;
+  status: "Pending" | "Partially Settled" | "Settled";
+}
+
 export interface BalanceSheetResponseData {
   success: boolean;
   asOfDate: string;
@@ -99,4 +118,6 @@ export interface BalanceSheetResponseData {
   trading: TradingPositionData;
   settlement: PartnerSettlementPositionData;
   businesses: BusinessPositionComparison[];
+  settlementBreakdown: InvestorSettlementBreakdownItem[];
 }
+

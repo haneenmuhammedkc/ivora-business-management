@@ -79,7 +79,7 @@ export function exportBalanceSheetToPdf(
         "INVENTORY ON HAND",
         "SALES",
         "NET PROFIT",
-        "PARTNER BALANCE",
+        "PENDING DISBURSAL",
       ],
     ],
     body: [
@@ -229,90 +229,54 @@ export function exportBalanceSheetToPdf(
   // @ts-expect-error jspdf-autotable extends jsPDF instance
   currentY = doc.lastAutoTable.finalY + 8;
 
-  // Check page break for next sections
-  if (currentY > 210) {
+  // Check page break for next section
+  if (currentY > 190) {
     doc.addPage();
     currentY = 20;
   }
 
-  // 4. Partner Settlement
-  currentY = addSectionHeader("3. Partner Settlement", currentY);
-  const settlementRows = data.settlement.partners.map((p) => [
-    `${p.businessName} (${p.partnerName})`,
-    `AED ${p.entitlementAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `AED ${p.disbursedAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `AED ${p.pendingAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
-
-  settlementRows.push([
-    "Consolidated Partner Settlement Total",
-    `AED ${data.settlement.totalPartnerEntitlementAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `AED ${data.settlement.profitDisbursedAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `AED ${data.settlement.pendingPartnerDisbursalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-  ]);
-
-  autoTable(doc, {
-    startY: currentY,
-    head: [["Business & Partner Share", "Entitlement (AED)", "Paid Disbursals (AED)", "Pending Disbursal (AED)"]],
-    body: settlementRows,
-    theme: "striped",
-    headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
-    bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
-    columnStyles: {
-      0: { cellWidth: 62, fontStyle: "bold" },
-      1: { cellWidth: 40, halign: "right" },
-      2: { cellWidth: 40, halign: "right" },
-      3: { cellWidth: 40, halign: "right", fontStyle: "bold" },
-    },
-    tableLineColor: borderLight,
-    tableLineWidth: 0.2,
-  });
-
-  // @ts-expect-error jspdf-autotable extends jsPDF instance
-  currentY = doc.lastAutoTable.finalY + 8;
-
-  // 5. Business Breakdown
-  if (data.businesses && data.businesses.length > 0) {
-    if (currentY > 200) {
-      doc.addPage();
-      currentY = 20;
-    }
-
-    currentY = addSectionHeader("4. Business Breakdown", currentY);
-    const bizRows = data.businesses.map((b) => [
-      b.business,
-      `AED ${b.committedCapitalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.inventoryValueAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.salesAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.purchaseAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.expensesAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.operatingProfitAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${b.pendingDisbursalAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+  // 4. Section 3: Settlement Breakdown
+  const settlementItems = data.settlementBreakdown || [];
+  if (settlementItems.length > 0) {
+    currentY = addSectionHeader("3. Settlement Breakdown", currentY);
+    const settlementRows = settlementItems.map((s) => [
+      s.businessName,
+      s.investorName,
+      `AED ${s.totalInvestmentAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${s.profitAmountAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${s.totalDueAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${s.totalPaidAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      `AED ${s.pendingOutstandingAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      s.status.toUpperCase(),
     ]);
 
     autoTable(doc, {
       startY: currentY,
-      head: [["Business", "Invested Cap", "Inventory", "Sales", "Purchase Cost", "Expenses", "Net Profit", "Pending"]],
-      body: bizRows,
+      head: [
+        [
+          "Business",
+          "Investor",
+          "Investment",
+          "Profit Alloc.",
+          "Total Due",
+          "Paid / Disbursed",
+          "Outstanding",
+          "Status",
+        ],
+      ],
+      body: settlementRows,
       theme: "striped",
       headStyles: { fillColor: brandDark, textColor: [255, 255, 255], fontSize: 7, fontStyle: "bold" },
       bodyStyles: { fontSize: 7, textColor: [30, 41, 59] },
       columnStyles: {
-        0: { cellWidth: 36, fontStyle: "bold" },
-        1: { cellWidth: 22, halign: "right" },
+        0: { cellWidth: 32, fontStyle: "bold" },
+        1: { cellWidth: 30, fontStyle: "bold" },
         2: { cellWidth: 20, halign: "right" },
         3: { cellWidth: 20, halign: "right" },
-        4: { cellWidth: 22, halign: "right" },
-        5: { cellWidth: 20, halign: "right" },
-        6: { cellWidth: 22, halign: "right", fontStyle: "bold" },
-        7: { cellWidth: 20, halign: "right", fontStyle: "bold" },
-      },
-      didParseCell: (dataCell) => {
-        const rawRow = dataCell.row.raw as unknown as (string | number)[];
-        if (String(rawRow?.[0] || "").includes("Consolidated")) {
-          dataCell.cell.styles.fontStyle = "bold";
-          dataCell.cell.styles.fillColor = [241, 245, 249];
-        }
+        4: { cellWidth: 20, halign: "right", fontStyle: "bold" },
+        5: { cellWidth: 22, halign: "right" },
+        6: { cellWidth: 20, halign: "right", fontStyle: "bold" },
+        7: { cellWidth: 18, halign: "center", fontStyle: "bold" },
       },
       tableLineColor: borderLight,
       tableLineWidth: 0.2,

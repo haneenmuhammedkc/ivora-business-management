@@ -17,10 +17,16 @@ export async function POST(req: NextRequest) {
       return errorResponse("Partner name and email are required", 400);
     }
 
+    const phone =
+      typeof body.phone === "string" && body.phone.trim().length > 0
+        ? body.phone.trim()
+        : undefined;
+
     const result = await createPartnerUser({
       adminUserId: adminSession.userId,
       name: body.name,
       email: body.email,
+      phone,
       temporaryPassword: body.temporaryPassword,
       businessId: body.businessId,
       partnerEquityPct: body.partnerEquityPct !== undefined ? Number(body.partnerEquityPct) : undefined,

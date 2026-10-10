@@ -183,16 +183,17 @@ model Investor {
 }
 
 model Investment {
-  id              String   @id @default(cuid())
-  investorId      String
-  businessId      String
-  committedAmount Decimal  @db.Decimal(18, 2)
-  profitSharePct  Decimal  @db.Decimal(5, 2)
-  allocatedGrams  Decimal? @db.Decimal(18, 3)
-  depositDate     DateTime
-  status          String   @default("ACTIVE")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  investorId            String
+  businessId            String
+  committedAmount       Decimal  @db.Decimal(18, 2)
+  profitSharePct        Decimal  @db.Decimal(5, 2)
+  allocatedProfitAmount Decimal? @db.Decimal(18, 2)
+  allocatedGrams        Decimal? @db.Decimal(18, 3)
+  depositDate           DateTime
+  status                String   @default("ACTIVE")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)

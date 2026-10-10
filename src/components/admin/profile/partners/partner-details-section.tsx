@@ -96,7 +96,13 @@ export function PartnerDetailsSection({
               value={data.phone}
               onChange={(e) => onChange("phone", e.target.value)}
               placeholder="+971 50 123 4567"
+              className={errors.phone ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""}
             />
+            {errors.phone && (
+              <p className="text-[11px] font-medium text-red-600 mt-1">
+                {errors.phone}
+              </p>
+            )}
           </div>
         </div>
       </div>

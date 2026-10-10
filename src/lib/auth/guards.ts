@@ -97,6 +97,7 @@ export async function getCurrentUser() {
       id: true,
       email: true,
       name: true,
+      phone: true,
       role: true,
       status: true,
       mustChangePassword: true,

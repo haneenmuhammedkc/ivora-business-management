@@ -1,4 +1,4 @@
-export type InvestorStatus = "ACTIVE" | "PENDING" | "CLEARED";
+export type InvestorStatus = "ACTIVE" | "PENDING" | "CLEARED" | "INACTIVE" | "SETTLED";
 export type ParticipantType = "ADMIN" | "PARTNER" | "INVESTOR";
 
 export interface AuditTransaction {
@@ -15,6 +15,8 @@ export interface InvestorRecord {
   participantType?: ParticipantType;
   name: string;
   code?: string;
+  email?: string | null;
+  phone?: string | null;
   isMultiEntity?: boolean;
   emailOrSubtitle: string;
   businessId?: string;

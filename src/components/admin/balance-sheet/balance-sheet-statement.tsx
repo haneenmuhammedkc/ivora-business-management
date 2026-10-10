@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import {
   CapitalPositionData,
   InventoryPositionData,
@@ -11,7 +13,10 @@ export interface BalanceSheetStatementProps {
   capital: CapitalPositionData;
   inventory: InventoryPositionData;
   trading: TradingPositionData;
-  settlement: PartnerSettlementPositionData;
+  settlement?: PartnerSettlementPositionData;
+  selectedBusiness?: string;
+  onBusinessChange?: (businessId: string) => void;
+  businessesList?: { id: string; name: string }[];
 }
 
 function ItemRow({ item }: { item: BalanceSheetItem }) {
@@ -103,32 +108,29 @@ export function BalanceSheetStatement({
   capital,
   inventory,
   trading,
-  settlement,
+  selectedBusiness = "all",
+  onBusinessChange,
+  businessesList = [],
 }: BalanceSheetStatementProps) {
+  const [showInventoryDetails, setShowInventoryDetails] = useState(false);
+
   const totalCapitalAndInventory =
     capital.totalCommittedCapitalAED + inventory.totalCarryingValueAED;
-  const netRetainedProfit =
-    trading.operatingProfitAED - settlement.profitDisbursedAED;
 
-  // Format capital items with simple user-friendly labels
-  const cleanCapitalBreakdown = [
-    {
-      name: "Admin Capital",
-      amountAED: capital.adminCapitalAED,
-      drilldown: `${capital.adminSharePercent.toFixed(1)}% of capital pool`,
-      note: "Institutional & founder contribution",
-    },
-    {
-      name: "Partner Capital",
-      amountAED: capital.partnerCapitalAED,
-      drilldown: `${capital.partnerSharePercent.toFixed(1)}% of capital pool`,
-      note: "External partner contributions",
-    },
-  ];
+  const isSingleBusinessSelected = selectedBusiness && selectedBusiness !== "all";
+
+  // Filter inventory items if a specific business is selected and multiple businesses are present in items
+  const scopedInventoryItems = isSingleBusinessSelected
+    ? inventory.items.filter((item) => item.businessId === selectedBusiness || !item.businessId)
+    : inventory.items;
 
   // Format inventory items cleanly
-  const cleanInventoryBreakdown = inventory.items.map((item) => ({
-    name: `${item.businessName} — ${item.productType.replace(/_/g, " ")}`,
+  const cleanInventoryBreakdown: BalanceSheetItem[] = (
+    scopedInventoryItems.length > 0 ? scopedInventoryItems : inventory.items
+  ).map((item) => ({
+    name: isSingleBusinessSelected
+      ? item.productType.replace(/_/g, " ")
+      : `${item.businessName} — ${item.productType.replace(/_/g, " ")}`,
     amountAED: item.carryingValueAED,
     drilldown: `${item.remainingQuantity.toLocaleString("en-US", {
       maximumFractionDigits: 2,
@@ -136,13 +138,15 @@ export function BalanceSheetStatement({
     badge: "In Stock",
   }));
 
+  const isInventoryDetailsVisible = isSingleBusinessSelected || showInventoryDetails;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
       {/* SECTION 1: INVESTMENT & INVENTORY */}
       <div className="w-full rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden flex flex-col justify-between">
         <div>
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-[#f8fafc]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-5 py-3.5 border-b border-gray-100 bg-[#f8fafc]">
             <div className="flex items-center gap-2">
               <svg
                 className="w-4 h-4 text-gray-900"
@@ -158,86 +162,205 @@ export function BalanceSheetStatement({
                 />
               </svg>
               <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
-                1. INVESTMENT & INVENTORY
+                1. Investment & Inventory
               </h2>
             </div>
-            <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-              IN AED EQUIVALENT
-            </span>
+
+            {/* Business selector */}
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="section1-business-select"
+                className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider"
+              >
+                Business:
+              </label>
+              <select
+                id="section1-business-select"
+                value={selectedBusiness}
+                onChange={(e) => onBusinessChange?.(e.target.value)}
+                disabled={!onBusinessChange}
+                className="h-7 rounded-md border border-gray-200 bg-white px-2 text-xs font-semibold text-gray-900 focus:border-gray-900 focus:outline-none"
+              >
+                <option value="all">All Businesses</option>
+                {businessesList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="p-5 space-y-5">
-            {/* 1.1 INVESTED CAPITAL */}
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  INVESTED CAPITAL
-                </span>
-                <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  EQUITY SHARE
-                </span>
-              </div>
-              <div className="space-y-1 divide-y divide-gray-100/80">
-                {cleanCapitalBreakdown.map((item, idx) => (
-                  <ItemRow key={idx} item={item} />
-                ))}
-              </div>
-
-              {/* Capital Subtotal */}
-              <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
-                <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  TOTAL INVESTED CAPITAL
-                </span>
-                <span className="font-extrabold text-sm text-gray-950">
-                  AED{" "}
-                  {capital.totalCommittedCapitalAED.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-              </div>
-            </div>
-
-            {/* 1.2 INVENTORY ON HAND */}
-            <div className="space-y-2.5 pt-4 border-t border-gray-200">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  INVENTORY ON HAND
-                </span>
-                <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  LANDED COST
-                </span>
-              </div>
-              <div className="space-y-1 divide-y divide-gray-100/80">
-                {cleanInventoryBreakdown.length === 0 ? (
-                  <div className="py-2.5 text-gray-400 text-xs italic">
-                    No active inventory in stock.
+          <div className="p-5 space-y-4">
+            {/* 1.1 COMPACT PORTFOLIO SUMMARY */}
+            <div className="space-y-1 divide-y divide-gray-100/80">
+              {/* 1. Admin Capital */}
+              <div className="py-2.5 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-gray-900 text-xs mt-0.5">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Admin Capital
+                    </span>
                   </div>
-                ) : (
-                  cleanInventoryBreakdown.map((item, idx) => (
-                    <ItemRow key={idx} item={item} />
-                  ))
-                )}
+                  <div className="text-right">
+                    <span className="font-bold text-xs sm:text-[13px] tracking-tight text-gray-900">
+                      AED{" "}
+                      {capital.adminCapitalAED.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 font-normal pl-4 leading-relaxed">
+                  {capital.adminSharePercent.toFixed(1)}% of capital pool
+                </p>
               </div>
 
-              {/* Inventory Subtotal */}
-              <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
-                <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  TOTAL INVENTORY VALUE (
-                  {inventory.totalStockGrams.toLocaleString("en-US", {
-                    maximumFractionDigits: 1,
-                  })}{" "}
-                  G)
-                </span>
-                <span className="font-extrabold text-sm text-gray-950">
-                  AED{" "}
-                  {inventory.totalCarryingValueAED.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
+              {/* 2. Partner Capital */}
+              <div className="py-2.5 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-gray-900 text-xs mt-0.5">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Partner Capital
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-xs sm:text-[13px] tracking-tight text-gray-900">
+                      AED{" "}
+                      {capital.partnerCapitalAED.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 font-normal pl-4 leading-relaxed">
+                  {capital.partnerSharePercent.toFixed(1)}% of capital pool
+                </p>
+              </div>
+
+              {/* 3. Total Invested Capital */}
+              <div className="py-2.5 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-gray-900 text-xs mt-0.5">▸</span>
+                    <span className="font-bold text-gray-950 text-xs sm:text-[13px]">
+                      Total Invested Capital
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-black text-xs sm:text-[13px] tracking-tight text-gray-950">
+                      AED{" "}
+                      {capital.totalCommittedCapitalAED.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 font-normal pl-4 leading-relaxed">
+                  100.0% of capital pool
+                </p>
+              </div>
+
+              {/* 4. Inventory on Hand */}
+              <div className="py-2.5 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-gray-900 text-xs mt-0.5">▸</span>
+                    <span className="font-bold text-gray-900 text-xs sm:text-[13px]">
+                      Inventory on Hand
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-xs sm:text-[13px] tracking-tight text-gray-900">
+                      {inventory.totalStockGrams.toLocaleString("en-US", {
+                        maximumFractionDigits: 1,
+                      })}{" "}
+                      g
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 font-normal pl-4 leading-relaxed">
+                  Avg cost: AED {inventory.averageCostPerGramAED.toFixed(2)} / g
+                </p>
+              </div>
+
+              {/* 5. Inventory Value */}
+              <div className="py-2.5 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-gray-900 text-xs mt-0.5">▸</span>
+                    <span className="font-bold text-gray-950 text-xs sm:text-[13px]">
+                      Inventory Value
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-black text-xs sm:text-[13px] tracking-tight text-gray-950">
+                      AED{" "}
+                      {inventory.totalCarryingValueAED.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 font-normal pl-4 leading-relaxed">
+                  Total inventory at landed cost
+                </p>
               </div>
             </div>
+
+            {/* View Inventory Details toggle action */}
+            {!isSingleBusinessSelected && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowInventoryDetails(!showInventoryDetails)}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-900 hover:text-gray-600 transition-colors py-1 group"
+                >
+                  <span>
+                    {showInventoryDetails
+                      ? "Hide Inventory Details ↑"
+                      : "View Inventory Details →"}
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    ({cleanInventoryBreakdown.length}{" "}
+                    {cleanInventoryBreakdown.length === 1 ? "product" : "products"})
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* Detailed Inventory Breakdown (when revealed or when a specific business is selected) */}
+            {isInventoryDetailsVisible && (
+              <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                <div className="flex items-center justify-between pb-1">
+                  <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-700">
+                    {isSingleBusinessSelected
+                      ? "Business Inventory Details"
+                      : "Detailed Inventory Breakdown"}
+                  </span>
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase">
+                    Landed Cost
+                  </span>
+                </div>
+                <div className="space-y-1 divide-y divide-gray-100/80 max-h-56 overflow-y-auto pr-1">
+                  {cleanInventoryBreakdown.length === 0 ? (
+                    <div className="py-2.5 text-gray-400 text-xs italic">
+                      No active inventory in stock for this scope.
+                    </div>
+                  ) : (
+                    cleanInventoryBreakdown.map((item, idx) => (
+                      <ItemRow key={idx} item={item} />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -278,7 +401,7 @@ export function BalanceSheetStatement({
                 />
               </svg>
               <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wider">
-                2. SALES, COSTS & PROFIT
+                2. Sales, Costs & Profit
               </h2>
             </div>
             <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
@@ -372,87 +495,25 @@ export function BalanceSheetStatement({
                 </span>
               </div>
             </div>
-
-            {/* 2.2 PARTNER SETTLEMENT SUBSECTION */}
-            <div className="space-y-2.5 pt-4 border-t border-gray-200">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                <span className="text-[10.5px] font-black uppercase tracking-wider text-gray-900">
-                  PARTNER SETTLEMENT
-                </span>
-                <span className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
-                  STATUS
-                </span>
-              </div>
-
-              <div className="space-y-1 divide-y divide-gray-100/80">
-                {/* Entitlement */}
-                <div className="py-2 flex items-center justify-between">
-                  <span className="text-xs text-gray-700 font-medium">
-                    Partner Profit Entitlement
-                  </span>
-                  <span className="font-semibold text-xs text-gray-900">
-                    AED{" "}
-                    {settlement.totalPartnerEntitlementAED.toLocaleString(
-                      "en-US",
-                      {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      }
-                    )}
-                  </span>
-                </div>
-
-                {/* Paid Disbursals */}
-                <div className="py-2 flex items-center justify-between">
-                  <span className="text-xs text-gray-700 font-medium">
-                    Less: Paid Disbursals
-                  </span>
-                  <span className="font-semibold text-xs text-rose-600">
-                    -AED{" "}
-                    {settlement.profitDisbursedAED.toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Pending Partner Disbursal Subtotal */}
-              <div className="pt-3 border-t border-dotted border-gray-300 flex items-center justify-between font-bold text-gray-950 text-xs">
-                <span className="uppercase text-[11px] tracking-wider text-gray-800">
-                  PENDING PARTNER DISBURSAL
-                </span>
-                <span className="font-extrabold text-sm text-gray-950">
-                  AED{" "}
-                  {settlement.pendingPartnerDisbursalAED.toLocaleString(
-                    "en-US",
-                    {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }
-                  )}
-                </span>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Section 2 Total Box: Retained Net Profit */}
+        {/* Section 2 Total Box: Net Realized Profit */}
         <div className="p-5 pt-0">
           <div className="h-12 px-4 rounded-lg bg-[#0c0d12] text-white flex items-center justify-between font-bold shadow-2xs">
             <span className="uppercase text-xs tracking-wider font-black">
-              RETAINED NET PROFIT{" "}
+              NET REALIZED PROFIT{" "}
               <span className="text-gray-400 font-normal text-[11px]">
-                (NET PROFIT - DISBURSED)
+                (SALES - SOURCING - OVERHEADS)
               </span>
             </span>
             <span
               className={`text-base sm:text-lg font-black ${
-                netRetainedProfit >= 0 ? "text-white" : "text-rose-400"
+                trading.operatingProfitAED >= 0 ? "text-emerald-400" : "text-rose-400"
               }`}
             >
               AED{" "}
-              {netRetainedProfit.toLocaleString("en-US", {
+              {trading.operatingProfitAED.toLocaleString("en-US", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}

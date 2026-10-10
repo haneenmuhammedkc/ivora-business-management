@@ -22,6 +22,15 @@ interface BusinessData {
   totalInvestmentAED: number;
 }
 
+interface CapacityBreakdown {
+  totalInvestmentAED: number;
+  adminInvestmentAED: number;
+  partnerInvestmentAED: number;
+  totalExternalInvestmentAED: number;
+  totalCommittedAED: number;
+  remainingCapacityAED: number;
+}
+
 export interface NewInvestorEntryProps {
   initialBusinessId?: string;
 }
@@ -34,6 +43,7 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
   const [businesses, setBusinesses] = useState<BusinessData[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>(queryBusinessId);
   const [isLoadingBusinesses, setIsLoadingBusinesses] = useState(true);
+  const [capacityBreakdown, setCapacityBreakdown] = useState<CapacityBreakdown | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -71,6 +81,44 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     };
   }, [queryBusinessId]);
 
+  // Fetch detailed capacity breakdown for selected business
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedBusinessId) {
+      return;
+    }
+    async function loadCapacity() {
+      try {
+        const res = await fetch(`/api/investors/business/${encodeURIComponent(selectedBusinessId)}`);
+        const json = await res.json();
+        if (json.success && json.business && isMounted) {
+          const b = json.business;
+          const totalInv = Number(b.totalInvestmentAED) || 0;
+          const adminInv = Number(b.adminInvestmentAED) || 0;
+          const partnerInv = Number(b.partnerInvestmentAED) || 0;
+          const extInv = Number(b.totalExternalInvestmentAED) || 0;
+          const totalCommitted = adminInv + partnerInv + extInv;
+          const remaining = Math.max(0, totalInv - totalCommitted);
+
+          setCapacityBreakdown({
+            totalInvestmentAED: totalInv,
+            adminInvestmentAED: adminInv,
+            partnerInvestmentAED: partnerInv,
+            totalExternalInvestmentAED: extInv,
+            totalCommittedAED: totalCommitted,
+            remainingCapacityAED: remaining,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch business investor breakdown:", err);
+      }
+    }
+    loadCapacity();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedBusinessId]);
+
   // Find the selected business record
   const selectedBusiness = useMemo(() => {
     if (!selectedBusinessId) return null;
@@ -79,24 +127,32 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
 
   // Total investment base of the selected business
   const totalInvestmentBase = selectedBusiness ? Number(selectedBusiness.totalInvestmentAED) || 0 : 0;
+  const remainingCapacity = capacityBreakdown !== null ? capacityBreakdown.remainingCapacityAED : totalInvestmentBase;
+
+  const enteredAmountNum = useMemo(() => {
+    const rawStr = investmentAmount.trim();
+    if (!rawStr || !/^\d+(\.\d+)?$/.test(rawStr)) return 0;
+    const num = Number(rawStr);
+    return isNaN(num) || !isFinite(num) ? 0 : num;
+  }, [investmentAmount]);
+
+  const isExceedingCapacity = useMemo(() => {
+    if (enteredAmountNum <= 0 || capacityBreakdown === null) return false;
+    return enteredAmountNum > remainingCapacity;
+  }, [enteredAmountNum, remainingCapacity, capacityBreakdown]);
 
   // Live equity calculation:
   // Investor Equity % = (Investor Investment Capital / Business.totalInvestmentAED) * 100
   const calculatedEquity = useMemo(() => {
-    const rawStr = investmentAmount.trim();
-    if (!rawStr || !/^\d+(\.\d+)?$/.test(rawStr)) {
+    if (enteredAmountNum <= 0 || totalInvestmentBase <= 0) {
       return "0.00%";
     }
-    const investNum = Number(rawStr);
-    if (isNaN(investNum) || !isFinite(investNum) || investNum <= 0 || totalInvestmentBase <= 0) {
-      return "0.00%";
-    }
-    const ratio = (investNum / totalInvestmentBase) * 100;
+    const ratio = (enteredAmountNum / totalInvestmentBase) * 100;
     if (isNaN(ratio) || !isFinite(ratio) || ratio < 0) {
       return "0.00%";
     }
     return `${ratio.toFixed(2)}%`;
-  }, [investmentAmount, totalInvestmentBase]);
+  }, [enteredAmountNum, totalInvestmentBase]);
 
   /**
    * Helper to scroll and focus to the first invalid field.
@@ -182,6 +238,18 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     if (!validationResult.isValid || !validationResult.data) {
       setErrors(validationResult.errors);
       focusFirstError(validationResult.errors);
+      return;
+    }
+
+    if (capacityBreakdown && validationResult.data.investmentAmount > capacityBreakdown.remainingCapacityAED) {
+      const errText = `Investment capital (AED ${validationResult.data.investmentAmount.toLocaleString()}) exceeds the business's remaining capacity (AED ${capacityBreakdown.remainingCapacityAED.toLocaleString()}).`;
+      setErrors((prev) => ({ ...prev, investmentAmount: errText }));
+      setErrorMessage(errText);
+      const el = document.getElementById("investmentCapital");
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
       return;
     }
 
@@ -292,10 +360,10 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
           {/* Assigned Business Entity - Read-only (NO dropdown) */}
           <div>
             <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-              Assigned Business Entity
+              Assigned Business Entity & Investment Capacity
             </label>
             <div
-              className={`w-full rounded-md border bg-gray-50/80 px-3.5 py-2.5 text-xs text-gray-900 flex flex-col sm:flex-row sm:items-center justify-between gap-1 ${
+              className={`w-full rounded-lg border bg-gray-50/80 p-3.5 text-xs text-gray-900 space-y-3 ${
                 errors.businessId ? "border-red-500" : "border-gray-200"
               }`}
             >
@@ -303,20 +371,50 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
                 <span className="text-gray-400">Loading business information...</span>
               ) : selectedBusiness ? (
                 <>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-950 text-sm">
-                      {selectedBusiness.name}
-                    </span>
-                    <span className="px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 bg-white border border-gray-200 rounded">
-                      {selectedBusiness.code}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-gray-200/80">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-950 text-sm">
+                        {selectedBusiness.name}
+                      </span>
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold text-gray-600 bg-white border border-gray-200 rounded">
+                        {selectedBusiness.code}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-gray-500 font-medium">
+                      Total Business Capital:{" "}
+                      <strong className="text-gray-900 font-semibold">
+                        AED {totalInvestmentBase.toLocaleString()}
+                      </strong>
                     </span>
                   </div>
-                  <span className="text-[11px] text-gray-500 font-medium">
-                    Total Investment Base:{" "}
-                    <strong className="text-gray-900 font-semibold">
-                      AED {totalInvestmentBase.toLocaleString()}
-                    </strong>
-                  </span>
+
+                  {/* Capacity Metrics Row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                    <div className="p-2 rounded bg-white border border-gray-100">
+                      <div className="text-[10px] font-medium text-gray-500 uppercase">Total Capacity</div>
+                      <div className="text-xs font-bold text-gray-900 mt-0.5">
+                        AED {totalInvestmentBase.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded bg-white border border-gray-100">
+                      <div className="text-[10px] font-medium text-gray-500 uppercase">Admin + Partner</div>
+                      <div className="text-xs font-semibold text-gray-700 mt-0.5">
+                        AED {((capacityBreakdown?.adminInvestmentAED || 0) + (capacityBreakdown?.partnerInvestmentAED || 0)).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded bg-white border border-gray-100">
+                      <div className="text-[10px] font-medium text-gray-500 uppercase">External Investors</div>
+                      <div className="text-xs font-semibold text-gray-700 mt-0.5">
+                        AED {(capacityBreakdown?.totalExternalInvestmentAED || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className={`p-2 rounded border ${remainingCapacity > 0 ? "bg-emerald-50/60 border-emerald-200 text-emerald-950" : "bg-red-50/60 border-red-200 text-red-950"}`}>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Available Capacity</div>
+                      <div className="text-xs font-bold mt-0.5">
+                        AED {remainingCapacity.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <span className="text-amber-700 font-medium">
@@ -335,19 +433,30 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
             {/* Investment Capital (AED) - Editable */}
-            <Input
-              id="investmentCapital"
-              label="Investment Capital (AED)"
-              type="number"
-              step="any"
-              min="1"
-              placeholder="e.g. 25000"
-              value={investmentAmount}
-              onChange={(e) => handleInvestmentChange(e.target.value)}
-              error={errors.investmentAmount}
-              className="text-right font-semibold"
-              required
-            />
+            <div>
+              <Input
+                id="investmentCapital"
+                label="Investment Capital (AED)"
+                type="number"
+                step="any"
+                min="1"
+                placeholder="e.g. 25000"
+                value={investmentAmount}
+                onChange={(e) => handleInvestmentChange(e.target.value)}
+                error={errors.investmentAmount}
+                className="text-right font-semibold"
+                required
+              />
+              {isExceedingCapacity ? (
+                <p className="mt-1 text-[11px] font-semibold text-red-600">
+                  Exceeds available capacity! Max allowed: AED {remainingCapacity.toLocaleString()}
+                </p>
+              ) : enteredAmountNum > 0 && capacityBreakdown !== null ? (
+                <p className="mt-1 text-[11px] text-emerald-700 font-medium">
+                  Remaining after investment: AED {(remainingCapacity - enteredAmountNum).toLocaleString()}
+                </p>
+              ) : null}
+            </div>
 
             {/* Profit Share / Equity Ratio (%) - Read-only, Live calculated */}
             <div>

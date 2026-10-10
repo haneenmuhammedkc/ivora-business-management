@@ -1,66 +1,84 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-
-export interface ChartDataPoint {
-  date: string;
-  sales: number;
-  purchase: number;
-  profit: number;
-  hasMarker?: boolean;
-}
-
-export const MOCK_CHART_DATA: ChartDataPoint[] = [
-  { date: "10 AUG", sales: 150000, purchase: 90000, profit: 60000, hasMarker: true },
-  { date: "17 AUG", sales: 175000, purchase: 110000, profit: 65000, hasMarker: false },
-  { date: "24 AUG", sales: 190000, purchase: 125000, profit: 65000, hasMarker: true },
-  { date: "31 AUG", sales: 215000, purchase: 145000, profit: 70000, hasMarker: false },
-  { date: "07 SEP", sales: 228000, purchase: 160000, profit: 68000, hasMarker: true },
-  { date: "CURRENT", sales: 250000, purchase: 185400, profit: 64600, hasMarker: true },
-];
+import { DashboardChartPoint, DashboardRange } from "@/types/dashboard";
 
 export interface TradingPerformanceProps {
-  data?: ChartDataPoint[];
+  data?: DashboardChartPoint[];
+  range?: DashboardRange;
+  onRangeChange?: (range: DashboardRange) => void;
   className?: string;
 }
 
+function formatShortAED(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
 export function TradingPerformance({
-  data = MOCK_CHART_DATA,
+  data = [],
+  range = "30d",
+  onRangeChange,
   className = "",
 }: TradingPerformanceProps) {
-  const [selectedRange, setSelectedRange] = useState<"7d" | "30d" | "3m" | "1y">("30d");
-
-  const ranges: { id: "7d" | "30d" | "3m" | "1y"; label: string }[] = [
+  const ranges: { id: DashboardRange; label: string }[] = [
     { id: "7d", label: "7 Days" },
     { id: "30d", label: "30 Days" },
     { id: "3m", label: "3 Months" },
     { id: "1y", label: "1 Year" },
   ];
 
-  // Map 0 to 250k onto normalized coordinates for viewBox="0 0 500 180"
-  // padding: left: 40, right: 20, top: 15, bottom: 30
-  // y ranges from 250000 (top: 15) to 0 (bottom: 150)
-  const chartHeight = 150;
+  // Map onto normalized coordinates for viewBox="0 0 500 160"
+  const chartHeight = 135;
   const chartTop = 15;
-  const chartLeft = 45;
+  const chartLeft = 35;
   const chartRight = 485;
   const chartWidth = chartRight - chartLeft;
-  const maxY = 250000;
+
+  // Determine dynamic maximum scale from data
+  const rawMax = data.reduce(
+    (max, d) => Math.max(max, d.sales, d.purchase, d.profit),
+    0
+  );
+  const maxY = rawMax > 0 ? rawMax * 1.15 : 1000;
+
+  const hasActivity = rawMax > 0 && data.length > 0;
 
   const points = data.map((d, index) => {
-    const x = chartLeft + (index / (data.length - 1)) * chartWidth;
-    const ySales = chartTop + (1 - d.sales / maxY) * (chartHeight - chartTop);
-    const yPurchase = chartTop + (1 - d.purchase / maxY) * (chartHeight - chartTop);
-    const yProfit = chartTop + (1 - d.profit / maxY) * (chartHeight - chartTop);
+    const divisor = data.length > 1 ? data.length - 1 : 1;
+    const x = chartLeft + (index / divisor) * chartWidth;
+    const ySales = chartTop + (1 - Math.min(d.sales, maxY) / maxY) * (chartHeight - chartTop);
+    const yPurchase = chartTop + (1 - Math.min(d.purchase, maxY) / maxY) * (chartHeight - chartTop);
+    const yProfit = chartTop + (1 - Math.min(d.profit, maxY) / maxY) * (chartHeight - chartTop);
     return { ...d, x, ySales, yPurchase, yProfit };
   });
 
-  const salesPath = points.reduce((acc, curr, i) => `${acc} ${i === 0 ? "M" : "L"} ${curr.x} ${curr.ySales}`, "");
-  const purchasePath = points.reduce((acc, curr, i) => `${acc} ${i === 0 ? "M" : "L"} ${curr.x} ${curr.yPurchase}`, "");
-  
+  const salesPath =
+    points.length > 0
+      ? points.reduce(
+          (acc, curr, i) => `${acc} ${i === 0 ? "M" : "L"} ${curr.x} ${curr.ySales}`,
+          ""
+        )
+      : "";
+
+  const purchasePath =
+    points.length > 0
+      ? points.reduce(
+          (acc, curr, i) => `${acc} ${i === 0 ? "M" : "L"} ${curr.x} ${curr.yPurchase}`,
+          ""
+        )
+      : "";
+
   // Profit area polygon: starts at bottom baseline, traces profit/purchase curve, ends at bottom right
-  const areaPath = `${purchasePath} L ${chartRight} ${chartHeight} L ${chartLeft} ${chartHeight} Z`;
+  const areaPath = purchasePath
+    ? `${purchasePath} L ${chartRight} ${chartHeight} L ${chartLeft} ${chartHeight} Z`
+    : "";
 
   return (
     <Card className={`h-full border border-gray-200/90 shadow-2xs flex flex-col justify-between ${className}`}>
@@ -77,17 +95,18 @@ export function TradingPerformance({
         <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           {/* Time Range Selector */}
           <div className="flex items-center gap-0.5 bg-gray-100 p-0.5 rounded-lg text-xs font-semibold">
-            {ranges.map((range) => (
+            {ranges.map((r) => (
               <button
-                key={range.id}
-                onClick={() => setSelectedRange(range.id)}
+                key={r.id}
+                type="button"
+                onClick={() => onRangeChange?.(r.id)}
                 className={`px-2.5 py-1 rounded transition-colors text-xs font-semibold ${
-                  selectedRange === range.id
+                  range === r.id
                     ? "bg-[#0c0d12] text-white shadow-2xs"
                     : "text-gray-600 hover:text-gray-900"
                 }`}
               >
-                {range.label}
+                {r.label}
               </button>
             ))}
           </div>
@@ -112,87 +131,104 @@ export function TradingPerformance({
 
       {/* Chart Canvas */}
       <CardContent className="pt-4 pb-3 flex-1 flex flex-col justify-end">
-        <div
-          role="img"
-          aria-label="Trading performance chart showing sales volume growing from 150K AED to 250K AED and purchase cost rising from 90K AED to 185.4K AED from August 10 to Current"
-          className="relative w-full h-48 sm:h-52 flex flex-col justify-end"
-        >
-          {/* Background Grid Lines & Y-Axis Scale */}
-          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-gray-400 font-mono">
-            <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
-              <span>250K</span>
+        {!hasActivity ? (
+          <div className="h-48 sm:h-52 flex flex-col items-center justify-center text-center p-6 border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
+            <div className="text-xs font-semibold text-gray-500">
+              No trading activity recorded for the selected time range.
             </div>
-            <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
-              <span>180K</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
-              <span>100K</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
-              <span>50K</span>
-            </div>
-            <div className="flex items-center justify-between pb-0.5">
-              <span>0</span>
+            <div className="text-[11px] text-gray-400 mt-1">
+              Sales and landed purchase costs will appear here as transactions are cleared.
             </div>
           </div>
+        ) : (
+          <div
+            role="img"
+            aria-label={`Trading performance chart showing sales, purchases, and margin trends across ${range}`}
+            className="relative w-full h-48 sm:h-52 flex flex-col justify-end"
+          >
+            {/* Background Grid Lines & Y-Axis Scale */}
+            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-gray-400 font-mono">
+              <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
+                <span>{formatShortAED(maxY)}</span>
+              </div>
+              <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
+                <span>{formatShortAED(maxY * 0.75)}</span>
+              </div>
+              <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
+                <span>{formatShortAED(maxY * 0.5)}</span>
+              </div>
+              <div className="flex items-center justify-between border-b border-gray-100/90 pb-0.5">
+                <span>{formatShortAED(maxY * 0.25)}</span>
+              </div>
+              <div className="flex items-center justify-between pb-0.5">
+                <span>0</span>
+              </div>
+            </div>
 
-          {/* Responsive SVG Chart Vector */}
-          <div className="relative w-full h-36 sm:h-40">
-            <svg
-              className="w-full h-full overflow-visible"
-              viewBox="0 0 500 160"
-              preserveAspectRatio="none"
-            >
-              {/* Profit Area Shading */}
-              <path
-                d={areaPath}
-                fill="#f1f5f9"
-                opacity="0.85"
-              />
-
-              {/* Sales Solid Line (Thick Black) */}
-              <path
-                d={salesPath}
-                fill="none"
-                stroke="#0c0d12"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              {/* Point Markers on Sales Series */}
-              {points
-                .filter((p) => p.hasMarker)
-                .map((p, index) => (
-                  <circle
-                    key={index}
-                    cx={p.x}
-                    cy={p.ySales}
-                    r="3"
-                    fill="#0c0d12"
+            {/* Responsive SVG Chart Vector */}
+            <div className="relative w-full h-36 sm:h-40">
+              <svg
+                className="w-full h-full overflow-visible"
+                viewBox="0 0 500 160"
+                preserveAspectRatio="none"
+              >
+                {/* Profit Area Shading */}
+                {areaPath && (
+                  <path
+                    d={areaPath}
+                    fill="#f1f5f9"
+                    opacity="0.85"
                   />
-                ))}
+                )}
 
-              {/* Purchase Dashed Line */}
-              <path
-                d={purchasePath}
-                fill="none"
-                stroke="#64748b"
-                strokeWidth="1.5"
-                strokeDasharray="4 4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+                {/* Sales Solid Line (Thick Black) */}
+                {salesPath && (
+                  <path
+                    d={salesPath}
+                    fill="none"
+                    stroke="#0c0d12"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
 
-          {/* X-Axis Date Labels */}
-          <div className="flex justify-between text-[10px] text-gray-400 pt-2.5 font-mono border-t border-gray-200/90">
-            {data.map((item) => (
-              <span key={item.date}>{item.date}</span>
-            ))}
+                {/* Point Markers on Sales Series */}
+                {points
+                  .filter((p) => p.hasMarker)
+                  .map((p, index) => (
+                    <circle
+                      key={index}
+                      cx={p.x}
+                      cy={p.ySales}
+                      r="3"
+                      fill="#0c0d12"
+                    />
+                  ))}
+
+                {/* Purchase Dashed Line */}
+                {purchasePath && (
+                  <path
+                    d={purchasePath}
+                    fill="none"
+                    stroke="#64748b"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </svg>
+            </div>
+
+            {/* X-Axis Date Labels */}
+            <div className="flex justify-between text-[10px] text-gray-400 pt-2.5 font-mono border-t border-gray-200/90">
+              {data.map((item, idx) => (
+                <span key={`${item.date}-${idx}`}>{item.date}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

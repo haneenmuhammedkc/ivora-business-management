@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from "next/server";
+import { recordDisbursalPayment } from "@/services/investor/settlement.service";
+import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
+import { AuthError, unauthorizedResponse, requireAdmin } from "@/lib/auth/guards";
+import { validateDisbursalPaymentInput } from "@/validators/investor.validator";
+import { prisma } from "@/lib/prisma";
+
+async function resolveBusinessIdForInvestor(investorId: string): Promise<string> {
+  if (investorId.startsWith("admin-")) {
+    return investorId.replace("admin-", "");
+  }
+  if (investorId.startsWith("partner-")) {
+    const parts = investorId.split("-");
+    return parts[1];
+  }
+  const investor = await prisma.investor.findUnique({
+    where: { id: investorId },
+    select: { businessId: true },
+  });
+  if (!investor?.businessId) {
+    throw new AuthError("Investor business not found", 404);
+  }
+  return investor.businessId;
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await requireActiveSession();
+    await requireAdmin();
+    const { id: investorId } = await params;
+    const businessId = await resolveBusinessIdForInvestor(investorId);
+
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
+    }
+
+    const validationResult = validateDisbursalPaymentInput(body);
+    if (!validationResult.isValid || !validationResult.data) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Validation failed",
+          errors: validationResult.errors,
+          message: Object.values(validationResult.errors)[0] || "Validation failed",
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await recordDisbursalPayment(session, {
+      businessId,
+      investorId,
+      capitalAmount: validationResult.data.capitalAmount,
+      profitAmount: validationResult.data.profitAmount,
+      paymentMethod: validationResult.data.paymentMethod,
+      bankReference: validationResult.data.bankReference,
+      escrowAccount: validationResult.data.escrowAccount,
+      transactionDate: validationResult.data.transactionDate,
+      notes: validationResult.data.notes,
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      if (error.statusCode === 404) {
+        return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });
+      }
+      if (error.statusCode === 400) {
+        return NextResponse.json({ success: false, error: "BAD_REQUEST", message: error.message }, { status: 400 });
+      }
+      return error.statusCode === 401
+        ? unauthorizedResponse(error.message)
+        : forbiddenErrorResponse(error.message);
+    }
+    console.error("[Record Investor Disbursal API Error]", error);
+    const msg = error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}

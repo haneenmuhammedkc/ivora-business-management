@@ -6,6 +6,7 @@ import { PartnerDetailsSection, PartnerDetailsFormData } from "./partner-details
 import { PartnerAccessSection, PartnerLoginAccessFormData } from "./partner-access-section";
 import { Button } from "@/components/ui/button";
 import { CheckIcon, ArrowRightIcon } from "@/components/ui/icons";
+import { validatePhone } from "@/validators/partner.validator";
 
 export function AddPartnerForm() {
   const router = useRouter();
@@ -80,6 +81,13 @@ export function AddPartnerForm() {
       newErrors.corporateEmail = "Please enter a valid email address (e.g. name@firm.ae).";
     }
 
+    if (partnerDetails.phone && partnerDetails.phone.trim()) {
+      const phoneError = validatePhone(partnerDetails.phone);
+      if (phoneError) {
+        newErrors.phone = phoneError;
+      }
+    }
+
     // 2. Login Access Validation
     const effectiveLoginEmail = loginAccess.loginEmail.trim() || partnerDetails.corporateEmail.trim();
     if (!effectiveLoginEmail) {
@@ -132,6 +140,7 @@ export function AddPartnerForm() {
         body: JSON.stringify({
           name: partnerDetails.fullName.trim(),
           email: effectiveLoginEmail,
+          phone: partnerDetails.phone?.trim() || undefined,
           temporaryPassword: loginAccess.temporaryPassword,
         }),
         credentials: "include",
@@ -189,10 +198,10 @@ export function AddPartnerForm() {
           </div>
           <div>
             <h2 className="text-base sm:text-lg font-bold text-gray-950">
-              Partner Account Validated & Ready
+              Partner Account Created Successfully
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              The partner profile structure has been validated and prepared for backend provisioning.
+              The partner account is created and ready. The partner can sign in using their registered email and assigned temporary password.
             </p>
           </div>
         </div>
@@ -235,7 +244,7 @@ export function AddPartnerForm() {
             <div className="sm:col-span-2">
               <span className="text-gray-400 font-medium block text-[11px]">CREDENTIAL STATUS</span>
               <span className="font-semibold text-emerald-700 text-xs mt-0.5 block">
-                Temporary Password Configured (Session Staged)
+                Temporary Password Configured
               </span>
             </div>
           </div>
@@ -276,6 +285,7 @@ export function AddPartnerForm() {
         errors={{
           fullName: errors.fullName,
           corporateEmail: errors.corporateEmail,
+          phone: errors.phone,
         }}
       />
 

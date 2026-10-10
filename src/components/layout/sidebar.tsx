@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useAuth } from "@/context/auth-context";
+import { LogoutConfirmationModal } from "./logout-confirmation-modal";
 import {
   IvoraLogo,
   DashboardIcon,
@@ -49,7 +50,9 @@ export interface SidebarProps {
 export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
   const pathname = usePathname();
   const shouldReduceMotion = useReducedMotion();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const logoutTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const userInitials = user?.name
     ? user.name
@@ -64,10 +67,11 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
   const userRoleLabel =
     user?.role === "ADMIN" ? "Main Admin • Root" : "Partner Workspace";
 
-  const handleLogout = async (e: React.MouseEvent) => {
+  const handleLogoutClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    logoutTriggerRef.current = e.currentTarget;
     if (onClose) onClose();
-    await logout();
+    setIsLogoutModalOpen(true);
   };
 
   const sidebarContent = (
@@ -95,7 +99,14 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
       {/* Navigation List */}
       <div className="flex-1 overflow-y-auto px-4 py-2">
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {navItems
+            .filter((item) => {
+              if (item.href === "/settings" && user?.role === "PARTNER") {
+                return false;
+              }
+              return true;
+            })
+            .map((item) => {
             const IconComponent = item.icon;
             const isActive =
               pathname === item.href ||
@@ -163,7 +174,7 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
           </Link>
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={handleLogoutClick}
             className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors shrink-0 ml-1 cursor-pointer"
             title="Sign out"
             aria-label="Sign out"
@@ -215,6 +226,13 @@ export function Sidebar({ isOpen, onClose, className = "" }: SidebarProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Logout Confirmation Modal */}
+      <LogoutConfirmationModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        triggerRef={logoutTriggerRef}
+      />
     </>
   );
 }

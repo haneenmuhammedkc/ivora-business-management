@@ -1,15 +1,12 @@
 "use client";
 
-import React, { useState, use } from "react";
+import React, { use } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
 import { PlusIcon } from "@/components/ui/icons";
-import {
-  BusinessParticipantsTable,
-  InvestorDetailsPanel,
-} from "@/components/admin/investors";
-import { BusinessInvestorDetails, InvestorRecord } from "@/types/investors";
+import { BusinessParticipantsTable } from "@/components/admin/investors";
+import { BusinessInvestorDetails } from "@/types/investors";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 interface PageProps {
@@ -20,7 +17,7 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const businessId = resolvedParams.businessId;
 
-  const { data, error: fetchError, isLoading } = useCachedFetch<{
+  const { data, error: fetchError, isLoading, mutate } = useCachedFetch<{
     success: boolean;
     business: BusinessInvestorDetails;
     message?: string;
@@ -33,14 +30,6 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
     : data && !data.success
     ? data.message || data.error || "Failed to load business investor details"
     : null;
-
-  const [selectedParticipantId, setSelectedParticipantId] = useState<string>("");
-
-  const activeParticipantId =
-    selectedParticipantId || (business?.participants && business.participants.length > 0 ? business.participants[0].id : "");
-
-  const activeParticipant =
-    business?.participants.find((p) => p.id === activeParticipantId) || null;
 
   return (
     <div className="space-y-6 pb-14">
@@ -157,21 +146,11 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
       <FadeUp delay={0.2}>
         <BusinessParticipantsTable
           participants={business?.participants || []}
-          selectedParticipantId={activeParticipantId}
-          onSelectParticipant={(p: InvestorRecord) => setSelectedParticipantId(p.id)}
           isLoading={isLoading}
+          onRefresh={mutate}
         />
       </FadeUp>
-
-      {/* Selected Participant Details Panel */}
-      {activeParticipant && (
-        <FadeUp delay={0.25}>
-          <InvestorDetailsPanel
-            investor={activeParticipant}
-            onClose={() => setSelectedParticipantId("")}
-          />
-        </FadeUp>
-      )}
     </div>
   );
 }
+
