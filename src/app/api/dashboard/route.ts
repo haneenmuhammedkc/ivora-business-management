@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const session = await requireActiveSession();
     const searchParams = req.nextUrl.searchParams;
 
-    const businessId = searchParams.get("businessId") || undefined;
+    const partnerId = searchParams.get("partnerId") || undefined;
     const rawRange = searchParams.get("range");
 
     let range: DashboardRange = "30d";
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await getDashboardData(session, {
-      businessId,
+      partnerId,
       range,
     });
 

@@ -1,13 +1,13 @@
 export type DashboardRange = "7d" | "30d" | "3m" | "1y";
 
 export interface DashboardQuery {
-  businessId?: string;
+  partnerId?: string;
   range?: DashboardRange;
 }
 
 export interface DashboardScope {
-  selectedBusinessId: string;
-  businessName: string;
+  selectedPartnerId: string;
+  partnerName: string;
   role: "ADMIN" | "PARTNER";
   asOfDate: string;
 }
@@ -34,6 +34,7 @@ export interface BusinessPerformanceRecord {
   expensesAED: number;
   netProfitAED: number;
   status: "ACTIVE" | "PENDING" | "COMPLETED";
+  createdAt: string;
 }
 
 export interface DashboardChartPoint {
@@ -56,16 +57,16 @@ export interface InvestorOverviewData {
   pendingSettlementAED: number;
 }
 
-export interface DashboardBusinessOption {
+export interface DashboardPartnerOption {
   id: string;
   name: string;
-  code: string;
+  email?: string;
 }
 
 export interface DashboardResponseData {
   success: boolean;
   scope: DashboardScope;
-  businesses: DashboardBusinessOption[];
+  partners: DashboardPartnerOption[];
   kpis: DashboardKPIs;
   businessPerformance: BusinessPerformanceRecord[];
   tradingPerformance: TradingPerformanceData;

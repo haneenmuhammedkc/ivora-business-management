@@ -106,6 +106,7 @@ export interface InvestorSettlementBreakdownItem {
   totalPaidAED: number;
   pendingOutstandingAED: number;
   status: "Pending" | "Partially Settled" | "Settled";
+  createdAt?: string | Date;
 }
 
 export interface BalanceSheetResponseData {

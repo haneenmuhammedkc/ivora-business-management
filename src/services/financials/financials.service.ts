@@ -211,6 +211,7 @@ export async function getFullProfitLossData(
           name: true,
           code: true,
           partnerEquityPct: true,
+          createdAt: true,
           partner: {
             select: {
               id: true,
@@ -218,7 +219,7 @@ export async function getFullProfitLossData(
             },
           },
         },
-        orderBy: { name: "asc" },
+        orderBy: { createdAt: "desc" },
       }),
       prisma.transaction.findMany({
         where: {
@@ -284,6 +285,7 @@ export async function getFullProfitLossData(
         expensesAED: number;
         partnerEquityPct: number;
         partnerName: string;
+        createdAt: Date;
       }
     >();
 
@@ -296,6 +298,7 @@ export async function getFullProfitLossData(
         expensesAED: 0,
         partnerEquityPct: Number(biz.partnerEquityPct || 0),
         partnerName: biz.partner?.name || "Partner",
+        createdAt: biz.createdAt,
       });
     }
 
@@ -341,6 +344,7 @@ export async function getFullProfitLossData(
         grossProfitAED: bizGross,
         netProfitAED: bizNet,
         netMarginPercent: bizMargin,
+        createdAt: b.createdAt,
       });
     }
 
@@ -703,8 +707,8 @@ export async function getFullBalanceSheetData(
           business: { select: { id: true, name: true, code: true } },
         },
         orderBy: [
-          { business: { name: "asc" } },
-          { investor: { name: "asc" } },
+          { createdAt: "desc" },
+          { id: "desc" },
         ],
       }),
       prisma.transaction.findMany({
@@ -1071,6 +1075,7 @@ export async function getFullBalanceSheetData(
         totalPaidAED: totalPaid,
         pendingOutstandingAED: pending,
         status,
+        createdAt: inv.createdAt,
       });
     }
 

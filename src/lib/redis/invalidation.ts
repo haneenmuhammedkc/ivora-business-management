@@ -26,14 +26,14 @@ export async function invalidateBusinessFinancials(
     CacheKeys.dashboard.data("ADMIN", "", "all", "30d"),
     CacheKeys.dashboard.data("ADMIN", "", "all", "3m"),
     CacheKeys.dashboard.data("ADMIN", "", "all", "1y"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "7d"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "30d"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "3m"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "1y"),
   ];
 
   if (partnerId) {
     keys.push(
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "7d"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "30d"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "3m"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "1y"),
       CacheKeys.businesses.list("PARTNER", partnerId),
       CacheKeys.investors.overview("PARTNER", partnerId),
       CacheKeys.financials.pnl(undefined, partnerId, "PARTNER"),
@@ -44,10 +44,10 @@ export async function invalidateBusinessFinancials(
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "30d"),
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "3m"),
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "1y"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "7d"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "30d"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "3m"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "1y")
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "7d"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "30d"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "3m"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "1y")
     );
   }
 
@@ -108,18 +108,19 @@ export async function invalidateInvestorCaches(
     CacheKeys.dashboard.data("ADMIN", "", "all", "30d"),
     CacheKeys.dashboard.data("ADMIN", "", "all", "3m"),
     CacheKeys.dashboard.data("ADMIN", "", "all", "1y"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "7d"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "30d"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "3m"),
-    CacheKeys.dashboard.data("ADMIN", "", businessId, "1y"),
   ];
 
   if (investorId) {
     keys.push(CacheKeys.investors.detail(investorId));
+    keys.push(CacheKeys.investors.settlement(businessId, investorId));
   }
 
   if (partnerId) {
     keys.push(
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "7d"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "30d"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "3m"),
+      CacheKeys.dashboard.data("ADMIN", "", partnerId, "1y"),
       CacheKeys.investors.overview("PARTNER", partnerId),
       CacheKeys.financials.balanceSheet(undefined, partnerId, "PARTNER"),
       CacheKeys.dashboard.kpis("PARTNER", partnerId),
@@ -127,10 +128,10 @@ export async function invalidateInvestorCaches(
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "30d"),
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "3m"),
       CacheKeys.dashboard.data("PARTNER", partnerId, "all", "1y"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "7d"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "30d"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "3m"),
-      CacheKeys.dashboard.data("PARTNER", partnerId, businessId, "1y")
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "7d"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "30d"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "3m"),
+      CacheKeys.dashboard.data("PARTNER", partnerId, partnerId, "1y")
     );
   }
 
