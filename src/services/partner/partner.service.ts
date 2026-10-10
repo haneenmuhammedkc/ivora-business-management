@@ -5,6 +5,10 @@ import { logAuditEvent } from "@/lib/audit/audit.service";
 import { sendPartnerActivationOtpEmail } from "@/services/email/email.service";
 import { sanitizeUser, SafeUser } from "@/services/auth/auth.service";
 import { AuthTokenType, Prisma, UserRole, UserStatus } from "@prisma/client";
+import { getOrSetCache } from "@/lib/redis/cache";
+import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
+import { invalidatePartnerManagementCache } from "@/lib/redis/invalidation";
+import { PartnerProfitShareItem } from "@/types/settings";
 
 export interface CreatePartnerInput {
   adminUserId: string;
@@ -281,6 +285,8 @@ export async function updatePartnerProfile(params: {
     ipAddress,
   });
 
+  await invalidatePartnerManagementCache();
+
   return {
     success: true,
     partner: updatedPartner,
@@ -348,5 +354,220 @@ export async function updatePartnerStatus(params: {
     ipAddress,
   });
 
+  // Invalidate Redis caches so Settings and Profile remain synchronized
+  await invalidatePartnerManagementCache();
+
   return { success: true };
 }
+
+/**
+ * Fetch authoritative Partner Management data for Settings.
+ * - Computes Paid-In Capital from authoritative Investment / Business records (no double-counting)
+ * - Computes Profit Split Weight from effective rules / override
+ * - Computes Allocated Profit using established Ivora net spread & partner equity
+ * - Computes Outstanding Payout (Allocated Profit minus recorded PROFIT_DISBURSAL transactions)
+ * - Persists and returns Override Status
+ */
+export async function getPartnerManagementData(): Promise<PartnerProfitShareItem[]> {
+  const cacheKey = CacheKeys.settings.partnerManagement();
+
+  return getOrSetCache(cacheKey, CacheTTL.SHORT, async () => {
+    // 1. Fetch all partners with role PARTNER
+    const partners = await prisma.user.findMany({
+      where: { role: UserRole.PARTNER },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        status: true,
+        manualProfitShareOverride: true,
+        businesses: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            totalInvestmentAED: true,
+            adminInvestmentAED: true,
+            partnerInvestmentAED: true,
+            partnerEquityPct: true,
+            status: true,
+            sales: {
+              select: {
+                aedEquivalent: true,
+              },
+            },
+            purchases: {
+              select: {
+                totalLandedCost: true,
+              },
+            },
+            expenses: {
+              where: { isPurchaseLandedCost: false },
+              select: {
+                amount: true,
+              },
+            },
+            transactions: {
+              where: { type: "PROFIT_DISBURSAL" },
+              select: {
+                amount: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const result: PartnerProfitShareItem[] = [];
+
+    for (const partner of partners) {
+      const assignedBusinessesList = partner.businesses.map((b) => ({
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        partnerEquityPct: Number(b.partnerEquityPct || 0),
+      }));
+
+      // Assigned business display text
+      let assignedBusinessText = "No assigned business";
+      if (assignedBusinessesList.length === 1) {
+        assignedBusinessText = `${assignedBusinessesList[0].name} (${assignedBusinessesList[0].code})`;
+      } else if (assignedBusinessesList.length > 1) {
+        assignedBusinessText = assignedBusinessesList
+          .map((b) => `${b.name} (${b.code})`)
+          .join(", ");
+      }
+
+      // Aggregate Paid-In Capital across assigned businesses
+      let totalPaidInCapital = 0;
+      let totalEffectiveSharePct = 0;
+      let totalAllocatedProfit = 0;
+      let totalDisbursed = 0;
+
+      for (const biz of partner.businesses) {
+        const pInv = Number(biz.partnerInvestmentAED || 0);
+        totalPaidInCapital += pInv;
+
+        const equityPct = Number(biz.partnerEquityPct || 0);
+        totalEffectiveSharePct += equityPct;
+
+        // Financial allocation calculation
+        const bSales = biz.sales.reduce((acc, s) => acc + Number(s.aedEquivalent || 0), 0);
+        const bPurchases = biz.purchases.reduce((acc, p) => acc + Number(p.totalLandedCost || 0), 0);
+        const bExpenses = biz.expenses.reduce((acc, e) => acc + Number(e.amount || 0), 0);
+        const bNetProfit = bSales - (bPurchases + bExpenses);
+
+        const bizAllocatedProfit = bNetProfit > 0 && equityPct > 0 ? (bNetProfit * equityPct) / 100 : 0;
+        totalAllocatedProfit += bizAllocatedProfit;
+
+        const bizDisbursed = biz.transactions.reduce((acc, t) => acc + Number(t.amount || 0), 0);
+        totalDisbursed += bizDisbursed;
+      }
+
+      // Effective profit split weight
+      // If multiple businesses, show sum or average depending on representation; here average if > 0 or direct sum
+      const effectiveSplitWeight =
+        partner.businesses.length > 1
+          ? Number((totalEffectiveSharePct / partner.businesses.length).toFixed(2))
+          : Number(totalEffectiveSharePct.toFixed(2));
+
+      // Outstanding payout: non-negative allocated minus disbursed
+      const roundedAllocated = Math.round(totalAllocatedProfit * 100) / 100;
+      const roundedDisbursed = Math.round(totalDisbursed * 100) / 100;
+      const outstandingPayout = Math.max(0, Math.round((roundedAllocated - roundedDisbursed) * 100) / 100);
+
+      const isOverrideEnabled = Boolean(partner.manualProfitShareOverride);
+
+      result.push({
+        id: partner.id,
+        partnerEntity: partner.name,
+        email: partner.email,
+        assignedBusiness: assignedBusinessText,
+        assignedBusinesses: assignedBusinessesList,
+        paidInCapitalAED: totalPaidInCapital,
+        profitSplitWeightPercent: effectiveSplitWeight,
+        allocatedProfitAED: roundedAllocated,
+        outstandingPayoutAED: outstandingPayout,
+        overrideStatus: isOverrideEnabled ? "MANUAL LOCK" : "DEFAULT",
+        overrideEnabled: isOverrideEnabled,
+      });
+    }
+
+    return result;
+  });
+}
+
+/**
+ * Toggle Partner Manual Profit Share Override (ADMIN ONLY).
+ */
+export async function updatePartnerProfitShareOverride(params: {
+  adminUserId: string;
+  partnerId: string;
+  overrideEnabled: boolean;
+  ipAddress?: string;
+}): Promise<{ success: boolean; partner?: { id: string; overrideEnabled: boolean }; error?: string }> {
+  const { adminUserId, partnerId, overrideEnabled, ipAddress } = params;
+
+  const partner = await prisma.user.findFirst({
+    where: { id: partnerId, role: UserRole.PARTNER },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      status: true,
+      manualProfitShareOverride: true,
+    },
+  });
+
+  if (!partner) {
+    return { success: false, error: "Partner account not found" };
+  }
+
+  const oldOverride = partner.manualProfitShareOverride;
+
+  if (oldOverride === overrideEnabled) {
+    return {
+      success: true,
+      partner: {
+        id: partner.id,
+        overrideEnabled: partner.manualProfitShareOverride,
+      },
+    };
+  }
+
+  // Update override field safely
+  const updatedUser = await prisma.user.update({
+    where: { id: partnerId },
+    data: {
+      manualProfitShareOverride: overrideEnabled,
+    },
+    select: {
+      id: true,
+      manualProfitShareOverride: true,
+    },
+  });
+
+  // Write audit log
+  await logAuditEvent({
+    userId: adminUserId,
+    action: "PARTNER_PROFIT_SHARE_OVERRIDE_CHANGED",
+    entity: "User",
+    entityId: partnerId,
+    oldValues: { manualProfitShareOverride: oldOverride },
+    newValues: { manualProfitShareOverride: overrideEnabled },
+    ipAddress,
+  });
+
+  // Invalidate Redis caches
+  await invalidatePartnerManagementCache();
+
+  return {
+    success: true,
+    partner: {
+      id: updatedUser.id,
+      overrideEnabled: updatedUser.manualProfitShareOverride,
+    },
+  };
+}
+

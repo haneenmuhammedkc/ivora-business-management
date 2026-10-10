@@ -7,13 +7,10 @@ import {
   GeneralConfigSection,
   CompanyLicensingSection,
   DeskModulesSidebar,
-  UserManagementRbac,
-  PartnerProfitShare,
   DataExportArchival,
   mockDeskModules,
-  mockUserRbacList,
-  mockPartnerProfitShareList,
 } from "@/components/admin/settings";
+import { ManagePartnersSection } from "@/components/admin/profile";
 
 export default function SettingsPage() {
   const [activeModuleId, setActiveModuleId] = useState("general");
@@ -26,19 +23,11 @@ export default function SettingsPage() {
       case "company":
         return <CompanyLicensingSection />;
 
-      case "users":
-        return <UserManagementRbac users={mockUserRbacList} />;
-
       case "partners":
-        return <PartnerProfitShare partners={mockPartnerProfitShareList} />;
+        return <ManagePartnersSection />;
 
       case "entities":
-        return (
-          <div className="space-y-6">
-            <CompanyLicensingSection />
-            <UserManagementRbac users={mockUserRbacList} />
-          </div>
-        );
+        return <CompanyLicensingSection />;
 
       case "audit":
         return <DataExportArchival />;

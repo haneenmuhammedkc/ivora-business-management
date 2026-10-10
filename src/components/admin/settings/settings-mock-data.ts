@@ -7,9 +7,8 @@ import {
 export const mockDeskModules: DeskModuleItem[] = [
   { id: "general", name: "General", iconName: "general", isActive: true },
   { id: "company", name: "Company & Legal", iconName: "company", badge: "DIFC", badgeVariant: "gray" },
-  { id: "users", name: "Users & Access Control", iconName: "users", badge: "3 Active", badgeVariant: "blue" },
-  { id: "partners", name: "Partner Management", iconName: "partners", badge: "2 Partners", badgeVariant: "blue" },
-  { id: "entities", name: "Business Entities", iconName: "entities", badge: "2 Entities", badgeVariant: "blue" },
+  { id: "partners", name: "Partner Management", iconName: "partners", badge: "Partners", badgeVariant: "blue" },
+  { id: "entities", name: "Business Entities", iconName: "entities", badge: "Entities", badgeVariant: "blue" },
   { id: "audit", name: "Audit & Compliance", iconName: "audit", badge: "SHA-256", badgeVariant: "gray" },
   { id: "danger", name: "Danger Zone", iconName: "danger", badge: "ROOT", badgeVariant: "outline", isDanger: true },
 ];
@@ -60,6 +59,7 @@ export const mockPartnerProfitShareList: PartnerProfitShareItem[] = [
     allocatedProfitAED: 9600.0,
     outstandingPayoutAED: 3600.0,
     overrideStatus: "MANUAL LOCK",
+    overrideEnabled: true,
   },
   {
     id: "ptn-02",
@@ -70,6 +70,7 @@ export const mockPartnerProfitShareList: PartnerProfitShareItem[] = [
     allocatedProfitAED: 4672.5,
     outstandingPayoutAED: 0.0,
     overrideStatus: "MANUAL LOCK",
+    overrideEnabled: true,
   },
 ];
 

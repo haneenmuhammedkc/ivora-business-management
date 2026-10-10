@@ -49,6 +49,7 @@ export function ManagePartnersSection({
   const [partnerList, setPartnerList] = useState<PartnerItem[]>(
     partners || []
   );
+  const [isLoading, setIsLoading] = useState<boolean>(!partners);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -114,15 +115,18 @@ export function ManagePartnersSection({
 
     let isSubscribed = true;
 
-    fetch("/api/partners", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+    async function fetchPartners() {
+      try {
+        const res = await fetch("/api/partners", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+        });
+
+        const data = await (res.ok ? res.json() : null);
+
         if (isSubscribed && data?.success && Array.isArray(data.partners)) {
           interface RawPartner {
             id: string;
@@ -157,13 +161,22 @@ export function ManagePartnersSection({
 
           setPartnerList(mapped);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error(
           "[ManagePartnersSection] Failed to load partners:",
           err
         );
-      });
+        if (isSubscribed) {
+          setActionError("Failed to load partner accounts from server.");
+        }
+      } finally {
+        if (isSubscribed) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void fetchPartners();
 
     return () => {
       isSubscribed = false;
@@ -176,7 +189,7 @@ export function ManagePartnersSection({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-4 border-b border-gray-100 gap-3 bg-white">
         <div>
           <h2 className="text-xs sm:text-sm font-black text-gray-950 uppercase tracking-wide">
-            Manage Partners
+            MANAGE PARTNERS
           </h2>
 
           <p className="text-[11px] text-gray-500 font-normal mt-0.5">
@@ -233,7 +246,23 @@ export function ManagePartnersSection({
             </thead>
 
             <tbody className="divide-y divide-gray-100 bg-white">
-              {partnerList.map((partner) => {
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+                      <span className="text-xs font-semibold">Loading partners...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : partnerList.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-xs">
+                    No partner accounts registered in the system.
+                  </td>
+                </tr>
+              ) : (
+                partnerList.map((partner) => {
                 const isActive = partner.status === "ACTIVE";
                 const isUpdating = updatingId === partner.id;
 
@@ -336,7 +365,7 @@ export function ManagePartnersSection({
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>

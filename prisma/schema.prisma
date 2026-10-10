@@ -103,6 +103,7 @@ model User {
   passwordChangedAt  DateTime?
   twoFactorEnabled   Boolean    @default(false)
   lastLoginAt        DateTime?
+  manualProfitShareOverride Boolean    @default(false)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 

@@ -65,6 +65,9 @@ export const CacheKeys = {
     overview: (scope: string, queryHash: string) => `${PREFIX}:reports:overview:${scope}:${queryHash}`,
     detail: (reportType: string, scope: string, queryHash: string) => `${PREFIX}:reports:detail:${reportType}:${scope}:${queryHash}`,
   },
+  settings: {
+    partnerManagement: () => `${PREFIX}:settings:partner-management`,
+  },
 };
 
 export const CacheTTL = {

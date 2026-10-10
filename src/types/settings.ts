@@ -20,14 +20,24 @@ export interface UserRbacItem {
   lastActive: string;
 }
 
+export interface PartnerAssignedBusiness {
+  id: string;
+  name: string;
+  code: string;
+  partnerEquityPct: number;
+}
+
 export interface PartnerProfitShareItem {
   id: string;
   partnerEntity: string;
+  email?: string;
   assignedBusiness: string;
+  assignedBusinesses?: PartnerAssignedBusiness[];
   paidInCapitalAED: number;
   profitSplitWeightPercent: number;
   allocatedProfitAED: number;
   outstandingPayoutAED: number;
   overrideStatus: string;
+  overrideEnabled?: boolean;
 }
 

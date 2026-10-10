@@ -110,3 +110,10 @@ export async function invalidateAllBusinessScoped(
   await invalidateCacheByPattern(`${PREFIX}:biz:${businessId}:*`);
   await invalidateBusinessFinancials(businessId, partnerId);
 }
+
+/**
+ * Invalidate Settings Partner Management cache.
+ */
+export async function invalidatePartnerManagementCache(): Promise<void> {
+  await invalidateCacheKeys(CacheKeys.settings.partnerManagement());
+}
