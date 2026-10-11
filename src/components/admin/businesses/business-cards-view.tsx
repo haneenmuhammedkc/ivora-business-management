@@ -80,7 +80,15 @@ export function BusinessCardsView({
                         <h3 className="font-bold text-gray-950 text-base">
                           {b.name}
                         </h3>
-                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wider text-gray-800 border border-gray-300 rounded uppercase">
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-bold tracking-wider rounded uppercase ${
+                            b.status === "SETTLED"
+                              ? "bg-purple-50 text-purple-700 border border-purple-200"
+                              : b.status === "ACTIVE"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "text-gray-800 border border-gray-300"
+                          }`}
+                        >
                           {b.status}
                         </span>
                       </div>

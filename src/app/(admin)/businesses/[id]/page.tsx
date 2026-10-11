@@ -113,7 +113,15 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <h1 className="text-xl sm:text-2xl font-black text-gray-950 tracking-tight">
                 {business.name}
               </h1>
-              <span className="px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-gray-800 border border-gray-300 rounded uppercase bg-gray-50/80">
+              <span
+                className={`px-2.5 py-0.5 text-[10px] font-bold tracking-wider rounded uppercase ${
+                  business.status === "SETTLED"
+                    ? "bg-purple-50 text-purple-700 border border-purple-200"
+                    : business.status === "ACTIVE"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "text-gray-800 border border-gray-300 bg-gray-50/80"
+                }`}
+              >
                 {business.status}
               </span>
               <span className="px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-blue-700 border border-blue-200 rounded uppercase bg-blue-50/80">

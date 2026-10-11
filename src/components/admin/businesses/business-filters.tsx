@@ -75,6 +75,7 @@ export function BusinessFilters({
               { value: "all", label: "All Status" },
               { value: "ACTIVE", label: "Active" },
               { value: "INACTIVE", label: "Inactive" },
+              { value: "SETTLED", label: "Settled" },
             ]}
             prefixLabel="Status"
             className="h-10 text-xs"

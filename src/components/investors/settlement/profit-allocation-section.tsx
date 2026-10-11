@@ -29,7 +29,6 @@ export function ProfitAllocationSection({
 
   const netProfit = settlement.netProfitAED;
   const isLocked = settlement.isAllocationLocked;
-  const isExternalInvestor = settlement.investor.participantType === "INVESTOR";
 
   const numericProfitAmount = useMemo(() => {
     const raw = profitAmount.trim();
@@ -50,7 +49,7 @@ export function ProfitAllocationSection({
 
   const handleSaveAllocation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin || isLocked || !isExternalInvestor) return;
+    if (!isAdmin || isLocked) return;
 
     if (isExceedingNetProfit) {
       setFeedback({
@@ -165,18 +164,23 @@ export function ProfitAllocationSection({
             {/* Field 2: Investor Profit Amount */}
             <div>
               <label className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                INVESTOR PROFIT AMOUNT (AED)
+                {settlement.investor.participantType === "ADMIN"
+                  ? "ADMIN"
+                  : settlement.investor.participantType === "PARTNER"
+                  ? "PARTNER"
+                  : "INVESTOR"}{" "}
+                PROFIT AMOUNT (AED)
               </label>
               <div className="relative">
                 <input
                   type="number"
                   step="0.01"
                   min="0"
-                  disabled={!isAdmin || isLocked || !isExternalInvestor || isSubmitting}
+                  disabled={!isAdmin || isLocked || isSubmitting}
                   value={profitAmount}
                   onChange={(e) => setProfitAmount(e.target.value)}
                   className={`w-full h-10 px-3.5 rounded-lg border text-xs font-bold text-gray-900 transition-colors focus:outline-none focus:ring-1 ${
-                    isLocked || !isAdmin || !isExternalInvestor
+                    isLocked || !isAdmin
                       ? "bg-gray-50/80 border-gray-200 text-gray-700 cursor-not-allowed"
                       : isExceedingNetProfit
                       ? "border-red-300 focus:ring-red-500 bg-red-50/20"
@@ -204,12 +208,12 @@ export function ProfitAllocationSection({
                 </span>
               </div>
               <span className="text-[10px] text-gray-400 mt-1 block">
-                Calculated: (Investor Profit ÷ Total Profit) × 100.
+                Calculated: (Participant Profit ÷ Total Profit) × 100.
               </span>
             </div>
           </div>
 
-          {isAdmin && !isLocked && isExternalInvestor && (
+          {isAdmin && !isLocked && (
             <div className="flex justify-end pt-2">
               <button
                 type="submit"

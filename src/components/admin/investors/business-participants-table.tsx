@@ -159,7 +159,15 @@ export function BusinessParticipantsTable({
 
                     {/* Status */}
                     <td className="px-3.5 py-4 text-center">
-                      <span className="inline-block px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-gray-900 border border-gray-900 rounded uppercase">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 text-[10px] font-bold tracking-wider rounded uppercase ${
+                          p.status === "SETTLED"
+                            ? "bg-purple-50 text-purple-700 border border-purple-200"
+                            : p.status === "ACTIVE"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "text-gray-900 border border-gray-900"
+                        }`}
+                      >
                         {p.status}
                       </span>
                     </td>

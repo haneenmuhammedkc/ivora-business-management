@@ -22,7 +22,7 @@ export interface BusinessEntity {
   expensesAED: number;
   netProfitAED: number;
   marginPercentage: number;
-  status: "ACTIVE" | "INACTIVE" | "PENDING";
+  status: "ACTIVE" | "INACTIVE" | "PENDING" | "SETTLED";
   createdAt: string;
   productType: string;
   locationRoute: string;
@@ -133,7 +133,7 @@ export interface BusinessWorkspaceDetail {
   expensesAED: number;
   netProfitAED: number;
   marginPercentage: number;
-  status: "ACTIVE" | "INACTIVE" | "PENDING";
+  status: "ACTIVE" | "INACTIVE" | "PENDING" | "SETTLED";
   partnerId: string;
   partnerName: string;
   partnersSummary: string;

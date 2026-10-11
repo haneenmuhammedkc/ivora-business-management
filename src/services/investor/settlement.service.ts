@@ -3,8 +3,9 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, TransactionType, PaymentMethod, UserRole } from "@prisma/client";
+import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType } from "@prisma/client";
 import { getFullProfitLossData } from "@/services/financials/financials.service";
+import { ensureBusinessParticipants } from "@/services/investor/investor.service";
 import { invalidateInvestorCaches, invalidateBusinessFinancials } from "@/lib/redis/invalidation";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
@@ -122,11 +123,14 @@ export async function getInvestorSettlementOverview(
   if (
     !investorId.startsWith("admin-") &&
     !investorId.startsWith("partner-") &&
-    investorId !== `INV-ADM-${businessId}` &&
-    investorId !== `INV-PTR-${businessId}`
+    !investorId.startsWith("INV-ADM-") &&
+    !investorId.startsWith("INV-PTR-")
   ) {
     await requireResourceAccess("Investor", investorId, "READ", session);
   }
+
+  // Ensure DB participants exist
+  await ensureBusinessParticipants(businessId);
 
   const cacheKey = CacheKeys.investors.settlement(businessId, investorId);
 
@@ -159,8 +163,35 @@ export async function getInvestorSettlementOverview(
     let committedAmount = 0;
     let contractualSharePct = 0;
     let persistedAllocatedProfitAED: number | null = null;
+    const relatedInvestorIds: string[] = [investorId];
 
-    if (investorId.startsWith("admin-") || investorId === `INV-ADM-${business.code}`) {
+    // Check if investorId matches an existing DB record
+    const dbInvestor = await prisma.investor.findFirst({
+      where: {
+        OR: [{ id: investorId }, { code: investorId }],
+      },
+      include: {
+        investments: {
+          where: { businessId },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    const isAdmin =
+      investorId.startsWith("admin-") ||
+      investorId === `INV-ADM-${business.code}` ||
+      dbInvestor?.type === InvestorType.ADMIN ||
+      dbInvestor?.code === `INV-ADM-${business.code}`;
+
+    const isPartner =
+      investorId.startsWith("partner-") ||
+      investorId === `INV-PTR-${business.code}` ||
+      investorId === business.partnerId ||
+      dbInvestor?.type === InvestorType.PARTNER ||
+      dbInvestor?.code === `INV-PTR-${business.code}`;
+
+    if (isAdmin) {
       participantType = "ADMIN";
       participantName = "Ivora Admin";
       participantCode = `INV-ADM-${business.code}`;
@@ -171,11 +202,31 @@ export async function getInvestorSettlementOverview(
         totalBizInv > 0 && committedAmount > 0
           ? Number(((committedAmount / totalBizInv) * 100).toFixed(2))
           : 0;
-    } else if (
-      investorId.startsWith("partner-") ||
-      investorId === `INV-PTR-${business.code}` ||
-      investorId === business.partnerId
-    ) {
+
+      const adminInvestor =
+        dbInvestor?.type === InvestorType.ADMIN
+          ? dbInvestor
+          : await prisma.investor.findFirst({
+              where: {
+                businessId,
+                type: InvestorType.ADMIN,
+              },
+              include: {
+                investments: {
+                  where: { businessId },
+                  orderBy: { createdAt: "desc" },
+                },
+              },
+            });
+
+      if (adminInvestor) {
+        relatedInvestorIds.push(adminInvestor.id);
+        const inv = adminInvestor.investments[0];
+        if (inv && inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+          persistedAllocatedProfitAED = Number(inv.allocatedProfitAmount);
+        }
+      }
+    } else if (isPartner) {
       participantType = "PARTNER";
       participantName = business.partner?.name || "Partner";
       participantCode = `INV-PTR-${business.code}`;
@@ -183,29 +234,47 @@ export async function getInvestorSettlementOverview(
       participantPhone = business.partner?.phone || null;
       committedAmount = Number(business.partnerInvestmentAED) || 0;
       contractualSharePct = Number(business.partnerEquityPct) || 0;
+
+      const partnerInvestor =
+        dbInvestor?.type === InvestorType.PARTNER
+          ? dbInvestor
+          : await prisma.investor.findFirst({
+              where: {
+                businessId,
+                type: InvestorType.PARTNER,
+              },
+              include: {
+                investments: {
+                  where: { businessId },
+                  orderBy: { createdAt: "desc" },
+                },
+              },
+            });
+
+      if (partnerInvestor) {
+        relatedInvestorIds.push(partnerInvestor.id);
+        const inv = partnerInvestor.investments[0];
+        if (inv && inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+          persistedAllocatedProfitAED = Number(inv.allocatedProfitAmount);
+        }
+      }
+      if (business.partnerId) {
+        relatedInvestorIds.push(business.partnerId);
+      }
     } else {
       // External Investor
-      const investor = await prisma.investor.findUnique({
-        where: { id: investorId },
-        include: {
-          investments: {
-            where: { businessId },
-            orderBy: { createdAt: "desc" },
-          },
-        },
-      });
-
-      if (!investor) {
+      if (!dbInvestor) {
         throw new AuthError("Investor not found", 404);
       }
 
       participantType = "INVESTOR";
-      participantName = investor.name;
-      participantCode = investor.code;
-      participantEmail = investor.email || null;
-      participantPhone = investor.phone || null;
+      participantName = dbInvestor.name;
+      participantCode = dbInvestor.code;
+      participantEmail = dbInvestor.email || null;
+      participantPhone = dbInvestor.phone || null;
+      relatedInvestorIds.push(dbInvestor.id);
 
-      const primaryInvestment = investor.investments[0];
+      const primaryInvestment = dbInvestor.investments[0];
       if (primaryInvestment) {
         committedAmount = Number(primaryInvestment.committedAmount) || 0;
         contractualSharePct = Number(primaryInvestment.profitSharePct) || 0;
@@ -214,7 +283,7 @@ export async function getInvestorSettlementOverview(
         }
       } else {
         committedAmount = 0;
-        contractualSharePct = Number(investor.defaultSharePct) || 0;
+        contractualSharePct = Number(dbInvestor.defaultSharePct) || 0;
       }
     }
 
@@ -227,15 +296,12 @@ export async function getInvestorSettlementOverview(
     const allocatedProfitAED =
       persistedAllocatedProfitAED !== null ? persistedAllocatedProfitAED : defaultAllocatedProfitAED;
 
-    // 5. Query all historical settlement transactions for this investor and business
+    // 5. Query all historical settlement transactions for this participant and business
+    const cleanInvestorIds = Array.from(new Set(relatedInvestorIds.filter(Boolean)));
     const transactions = await prisma.transaction.findMany({
       where: {
         businessId,
-        ...(participantType === "INVESTOR"
-          ? { investorId }
-          : {
-              investorId: investorId,
-            }),
+        investorId: { in: cleanInvestorIds },
         type: {
           in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
         },
@@ -392,6 +458,9 @@ export async function updateInvestorProfitAllocation(
 
   const allocDecimal = new Prisma.Decimal(allocatedProfitAmount.toFixed(2));
 
+  // Ensure DB participants exist
+  await ensureBusinessParticipants(businessId);
+
   // 1. Fetch business and check P&L net profit
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -419,19 +488,44 @@ export async function updateInvestorProfitAllocation(
   }
 
   // 2. Locate the specific investment record
-  const targetInvestment = await prisma.investment.findFirst({
-    where: { investorId, businessId },
-  });
+  const isAdmin =
+    investorId.startsWith("admin-") ||
+    investorId === `INV-ADM-${business.code}`;
+  const isPartner =
+    investorId.startsWith("partner-") ||
+    investorId === `INV-PTR-${business.code}` ||
+    investorId === business.partnerId;
+
+  let targetInvestment = null;
+  if (isAdmin) {
+    targetInvestment = business.investments.find(
+      (inv) => inv.investor.type === InvestorType.ADMIN || inv.investor.code === `INV-ADM-${business.code}`
+    );
+  } else if (isPartner) {
+    targetInvestment = business.investments.find(
+      (inv) => inv.investor.type === InvestorType.PARTNER || inv.investor.code === `INV-PTR-${business.code}`
+    );
+  } else {
+    targetInvestment = business.investments.find(
+      (inv) =>
+        inv.investorId === investorId ||
+        inv.investor.id === investorId ||
+        inv.investor.code === investorId
+    );
+  }
 
   if (!targetInvestment) {
-    throw new AuthError("No investment contract found for this investor in the selected business.", 404);
+    throw new AuthError("No investment contract found for this participant in the selected business.", 404);
   }
 
   // 3. Phase 6 Allocation Lock Check: Has any payment been executed?
+  const relatedInvestorIds = Array.from(
+    new Set([investorId, targetInvestment.investorId, targetInvestment.investor?.id].filter(Boolean))
+  );
   const existingPayments = await prisma.transaction.count({
     where: {
       businessId,
-      investorId,
+      investorId: { in: relatedInvestorIds },
       type: {
         in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
       },
@@ -440,29 +534,20 @@ export async function updateInvestorProfitAllocation(
 
   if (existingPayments > 0) {
     throw new AuthError(
-      "Profit allocation is locked and cannot be modified because disbursal payments have already commenced for this investor.",
+      "Profit allocation is locked and cannot be modified because disbursal payments have already commenced for this participant.",
       400
     );
   }
 
   // 4. Global Reconciliation Check: Sum of all allocations <= Net Profit
+  // Deduct target participant's old allocation (by skipping targetInvestment) and do not double count partner equity
   let otherAllocationsSum = new Prisma.Decimal(0);
   for (const inv of business.investments) {
     if (inv.id === targetInvestment.id) continue;
     if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
       otherAllocationsSum = otherAllocationsSum.plus(inv.allocatedProfitAmount);
-    } else {
-      // Default formula for other investors
-      const share = Number(inv.profitSharePct) || 0;
-      const calc = (netProfitAED * share) / 100;
-      otherAllocationsSum = otherAllocationsSum.plus(new Prisma.Decimal(calc.toFixed(2)));
     }
   }
-
-  // Also include partner equity profit if applicable
-  const partnerShare = Number(business.partnerEquityPct) || 0;
-  const partnerAlloc = (netProfitAED * partnerShare) / 100;
-  otherAllocationsSum = otherAllocationsSum.plus(new Prisma.Decimal(partnerAlloc.toFixed(2)));
 
   const totalAllocatedSum = otherAllocationsSum.plus(allocDecimal);
   if (totalAllocatedSum.gt(netProfitDecimal.plus(new Prisma.Decimal("0.05")))) {
@@ -496,6 +581,9 @@ export async function updateInvestorProfitAllocation(
   // 7. Invalidate caches
   try {
     await invalidateInvestorCaches(businessId, business.partnerId, investorId);
+    if (targetInvestment.investor?.id && targetInvestment.investor.id !== investorId) {
+      await invalidateInvestorCaches(businessId, business.partnerId, targetInvestment.investor.id);
+    }
     await invalidateBusinessFinancials(businessId, business.partnerId);
   } catch (err) {
     console.error("Cache invalidation failed (non-fatal):", err);
@@ -574,43 +662,87 @@ export async function recordDisbursalPayment(
     console.warn(`[Record Disbursal] Failed to prefetch PnL net profit for business ${businessId}:`, err);
   }
 
+  // Ensure DB participants exist
+  await ensureBusinessParticipants(businessId);
+
   // ATOMIC DATABASE TRANSACTION
   const result = await prisma.$transaction(
     async (tx) => {
       // 1. Fetch business
       const business = await tx.business.findUnique({
         where: { id: businessId },
-        select: { id: true, partnerId: true, code: true },
+        select: { id: true, partnerId: true, code: true, status: true },
       });
       if (!business) {
         throw new AuthError("Business not found", 404);
       }
 
-      // 2. Fetch investor & investment
-      const investor = await tx.investor.findUnique({
-        where: { id: investorId },
-        select: {
-          id: true,
-          code: true,
-          investments: {
-            where: { businessId },
-            select: {
-              id: true,
-              committedAmount: true,
-              profitSharePct: true,
-              allocatedProfitAmount: true,
+      // 2. Resolve participant & target investment
+      const isAdmin =
+        investorId.startsWith("admin-") ||
+        investorId === `INV-ADM-${business.code}`;
+      const isPartner =
+        investorId.startsWith("partner-") ||
+        investorId === `INV-PTR-${business.code}` ||
+        investorId === business.partnerId;
+
+      let targetInvestor = null;
+      if (isAdmin) {
+        targetInvestor = await tx.investor.findFirst({
+          where: { businessId, type: InvestorType.ADMIN },
+          include: {
+            investments: {
+              where: { businessId },
+              select: {
+                id: true,
+                committedAmount: true,
+                profitSharePct: true,
+                allocatedProfitAmount: true,
+              },
             },
           },
-        },
-      });
+        });
+      } else if (isPartner) {
+        targetInvestor = await tx.investor.findFirst({
+          where: { businessId, type: InvestorType.PARTNER },
+          include: {
+            investments: {
+              where: { businessId },
+              select: {
+                id: true,
+                committedAmount: true,
+                profitSharePct: true,
+                allocatedProfitAmount: true,
+              },
+            },
+          },
+        });
+      } else {
+        targetInvestor = await tx.investor.findFirst({
+          where: {
+            OR: [{ id: investorId }, { code: investorId }],
+          },
+          include: {
+            investments: {
+              where: { businessId },
+              select: {
+                id: true,
+                committedAmount: true,
+                profitSharePct: true,
+                allocatedProfitAmount: true,
+              },
+            },
+          },
+        });
+      }
 
-      if (!investor) {
+      if (!targetInvestor) {
         throw new AuthError("Investor not found", 404);
       }
 
-      const investment = investor.investments[0];
+      const investment = targetInvestor.investments[0];
       if (!investment) {
-        throw new AuthError("No investment contract found for this investor in the business.", 404);
+        throw new AuthError("No investment contract found for this participant in the business.", 404);
       }
 
       const totalCommittedDecimal = investment.committedAmount;
@@ -624,11 +756,12 @@ export async function recordDisbursalPayment(
         allocatedProfitDecimal = new Prisma.Decimal(defaultAlloc.toFixed(2));
       }
 
-      // 3. Re-read all existing settlement transactions in the same transaction
+      // 3. Re-read all existing settlement transactions for this participant in the same transaction
+      const participantIds = Array.from(new Set([investorId, targetInvestor.id].filter(Boolean)));
       const priorTransactions = await tx.transaction.findMany({
         where: {
           businessId,
-          investorId,
+          investorId: { in: participantIds },
           type: {
             in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
           },
@@ -672,18 +805,16 @@ export async function recordDisbursalPayment(
 
       // 5. Create atomic transaction records
       const createdTransactions: Array<{ id: string; transactionCode: string; amount: number; type: TransactionType }> = [];
-
-      // Common reference for grouping
-      const cleanRef = bankReference?.trim() || `DISB-${investor.code}-${Date.now().toString(36).toUpperCase()}`;
+      const cleanRef = bankReference?.trim() || `DISB-${targetInvestor.code}-${Date.now().toString(36).toUpperCase()}`;
 
       // A. Principal Capital Return ledger row
       if (capDecimal.gt(0)) {
-        const capCode = generateDisbursalTransactionCode("CAP", investor.code);
+        const capCode = generateDisbursalTransactionCode("CAP", targetInvestor.code);
         const capTx = await tx.transaction.create({
           data: {
             transactionCode: capCode,
             businessId,
-            investorId,
+            investorId: targetInvestor.id,
             amount: capDecimal,
             type: TransactionType.CAPITAL_RETURN,
             paymentMethod,
@@ -702,12 +833,12 @@ export async function recordDisbursalPayment(
 
       // B. Profit Disbursal ledger row
       if (prfDecimal.gt(0)) {
-        const prfCode = generateDisbursalTransactionCode("PRF", investor.code);
+        const prfCode = generateDisbursalTransactionCode("PRF", targetInvestor.code);
         const prfTx = await tx.transaction.create({
           data: {
             transactionCode: prfCode,
             businessId,
-            investorId,
+            investorId: targetInvestor.id,
             amount: prfDecimal,
             type: TransactionType.PROFIT_DISBURSAL,
             paymentMethod,
@@ -724,24 +855,103 @@ export async function recordDisbursalPayment(
         });
       }
 
-      // 6. Check if newly updated total outstanding is <= 0
+      // 6. Check if participant is now fully settled
       const newRemainingCapital = outstandingCapital.minus(capDecimal);
       const newRemainingProfit = outstandingProfit.minus(prfDecimal);
       const newTotalOutstanding = newRemainingCapital.plus(newRemainingProfit);
 
-      const isFullySettled = newTotalOutstanding.lte(new Prisma.Decimal("0.005"));
+      const isParticipantFullySettled = newTotalOutstanding.lte(epsilon);
 
-      if (isFullySettled) {
+      if (isParticipantFullySettled) {
         await tx.investment.update({
           where: { id: investment.id },
           data: { status: "SETTLED" },
         });
       }
 
+      // 7. Dynamic Business Settlement Check:
+      // Verify whether all active participants of the business are fully settled
+      const allInvestments = await tx.investment.findMany({
+        where: { businessId },
+        include: { investor: true },
+      });
+
+      const allSettlementTxs = await tx.transaction.findMany({
+        where: {
+          businessId,
+          type: {
+            in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL],
+          },
+        },
+        select: {
+          investorId: true,
+          amount: true,
+          type: true,
+        },
+      });
+
+      const paidByInvestor = new Map<string, { capital: Prisma.Decimal; profit: Prisma.Decimal }>();
+      for (const txRow of allSettlementTxs) {
+        if (!txRow.investorId) continue;
+        const current = paidByInvestor.get(txRow.investorId) || {
+          capital: new Prisma.Decimal(0),
+          profit: new Prisma.Decimal(0),
+        };
+        if (txRow.type === TransactionType.CAPITAL_RETURN) {
+          current.capital = current.capital.plus(txRow.amount);
+        } else if (txRow.type === TransactionType.PROFIT_DISBURSAL) {
+          current.profit = current.profit.plus(txRow.amount);
+        }
+        paidByInvestor.set(txRow.investorId, current);
+      }
+
+      let allParticipantsSettled = true;
+      for (const inv of allInvestments) {
+        const committed = inv.committedAmount;
+        let allocProfit: Prisma.Decimal;
+        if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+          allocProfit = inv.allocatedProfitAmount;
+        } else {
+          const share = Number(inv.profitSharePct) || 0;
+          const calc = (precomputedNetProfitAED * share) / 100;
+          allocProfit = new Prisma.Decimal(calc.toFixed(2));
+        }
+
+        const paid = paidByInvestor.get(inv.investorId) || {
+          capital: new Prisma.Decimal(0),
+          profit: new Prisma.Decimal(0),
+        };
+
+        const remCap = Prisma.Decimal.max(new Prisma.Decimal(0), committed.minus(paid.capital));
+        const remPrf = Prisma.Decimal.max(new Prisma.Decimal(0), allocProfit.minus(paid.profit));
+        const remTotal = remCap.plus(remPrf);
+
+        if (remTotal.gt(epsilon)) {
+          allParticipantsSettled = false;
+          break;
+        }
+      }
+
+      let businessSettled = false;
+      if (allParticipantsSettled && allInvestments.length > 0) {
+        await tx.business.update({
+          where: { id: businessId },
+          data: { status: "SETTLED" },
+        });
+        businessSettled = true;
+      } else if (business.status === "SETTLED" && !allParticipantsSettled) {
+        await tx.business.update({
+          where: { id: businessId },
+          data: { status: "ACTIVE" },
+        });
+      }
+
       return {
         createdTransactions,
-        isFullySettled,
+        isFullySettled: isParticipantFullySettled,
+        businessSettled,
         partnerId: business.partnerId,
+        targetInvestorId: targetInvestor.id,
       };
     },
     {
@@ -750,14 +960,15 @@ export async function recordDisbursalPayment(
     }
   );
 
-  // 7. Audit Log
+  // 8. Audit Log
   await logAuditEvent({
     userId: session.userId,
     action: "INVESTOR_DISBURSAL_RECORDED",
     entity: "Investor",
-    entityId: investorId,
+    entityId: result.targetInvestorId,
     newValues: {
       businessId,
+      investorId,
       capitalAmount: capNum,
       profitAmount: prfNum,
       totalPayment: totalPaymentNum,
@@ -766,12 +977,16 @@ export async function recordDisbursalPayment(
       notes,
       transactions: result.createdTransactions,
       isFullySettled: result.isFullySettled,
+      businessSettled: result.businessSettled,
     },
   });
 
-  // 8. Cache Invalidation
+  // 9. Cache Invalidation
   try {
     await invalidateInvestorCaches(businessId, result.partnerId, investorId);
+    if (result.targetInvestorId && result.targetInvestorId !== investorId) {
+      await invalidateInvestorCaches(businessId, result.partnerId, result.targetInvestorId);
+    }
     await invalidateBusinessFinancials(businessId, result.partnerId);
   } catch (err) {
     console.error("Cache invalidation error (non-fatal):", err);

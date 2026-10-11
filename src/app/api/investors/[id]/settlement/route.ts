@@ -16,8 +16,10 @@ async function resolveBusinessIdForInvestor(investorId: string): Promise<string>
     const parts = investorId.split("-");
     return parts[1];
   }
-  const investor = await prisma.investor.findUnique({
-    where: { id: investorId },
+  const investor = await prisma.investor.findFirst({
+    where: {
+      OR: [{ id: investorId }, { code: investorId }],
+    },
     select: { businessId: true },
   });
   if (!investor?.businessId) {

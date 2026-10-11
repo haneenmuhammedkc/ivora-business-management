@@ -149,8 +149,8 @@ export async function ensureBusinessParticipants(businessId: string) {
     }
   }
 
-  // 2. PARTNER PARTICIPANT (Only if partnerInvestmentAED > 0)
-  if (partnerInvVal.gt(0)) {
+  // 2. PARTNER PARTICIPANT (If partnerInvestmentAED > 0 OR partnerEquityPct > 0 OR partner assigned)
+  if (partnerInvVal.gt(0) || partnerEquityVal.gt(0) || Boolean(business.partnerId)) {
     let partnerInvestor = await prisma.investor.findUnique({
       where: { code: partnerCode },
     });
@@ -210,7 +210,7 @@ export async function ensureBusinessParticipants(businessId: string) {
       });
     }
   } else {
-    // If partner investment is 0 or negative, clean up any auto-generated partner participant records
+    // If partner has no investment, equity, or assignment, clean up any auto-generated partner participant records
     const partnerInvestor = await prisma.investor.findUnique({
       where: { code: partnerCode },
     });
@@ -397,10 +397,18 @@ export async function getBusinessInvestorDetails(
         ? Number(((adminInvestmentVal / totalInvestmentVal) * 100).toFixed(2))
         : 0;
 
+    const adminInvRecord = b.investments.find(
+      (inv) => inv.investor.type === InvestorType.ADMIN || inv.investor.code === `INV-ADM-${b.code}`
+    );
+    const partnerInvRecord = b.investments.find(
+      (inv) => inv.investor.type === InvestorType.PARTNER || inv.investor.code === `INV-PTR-${b.code}`
+    );
+
     const participants: InvestorRecord[] = [];
 
     // 1. ADMIN PARTICIPANT (Only included if adminInvestmentVal > 0)
     if (adminInvestmentVal > 0) {
+      const adminStatus = (adminInvRecord?.status || "ACTIVE") as InvestorStatus;
       participants.push({
         id: `admin-${b.id}`,
         participantType: "ADMIN",
@@ -419,7 +427,7 @@ export async function getBusinessInvestorDetails(
         allocatedProfitAED: 0,
         paidAED: 0,
         outstandingAED: 0,
-        status: "ACTIVE" as InvestorStatus,
+        status: adminStatus,
         selected: false,
         details: {
           totalInvestmentAED: adminInvestmentVal,
@@ -442,8 +450,9 @@ export async function getBusinessInvestorDetails(
       });
     }
 
-    // 2. PARTNER PARTICIPANT (Only included if partnerInvestmentVal > 0)
-    if (partnerInvestmentVal > 0) {
+    // 2. PARTNER PARTICIPANT (Included if partnerInvestmentVal > 0 or partnerEquityVal > 0)
+    if (partnerInvestmentVal > 0 || partnerEquityVal > 0) {
+      const partnerStatus = (partnerInvRecord?.status || "ACTIVE") as InvestorStatus;
       participants.push({
         id: `partner-${b.id}-${b.partnerId}`,
         participantType: "PARTNER",
@@ -462,7 +471,7 @@ export async function getBusinessInvestorDetails(
         allocatedProfitAED: 0,
         paidAED: 0,
         outstandingAED: 0,
-        status: "ACTIVE" as InvestorStatus,
+        status: partnerStatus,
         selected: false,
         details: {
           totalInvestmentAED: partnerInvestmentVal,
@@ -620,9 +629,19 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
       const businessId = investorId.replace("admin-", "");
       const business = await prisma.business.findUnique({
         where: { id: businessId },
-        include: { partner: true },
+        include: {
+          partner: true,
+          investments: {
+            include: { investor: true },
+          },
+        },
       });
       if (!business) throw new AuthError("Business not found", 404);
+
+      const adminInv = business.investments.find(
+        (inv) => inv.investor.type === InvestorType.ADMIN || inv.investor.code === `INV-ADM-${business.code}`
+      );
+      const adminStatus = (adminInv?.status || "ACTIVE") as InvestorStatus;
 
       const businessDateFormatted = formatDate(new Date(business.createdAt));
       const totalInvestmentVal = Number(business.totalInvestmentAED) || 0;
@@ -650,7 +669,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
         allocatedProfitAED: 0,
         paidAED: 0,
         outstandingAED: 0,
-        status: "ACTIVE" as InvestorStatus,
+        status: adminStatus,
         selected: false,
         details: {
           totalInvestmentAED: adminInvestmentVal,
@@ -679,9 +698,19 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
       const businessId = parts[1];
       const business = await prisma.business.findUnique({
         where: { id: businessId },
-        include: { partner: true },
+        include: {
+          partner: true,
+          investments: {
+            include: { investor: true },
+          },
+        },
       });
       if (!business) throw new AuthError("Business not found", 404);
+
+      const partnerInv = business.investments.find(
+        (inv) => inv.investor.type === InvestorType.PARTNER || inv.investor.code === `INV-PTR-${business.code}`
+      );
+      const partnerStatus = (partnerInv?.status || "ACTIVE") as InvestorStatus;
 
       const businessDateFormatted = formatDate(new Date(business.createdAt));
       const partnerInvestmentVal = Number(business.partnerInvestmentAED) || 0;
@@ -706,7 +735,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
         allocatedProfitAED: 0,
         paidAED: 0,
         outstandingAED: 0,
-        status: "ACTIVE" as InvestorStatus,
+        status: partnerStatus,
         selected: false,
         details: {
           totalInvestmentAED: partnerInvestmentVal,

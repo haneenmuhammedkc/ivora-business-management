@@ -180,7 +180,15 @@ export function BusinessTableView({
 
                   {/* Status */}
                   <td className="px-4 py-4 text-center">
-                    <span className="inline-block px-2.5 py-1 text-[10px] font-bold tracking-wider text-gray-800 border border-gray-300 rounded uppercase">
+                    <span
+                      className={`inline-block px-2.5 py-1 text-[10px] font-bold tracking-wider rounded uppercase ${
+                        b.status === "SETTLED"
+                          ? "bg-purple-50 text-purple-700 border border-purple-200"
+                          : b.status === "ACTIVE"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : "text-gray-800 border border-gray-300"
+                      }`}
+                    >
                       {b.status}
                     </span>
                   </td>

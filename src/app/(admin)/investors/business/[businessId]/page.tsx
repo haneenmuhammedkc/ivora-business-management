@@ -4,7 +4,6 @@ import React, { use } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeUp } from "@/components/ui/motion";
-import { PlusIcon } from "@/components/ui/icons";
 import { BusinessParticipantsTable } from "@/components/admin/investors";
 import { BusinessInvestorDetails } from "@/types/investors";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
@@ -63,7 +62,6 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
             href={`/investors/new?businessId=${encodeURIComponent(businessId)}`}
             className="inline-flex items-center justify-center font-semibold transition-colors bg-[#0c0d12] text-white hover:bg-[#1e222d] shadow-xs h-10 px-4 text-xs gap-2 rounded-lg shrink-0 w-full sm:w-auto"
           >
-            <PlusIcon size={15} />
             <span>+ Add Investor</span>
           </Link>
         </div>
