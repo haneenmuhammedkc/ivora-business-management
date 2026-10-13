@@ -3,7 +3,7 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, QuantityUnit, SaleStatus, UserRole } from "@prisma/client";
+import { Prisma, QuantityUnit, SaleStatus, PurchaseStatus, UserRole } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
@@ -80,6 +80,7 @@ export async function generateUniqueSaleCode(
 /**
  * Reconciles the inventory record for a given Business + Product + Unit
  * based on all historical Purchases and Sales.
+ * Respects status rules: Purchase IN [CLEARED, IN_PROGRESS], Sale IN [CLEARED, PENDING].
  */
 export async function reconcileInventory(
   tx: Prisma.TransactionClient,
@@ -91,8 +92,9 @@ export async function reconcileInventory(
   const purchases = await tx.purchase.findMany({
     where: {
       businessId,
-      productType,
+      productType: { equals: productType.trim(), mode: "insensitive" },
       quantityUnit,
+      status: { in: [PurchaseStatus.CLEARED, PurchaseStatus.IN_PROGRESS] },
     },
     select: {
       quantity: true,
@@ -123,8 +125,9 @@ export async function reconcileInventory(
   const sales = await tx.sale.findMany({
     where: {
       businessId,
-      productType,
+      productType: { equals: productType.trim(), mode: "insensitive" },
       quantityUnit,
+      status: { in: [SaleStatus.CLEARED, SaleStatus.PENDING] },
     },
     select: {
       quantity: true,
@@ -179,18 +182,82 @@ export async function reconcileInventory(
 }
 
 /**
+ * Calculates authoritative commodity-specific inventory availability.
+ * Available Quantity = Total Purchased - Total Sold (excluding specified saleId if updating).
+ * Respects status rules: Purchase IN [CLEARED, IN_PROGRESS], Sale IN [CLEARED, PENDING].
+ */
+export async function getCommodityInventoryAvailability(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  productType: string,
+  quantityUnit: QuantityUnit,
+  excludeSaleId?: string
+): Promise<{
+  productType: string;
+  quantityUnit: QuantityUnit;
+  totalPurchasedQuantity: Prisma.Decimal;
+  alreadySoldQuantity: Prisma.Decimal;
+  availableQuantity: Prisma.Decimal;
+}> {
+  const purchases = await tx.purchase.findMany({
+    where: {
+      businessId,
+      productType: { equals: productType.trim(), mode: "insensitive" },
+      quantityUnit,
+      status: { in: [PurchaseStatus.CLEARED, PurchaseStatus.IN_PROGRESS] },
+    },
+    select: { quantity: true },
+  });
+
+  const totalPurchased = purchases.reduce(
+    (acc, p) => acc.plus(new Prisma.Decimal(p.quantity || 0)),
+    new Prisma.Decimal(0)
+  );
+
+  const sales = await tx.sale.findMany({
+    where: {
+      businessId,
+      productType: { equals: productType.trim(), mode: "insensitive" },
+      quantityUnit,
+      id: excludeSaleId ? { not: excludeSaleId } : undefined,
+      status: { in: [SaleStatus.CLEARED, SaleStatus.PENDING] },
+    },
+    select: { quantity: true },
+  });
+
+  const alreadySold = sales.reduce(
+    (acc, s) => acc.plus(new Prisma.Decimal(s.quantity || 0)),
+    new Prisma.Decimal(0)
+  );
+
+  const available = totalPurchased.minus(alreadySold);
+
+  return {
+    productType,
+    quantityUnit,
+    totalPurchasedQuantity: totalPurchased,
+    alreadySoldQuantity: alreadySold,
+    availableQuantity: available,
+  };
+}
+
+/**
  * Returns available products with remaining inventory for an assigned Business.
  * Sorted by newest purchase activity first.
  */
 export async function getAvailableProductsForBusiness(
   session: SessionPayload,
-  businessId: string
+  businessId: string,
+  includeProductType?: string
 ) {
   await requireBusinessAccess(businessId, session);
 
   // Find all distinct product types and units purchased for this business
   const distinctProducts = await prisma.purchase.findMany({
-    where: { businessId },
+    where: {
+      businessId,
+      status: { in: [PurchaseStatus.CLEARED, PurchaseStatus.IN_PROGRESS] },
+    },
     select: {
       productType: true,
       quantityUnit: true,
@@ -201,6 +268,8 @@ export async function getAvailableProductsForBusiness(
   const results: Array<{
     productType: string;
     quantityUnit: QuantityUnit;
+    totalPurchasedQuantity: number;
+    totalSoldQuantity: number;
     remainingQuantity: number;
     averageCostPerUnitAED: number;
     lastPurchaseDate: string | null;
@@ -211,10 +280,16 @@ export async function getAvailableProductsForBusiness(
       return reconcileInventory(tx, businessId, item.productType, item.quantityUnit);
     });
 
-    if (Number(inv.remainingQuantity) > 0) {
+    const isMatchInclude =
+      includeProductType &&
+      inv.productType.trim().toLowerCase() === includeProductType.trim().toLowerCase();
+
+    if (Number(inv.remainingQuantity) > 0 || isMatchInclude) {
       results.push({
         productType: inv.productType,
         quantityUnit: inv.quantityUnit,
+        totalPurchasedQuantity: Number(inv.totalPurchasedQuantity),
+        totalSoldQuantity: Number(inv.totalSoldQuantity),
         remainingQuantity: Number(inv.remainingQuantity),
         averageCostPerUnitAED: Number(inv.averageCostPerUnitAED),
         lastPurchaseDate: inv.lastPurchaseDate ? inv.lastPurchaseDate.toISOString() : null,
@@ -285,7 +360,7 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
   const validated = validationResult.data;
 
   // 2. Business Access Verification
-  await requireBusinessAccess(validated.businessId, session);
+  await requireBusinessAccess(validated.businessId, session, "WRITE");
 
   // 3. Atomic Database Transaction
   const sale = await prisma.$transaction(
@@ -311,15 +386,8 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
       }
 
       // Step B: Concurrency Lock — SELECT ... FOR UPDATE
-      const [lockedInv] = await tx.$queryRaw<
-        Array<{
-          id: string;
-          remainingQuantity: Prisma.Decimal;
-          averageCostPerUnitAED: Prisma.Decimal;
-          totalSoldQuantity: Prisma.Decimal;
-        }>
-      >`
-        SELECT id, "remainingQuantity", "averageCostPerUnitAED", "totalSoldQuantity"
+      await tx.$queryRaw`
+        SELECT id
         FROM "Inventory"
         WHERE "businessId" = ${validated.businessId}
           AND "productType" = ${validated.productType}
@@ -327,26 +395,47 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
         FOR UPDATE
       `;
 
-      const unitLabel = validated.quantityUnit === QuantityUnit.PIECE ? "PCS" : "GMS";
+      // Step C: Authoritative Commodity Inventory Validation
+      const availability = await getCommodityInventoryAvailability(
+        tx,
+        validated.businessId,
+        validated.productType,
+        validated.quantityUnit
+      );
+
+      const unitSuffix = validated.quantityUnit === QuantityUnit.PIECE ? " pcs" : "g";
       const saleQtyDecimal = new Prisma.Decimal(validated.quantity);
 
-      if (!lockedInv || Number(lockedInv.remainingQuantity) <= 0) {
+      if (availability.totalPurchasedQuantity.lte(0)) {
         throw new AuthError(
-          `Only 0 ${unitLabel} are available. You cannot sell ${saleQtyDecimal.toString()} ${unitLabel}.`,
-          400
+          `No inventory found for commodity "${validated.productType}". This business has no recorded purchases for this commodity.`,
+          400,
+          {
+            productType: validated.productType,
+            purchasedQuantity: 0,
+            alreadySoldQuantity: 0,
+            availableQuantity: 0,
+            requestedQuantity: Number(saleQtyDecimal.toFixed(3)),
+          }
         );
       }
 
-      const remainingDecimal = new Prisma.Decimal(lockedInv.remainingQuantity);
-
-      if (saleQtyDecimal.greaterThan(remainingDecimal)) {
+      if (saleQtyDecimal.greaterThan(availability.availableQuantity)) {
+        const availNum = Math.max(0, Number(availability.availableQuantity.toFixed(3)));
         throw new AuthError(
-          `Only ${remainingDecimal.toString()} ${unitLabel} are available. You cannot sell ${saleQtyDecimal.toString()} ${unitLabel}.`,
-          400
+          `Insufficient ${validated.productType} inventory. Available quantity: ${availNum}${unitSuffix}.`,
+          400,
+          {
+            productType: validated.productType,
+            purchasedQuantity: Number(availability.totalPurchasedQuantity.toFixed(3)),
+            alreadySoldQuantity: Number(availability.alreadySoldQuantity.toFixed(3)),
+            availableQuantity: availNum,
+            requestedQuantity: Number(saleQtyDecimal.toFixed(3)),
+          }
         );
       }
 
-      // Step C: Authoritative Financial Arithmetic
+      // Step D: Authoritative Financial Arithmetic
       const inrRealizationDecimal = new Prisma.Decimal(validated.totalSellingPriceINR).toDecimalPlaces(
         2,
         Prisma.Decimal.ROUND_HALF_UP
@@ -367,26 +456,6 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
       const salesBasePriceDecimal = exactAedTotal
         .div(saleQtyDecimal)
         .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
-
-      const inventoryCostBasis = new Prisma.Decimal(
-        lockedInv.averageCostPerUnitAED
-      ).toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
-
-      // Step D: Update Inventory Atomically
-      const newRemaining = remainingDecimal.minus(saleQtyDecimal);
-      const newTotalSold = new Prisma.Decimal(lockedInv.totalSoldQuantity).plus(saleQtyDecimal);
-      const newCarryingValue = newRemaining
-        .mul(inventoryCostBasis)
-        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-
-      await tx.inventory.update({
-        where: { id: lockedInv.id },
-        data: {
-          remainingQuantity: newRemaining,
-          totalSoldQuantity: newTotalSold,
-          carryingValueAED: newCarryingValue,
-        },
-      });
 
       // Step E: Auto-generate Sale Code if missing
       const saleCode = validated.saleCode || (await generateUniqueSaleCode(tx));
@@ -415,6 +484,9 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
         },
         include: { business: { select: { id: true, name: true, code: true } } },
       });
+
+      // Step G: Reconcile Inventory to update aggregate metrics
+      await reconcileInventory(tx, createdSale.businessId, createdSale.productType, createdSale.quantityUnit);
 
       return createdSale;
     },
@@ -477,134 +549,86 @@ export async function updateSale(
       const targetQuantityUnit =
         validated.quantityUnit || existing.quantityUnit || QuantityUnit.GRAM;
 
+      if (validated.businessId && validated.businessId !== existing.businessId) {
+        await requireBusinessAccess(validated.businessId, session, "WRITE");
+      }
+
       const newQtyDecimal =
         validated.quantity !== undefined
           ? new Prisma.Decimal(validated.quantity)
           : new Prisma.Decimal(existing.quantity || existing.quantityGms || 0);
 
-      const oldQtyDecimal = new Prisma.Decimal(
-        existing.quantity || existing.quantityGms || 0
-      );
+      // Step A: Ensure target inventory record exists
+      let targetInv = await tx.inventory.findUnique({
+        where: {
+          businessId_productType_quantityUnit: {
+            businessId: targetBusinessId,
+            productType: targetProductType,
+            quantityUnit: targetQuantityUnit,
+          },
+        },
+      });
 
-      const isSameProductAndUnit =
-        targetBusinessId === existing.businessId &&
-        targetProductType === existing.productType &&
-        targetQuantityUnit === existing.quantityUnit;
-
-      if (isSameProductAndUnit) {
-        const delta = newQtyDecimal.minus(oldQtyDecimal);
-
-        if (delta.greaterThan(0)) {
-          // Requires additional inventory
-          const [lockedInv] = await tx.$queryRaw<
-            Array<{
-              id: string;
-              remainingQuantity: Prisma.Decimal;
-              averageCostPerUnitAED: Prisma.Decimal;
-              totalSoldQuantity: Prisma.Decimal;
-            }>
-          >`
-            SELECT id, "remainingQuantity", "averageCostPerUnitAED", "totalSoldQuantity"
-            FROM "Inventory"
-            WHERE "businessId" = ${targetBusinessId}
-              AND "productType" = ${targetProductType}
-              AND "quantityUnit" = ${targetQuantityUnit}::"QuantityUnit"
-            FOR UPDATE
-          `;
-
-          const unitLabel = targetQuantityUnit === QuantityUnit.PIECE ? "PCS" : "GMS";
-          const currentRemaining = lockedInv ? new Prisma.Decimal(lockedInv.remainingQuantity) : new Prisma.Decimal(0);
-
-          if (!lockedInv || delta.greaterThan(currentRemaining)) {
-            const availableTotal = currentRemaining.plus(oldQtyDecimal);
-            throw new AuthError(
-              `Only ${availableTotal.toString()} ${unitLabel} are available. You cannot sell ${newQtyDecimal.toString()} ${unitLabel}.`,
-              400
-            );
-          }
-
-          const newRemaining = currentRemaining.minus(delta);
-          const newTotalSold = new Prisma.Decimal(lockedInv.totalSoldQuantity).plus(delta);
-          const newCarryingValue = newRemaining
-            .mul(new Prisma.Decimal(lockedInv.averageCostPerUnitAED))
-            .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-
-          await tx.inventory.update({
-            where: { id: lockedInv.id },
-            data: {
-              remainingQuantity: newRemaining,
-              totalSoldQuantity: newTotalSold,
-              carryingValueAED: newCarryingValue,
-            },
-          });
-        } else if (delta.lessThan(0)) {
-          // Releases inventory back
-          const releaseQty = delta.abs();
-          const inv = await tx.inventory.findUnique({
-            where: {
-              businessId_productType_quantityUnit: {
-                businessId: targetBusinessId,
-                productType: targetProductType,
-                quantityUnit: targetQuantityUnit,
-              },
-            },
-          });
-
-          if (inv) {
-            const newRemaining = new Prisma.Decimal(inv.remainingQuantity).plus(releaseQty);
-            const newTotalSold = new Prisma.Decimal(inv.totalSoldQuantity).minus(releaseQty);
-            const newCarryingValue = newRemaining
-              .mul(new Prisma.Decimal(inv.averageCostPerUnitAED))
-              .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-
-            await tx.inventory.update({
-              where: { id: inv.id },
-              data: {
-                remainingQuantity: newRemaining,
-                totalSoldQuantity: newTotalSold,
-                carryingValueAED: newCarryingValue,
-              },
-            });
-          }
-        }
-      } else {
-        // Business, product, or unit changed: full reconciliation on both
-        // Temporarily delete or bypass this sale in calculation
-        await reconcileInventory(
+      if (!targetInv) {
+        targetInv = await reconcileInventory(
           tx,
-          existing.businessId,
-          existing.productType,
-          existing.quantityUnit || QuantityUnit.GRAM
+          targetBusinessId,
+          targetProductType,
+          targetQuantityUnit
         );
-
-        // Lock new inventory
-        const [lockedNewInv] = await tx.$queryRaw<
-          Array<{
-            id: string;
-            remainingQuantity: Prisma.Decimal;
-            averageCostPerUnitAED: Prisma.Decimal;
-          }>
-        >`
-          SELECT id, "remainingQuantity", "averageCostPerUnitAED"
-          FROM "Inventory"
-          WHERE "businessId" = ${targetBusinessId}
-            AND "productType" = ${targetProductType}
-            AND "quantityUnit" = ${targetQuantityUnit}::"QuantityUnit"
-          FOR UPDATE
-        `;
-
-        const unitLabel = targetQuantityUnit === QuantityUnit.PIECE ? "PCS" : "GMS";
-        const newRemaining = lockedNewInv ? new Prisma.Decimal(lockedNewInv.remainingQuantity) : new Prisma.Decimal(0);
-
-        if (!lockedNewInv || newQtyDecimal.greaterThan(newRemaining)) {
-          throw new AuthError(
-            `Only ${newRemaining.toString()} ${unitLabel} are available. You cannot sell ${newQtyDecimal.toString()} ${unitLabel}.`,
-            400
-          );
-        }
       }
 
-      // Recompute financial values
+      // Step B: Concurrency Lock on target inventory
+      await tx.$queryRaw`
+        SELECT id
+        FROM "Inventory"
+        WHERE "businessId" = ${targetBusinessId}
+          AND "productType" = ${targetProductType}
+          AND "quantityUnit" = ${targetQuantityUnit}::"QuantityUnit"
+        FOR UPDATE
+      `;
+
+      // Step C: Authoritative Commodity Inventory Validation excluding this sale
+      const availability = await getCommodityInventoryAvailability(
+        tx,
+        targetBusinessId,
+        targetProductType,
+        targetQuantityUnit,
+        saleId
+      );
+
+      const unitSuffix = targetQuantityUnit === QuantityUnit.PIECE ? " pcs" : "g";
+
+      if (availability.totalPurchasedQuantity.lte(0)) {
+        throw new AuthError(
+          `No inventory found for commodity "${targetProductType}". This business has no recorded purchases for this commodity.`,
+          400,
+          {
+            productType: targetProductType,
+            purchasedQuantity: 0,
+            alreadySoldQuantity: 0,
+            availableQuantity: 0,
+            requestedQuantity: Number(newQtyDecimal.toFixed(3)),
+          }
+        );
+      }
+
+      if (newQtyDecimal.greaterThan(availability.availableQuantity)) {
+        const availNum = Math.max(0, Number(availability.availableQuantity.toFixed(3)));
+        throw new AuthError(
+          `Insufficient ${targetProductType} inventory. Available quantity: ${availNum}${unitSuffix}.`,
+          400,
+          {
+            productType: targetProductType,
+            purchasedQuantity: Number(availability.totalPurchasedQuantity.toFixed(3)),
+            alreadySoldQuantity: Number(availability.alreadySoldQuantity.toFixed(3)),
+            availableQuantity: availNum,
+            requestedQuantity: Number(newQtyDecimal.toFixed(3)),
+          }
+        );
+      }
+
+      // Step D: Recompute financial values
       const rawTotalSellingPriceINR =
         validated.totalSellingPriceINR !== undefined
           ? validated.totalSellingPriceINR
@@ -654,8 +678,20 @@ export async function updateSale(
         include: { business: { select: { id: true, name: true, code: true } } },
       });
 
-      // Final reconciliation to ensure exact numbers
+      // Step E: Reconcile inventory for target and existing if changed
       await reconcileInventory(tx, targetBusinessId, targetProductType, targetQuantityUnit);
+      if (
+        existing.businessId !== targetBusinessId ||
+        existing.productType !== targetProductType ||
+        existing.quantityUnit !== targetQuantityUnit
+      ) {
+        await reconcileInventory(
+          tx,
+          existing.businessId,
+          existing.productType,
+          existing.quantityUnit || QuantityUnit.GRAM
+        );
+      }
 
       return updatedSale;
     },

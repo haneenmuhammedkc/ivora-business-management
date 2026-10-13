@@ -38,7 +38,12 @@ export async function POST(req: NextRequest) {
       if (error.statusCode === 401) return unauthorizedResponse(error.message);
       if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
       return NextResponse.json(
-        { success: false, error: error.statusCode === 400 ? "VALIDATION_ERROR" : "ERROR", message: error.message },
+        {
+          success: false,
+          error: error.statusCode === 400 ? "VALIDATION_ERROR" : "ERROR",
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        },
         { status: error.statusCode }
       );
     }

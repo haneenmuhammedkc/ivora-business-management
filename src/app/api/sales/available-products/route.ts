@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const products = await getAvailableProductsForBusiness(session, businessId);
+    const includeProductType = searchParams.get("includeProductType") || undefined;
+    const products = await getAvailableProductsForBusiness(session, businessId, includeProductType);
     return NextResponse.json({ success: true, products });
   } catch (error) {
     if (error instanceof AuthError) {

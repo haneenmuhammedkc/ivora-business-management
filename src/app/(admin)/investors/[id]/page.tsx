@@ -25,6 +25,8 @@ import { EditInvestorModal } from "@/components/admin/investors/edit-investor-mo
 import { DeleteInvestorModal } from "@/components/admin/investors/delete-investor-modal";
 import { ProfitAllocationSection } from "@/components/investors/settlement/profit-allocation-section";
 import { InvestorDueSection } from "@/components/investors/settlement/investor-due-section";
+import { RecordDisbursalSection } from "@/components/investors/settlement/record-disbursal-section";
+import { DisbursalHistoryTable } from "@/components/investors/settlement/disbursal-history-table";
 import { exportInvestorToPdf } from "@/lib/export/export-investor-pdf";
 import { exportInvestorToExcel } from "@/lib/export/export-investor-excel";
 
@@ -170,6 +172,8 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
     ? `/investors/business/${encodeURIComponent(investor.businessId)}`
     : "/investors";
   const isAdmin = user?.role === "ADMIN";
+  const isViewOnly = settlement?.business?.isViewOnlyForAdmin || false;
+  const canMutate = isAdmin && !isViewOnly;
 
   // Financial values from settlement or fallback
   const totalInvestmentAED = settlement ? settlement.totalInvestmentAED : (investor.details?.totalInvestmentAED ?? investor.investmentAED);
@@ -268,7 +272,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
             </button>
 
             {/* Admin Management Actions */}
-            {isAdmin && pType === "INVESTOR" && (
+            {canMutate && pType === "INVESTOR" && (
               <>
                 <button
                   type="button"
@@ -522,7 +526,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
           <FadeUp delay={0.25}>
             <ProfitAllocationSection
               settlement={settlement}
-              isAdmin={isAdmin}
+              isAdmin={canMutate}
               onAllocationUpdated={handleRefreshAll}
             />
           </FadeUp>
@@ -530,6 +534,24 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
           {/* SECTION 2 — INVESTOR DUE */}
           <FadeUp delay={0.3}>
             <InvestorDueSection settlement={settlement} />
+          </FadeUp>
+
+          {/* SECTION 3 — PAYMENT / DISBURSAL (For Partner/Admin participants) */}
+          {pType !== "INVESTOR" && canMutate && (
+            <div className="print:hidden">
+              <FadeUp delay={0.35}>
+                <RecordDisbursalSection
+                  settlement={settlement}
+                  isAdmin={canMutate}
+                  onPaymentRecorded={handleRefreshAll}
+                />
+              </FadeUp>
+            </div>
+          )}
+
+          {/* SECTION 4 — SETTLEMENT PAYMENT HISTORY TABLE */}
+          <FadeUp delay={0.4}>
+            <DisbursalHistoryTable paymentHistory={settlement.paymentHistory} />
           </FadeUp>
         </>
       ) : isSettlementLoading ? (

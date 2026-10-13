@@ -107,6 +107,11 @@ export function NewSaleEntry() {
 
   // Live Quantity validation & Form validity
   const quantityNum = parseFloat(quantity);
+  const unitLabel = quantityUnit === "PIECE" ? "PCS" : "GMS";
+  const purchasedQty = activeProduct?.totalPurchasedQuantity ?? 0;
+  const alreadySoldQty = activeProduct?.totalSoldQuantity ?? 0;
+  const currentSaleQty = isNaN(quantityNum) || quantityNum <= 0 ? 0 : quantityNum;
+  const remainingAfterSale = activeProduct !== null ? availableQty - currentSaleQty : null;
 
   const quantityValidationError = useMemo(() => {
     if (!quantity || !productType) return null;
@@ -117,11 +122,14 @@ export function NewSaleEntry() {
       return "Quantity in PIECES must be a whole integer.";
     }
     if (quantityNum > availableQty) {
-      const unitLabel = quantityUnit === "PIECE" ? "PCS" : "GMS";
-      return `Only ${availableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${quantityNum.toLocaleString()} ${unitLabel}.`;
+      const formattedAvail = availableQty.toLocaleString(undefined, {
+        minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+        maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+      });
+      return `Sale quantity exceeds available stock. Only ${formattedAvail} ${unitLabel} are available.`;
     }
     return null;
-  }, [quantity, productType, quantityNum, quantityUnit, availableQty]);
+  }, [quantity, productType, quantityNum, quantityUnit, availableQty, unitLabel]);
 
   const isFormValid = useMemo(() => {
     if (!businessId || !saleDate || !productType || !buyerFirm.trim()) return false;
@@ -298,8 +306,11 @@ export function NewSaleEntry() {
     }
 
     if (qtyNum > availableQty) {
-      const unitLabel = quantityUnit === "PIECE" ? "PCS" : "GMS";
-      setErrorMessage(`Only ${availableQty.toLocaleString()} ${unitLabel} are available. You cannot sell ${qtyNum.toLocaleString()} ${unitLabel}.`);
+      const formattedAvail = availableQty.toLocaleString(undefined, {
+        minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+        maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+      });
+      setErrorMessage(`Sale quantity exceeds available stock. Only ${formattedAvail} ${unitLabel} are available.`);
       return;
     }
 
@@ -338,7 +349,10 @@ export function NewSaleEntry() {
       const result = await res.json();
 
       if (!res.ok || !result.success) {
-        throw new Error(result.message || result.error || "Failed to record sale.");
+        const errorDetail = result.details?.availableQuantity !== undefined
+          ? ` (Available: ${Number(result.details.availableQuantity).toLocaleString()} ${result.details.quantityUnit || "units"})`
+          : "";
+        throw new Error((result.message || result.error || "Failed to record sale.") + errorDetail);
       }
 
       setSuccessMessage("Sale successfully recorded and inventory updated.");
@@ -555,6 +569,100 @@ export function NewSaleEntry() {
             02. PRODUCT / QUANTITY
           </span>
 
+          {/* Commodity Inventory Breakdown */}
+          {productType && (
+            <div className="rounded-xl border border-gray-200/90 bg-neutral-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                  Commodity Inventory Breakdown
+                </span>
+                <span className="text-[10px] font-mono text-gray-500 bg-gray-200/60 px-1.5 py-0.5 rounded">
+                  {productType}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                    Purchased Quantity
+                  </span>
+                  <span className="text-xs sm:text-sm font-bold text-gray-900 font-mono">
+                    {purchasedQty.toLocaleString(undefined, {
+                      minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                      maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                    })} {unitLabel}
+                  </span>
+                </div>
+
+                <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                    Already Sold
+                  </span>
+                  <span className="text-xs sm:text-sm font-bold text-gray-800 font-mono">
+                    {alreadySoldQty.toLocaleString(undefined, {
+                      minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                      maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                    })} {unitLabel}
+                  </span>
+                </div>
+
+                <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                    Available Stock
+                  </span>
+                  <span className={`text-xs sm:text-sm font-bold font-mono ${availableQty > 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                    {availableQty.toLocaleString(undefined, {
+                      minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                      maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                    })} {unitLabel}
+                  </span>
+                </div>
+
+                <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                    Current Sale
+                  </span>
+                  <span className="text-xs sm:text-sm font-bold text-gray-950 font-mono">
+                    {currentSaleQty > 0
+                      ? `${currentSaleQty.toLocaleString(undefined, {
+                          minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                          maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                        })} ${unitLabel}`
+                      : "—"}
+                  </span>
+                </div>
+
+                <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                  <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                    Remaining After Sale
+                  </span>
+                  <span className={`text-xs sm:text-sm font-bold font-mono ${
+                    remainingAfterSale !== null && remainingAfterSale < 0
+                      ? "text-red-600"
+                      : "text-gray-900"
+                  }`}>
+                    {remainingAfterSale !== null && currentSaleQty > 0
+                      ? `${remainingAfterSale.toLocaleString(undefined, {
+                          minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                          maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                        })} ${unitLabel}`
+                      : `${availableQty.toLocaleString(undefined, {
+                          minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                          maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                        })} ${unitLabel}`}
+                  </span>
+                </div>
+              </div>
+
+              {quantityValidationError && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-2.5 text-xs text-red-800 font-semibold flex items-center gap-2">
+                  <span className="text-red-600">⚠️ Inventory Limit Exceeded:</span>
+                  <span>{quantityValidationError}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
             {/* Quantity Input + Unit Indicator */}
             <div className="space-y-1.5">
@@ -574,7 +682,7 @@ export function NewSaleEntry() {
                   }}
                   className={`w-full h-10 px-3.5 rounded-lg border bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 transition-colors ${
                     quantityValidationError
-                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20 ring-1 ring-red-500"
                       : "border-gray-300 focus:border-black focus:ring-black/10"
                   }`}
                   required
@@ -584,7 +692,7 @@ export function NewSaleEntry() {
                 </div>
               </div>
               {quantityValidationError && (
-                <p className="text-xs text-red-600 font-medium mt-1">
+                <p className="text-xs text-red-600 font-semibold mt-1">
                   {quantityValidationError}
                 </p>
               )}
@@ -599,7 +707,10 @@ export function NewSaleEntry() {
                 <span className="text-neutral-500 font-medium">Remaining:</span>
                 <span className="font-mono font-bold text-emerald-700">
                   {productType
-                    ? `${availableQty.toLocaleString()} ${
+                    ? `${availableQty.toLocaleString(undefined, {
+                        minimumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                        maximumFractionDigits: quantityUnit === "PIECE" ? 0 : 3,
+                      })} ${
                         quantityUnit === "PIECE" ? "PCS" : "GMS"
                       }`
                     : "—"}

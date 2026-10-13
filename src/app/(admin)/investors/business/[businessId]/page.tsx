@@ -117,7 +117,9 @@ export default function BusinessInvestorDetailsPage({ params }: PageProps) {
                   AED {business.partnerInvestmentAED.toLocaleString()}
                 </span>
                 <span className="text-[11px] text-gray-500 font-medium block mt-0.5">
-                  {business.partner ? `${business.partner.name} (${business.partnerEquityPct}%)` : "No partner"}
+                  {business.partner?.name
+                    ? `${business.partner.name} (${business.partnerEquityPct}%)`
+                    : "No partner assigned"}
                 </span>
               </div>
             </div>

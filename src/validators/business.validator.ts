@@ -26,7 +26,7 @@ export interface CreateBusinessValidatedData {
   businessType: string;
   totalInvestment: number;
   description: string | null;
-  partnerId: string;
+  partnerId: string | null;
   adminInvestment: number;
   partnerInvestment: number;
 }
@@ -220,12 +220,16 @@ export function validateBusinessDescription(desc: unknown): string | null {
 
 /**
  * Validates partner selection ID.
- * - Required
- * - Non-empty string
+ * - Optional
+ * - If provided, must be a string
  */
 export function validatePartnerId(id: unknown): string | null {
-  if (typeof id !== "string" || !id.trim()) {
-    return "Please select a partner for this business.";
+  if (id === undefined || id === null || id === "") {
+    return null;
+  }
+
+  if (typeof id !== "string") {
+    return "Partner ID must be a valid identifier.";
   }
 
   return null;
@@ -300,22 +304,26 @@ export function sanitizeBusinessInput(input: CreateBusinessInput): CreateBusines
   const rawName = (input.businessName ?? input.name ?? "") as string;
   const rawType = (input.businessType ?? "") as string;
   const rawDesc = (input.description ?? "") as string;
-  const rawPartnerId = (input.partnerId ?? "") as string;
+  const rawPartnerId = input.partnerId;
 
   const totalInvRes = parseFinancialAmount(input.totalInvestment, "Total investment");
   const adminInvRes = parseFinancialAmount(input.adminInvestment, "Admin investment");
   const partnerInvRes = parseFinancialAmount(input.partnerInvestment, "Partner investment");
 
   const trimmedDesc = typeof rawDesc === "string" ? rawDesc.trim() : "";
+  const cleanPartnerId =
+    typeof rawPartnerId === "string" && rawPartnerId.trim().length > 0
+      ? rawPartnerId.trim()
+      : null;
 
   return {
     name: typeof rawName === "string" ? rawName.trim().replace(/\s+/g, " ") : "",
     businessType: typeof rawType === "string" ? rawType.trim().replace(/\s+/g, " ") : "",
     totalInvestment: totalInvRes.parsedValue ?? 0,
     description: trimmedDesc.length > 0 ? trimmedDesc : null,
-    partnerId: typeof rawPartnerId === "string" ? rawPartnerId.trim() : "",
+    partnerId: cleanPartnerId,
     adminInvestment: adminInvRes.parsedValue ?? 0,
-    partnerInvestment: partnerInvRes.parsedValue ?? 0,
+    partnerInvestment: cleanPartnerId ? (partnerInvRes.parsedValue ?? 0) : 0,
   };
 }
 
@@ -367,11 +375,15 @@ export function validateCreateBusiness(input: unknown): BusinessValidationResult
     errors.description = descError;
   }
 
-  // 5. Partner ID
+  // 5. Partner ID (Optional)
   const partnerError = validatePartnerId(raw.partnerId);
   if (partnerError) {
     errors.partnerId = partnerError;
   }
+  const cleanPartnerId =
+    typeof raw.partnerId === "string" && raw.partnerId.trim().length > 0
+      ? raw.partnerId.trim()
+      : null;
 
   // 6. Admin Investment
   const adminInvError = validateAdminInvestment(raw.adminInvestment, parsedTotalInvestment);
@@ -395,6 +407,11 @@ export function validateCreateBusiness(input: unknown): BusinessValidationResult
     if (res.parsedValue !== null) {
       parsedPartnerInvestment = res.parsedValue;
     }
+  }
+
+  // If no partner is assigned, partner investment must be 0
+  if (!cleanPartnerId && parsedPartnerInvestment > 0) {
+    errors.partnerInvestment = "Partner investment must be 0 when no partner is assigned.";
   }
 
   // 8. Cross-Field Validation: Combined Contributions vs Total Investment

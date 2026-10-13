@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SessionPayload } from "@/lib/auth/session";
-import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
+import { requireBusinessAccess, requireResourceAccess, isBusinessPartnerOwnedWithoutAdmin } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, UserRole, InvestorType } from "@prisma/client";
@@ -320,7 +320,7 @@ export async function listBusinessInvestorRows(session: SessionPayload) {
         partnerInvestmentAED: partnerInv,
         partnerEquityPct: partnerEquity,
         partnerId: b.partnerId,
-        partnerName: b.partner?.name?.trim() || "No partner",
+        partnerName: b.partner?.name?.trim() || (b.partnerId ? "Partner" : "No partner"),
         externalInvestorsCount: externalCount,
         totalParticipantsCount,
         status: b.status,
@@ -354,7 +354,7 @@ export async function getBusinessInvestorDetails(
 
   const cacheKey = CacheKeys.investors.business(businessId);
 
-  return getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
+  const result = await getOrSetCache(cacheKey, CacheTTL.LONG, async () => {
     const b = await prisma.business.findUnique({
       where: { id: businessId },
       include: {
@@ -390,7 +390,7 @@ export async function getBusinessInvestorDetails(
     const adminInvestmentVal = Number(b.adminInvestmentAED) || 0;
     const partnerInvestmentVal = Number(b.partnerInvestmentAED) || 0;
     const partnerEquityVal = Number(b.partnerEquityPct) || 0;
-    const partnerName = b.partner?.name || "Partner";
+    const partnerName = b.partner?.name || (b.partnerId ? "Partner" : "No partner");
 
     const adminShareVal =
       totalInvestmentVal > 0 && adminInvestmentVal > 0
@@ -582,6 +582,18 @@ export async function getBusinessInvestorDetails(
       kpis,
     };
   });
+
+  const isViewOnlyForAdmin =
+    session.role === UserRole.ADMIN &&
+    (await isBusinessPartnerOwnedWithoutAdmin(businessId));
+
+  return {
+    business: {
+      ...result.business,
+      isViewOnlyForAdmin,
+    },
+    kpis: result.kpis,
+  };
 }
 
 /**
@@ -876,7 +888,7 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
   }
 
   // Enforce access control for the selected business
-  await requireBusinessAccess(businessId.trim(), session);
+  await requireBusinessAccess(businessId.trim(), session, "WRITE");
 
   // Parse and validate investment capital
   const rawCapital = investmentCapitalAED ?? investmentAmount ?? committedAmount;

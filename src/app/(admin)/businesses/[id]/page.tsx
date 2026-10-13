@@ -133,6 +133,11 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               >
                 {business.status}
               </span>
+              {business.isViewOnlyForAdmin && (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold tracking-wider rounded uppercase bg-amber-50 text-amber-700 border border-amber-200">
+                  View Only
+                </span>
+              )}
               <span className="px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-blue-700 border border-blue-200 rounded uppercase bg-blue-50/80">
                 {business.businessType || "Gold Bullion"}
               </span>
@@ -171,16 +176,34 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <span>Participants</span>
             </Link>
 
-            <Link
-              href={`/investors/new?businessId=${encodeURIComponent(business.id)}`}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-gray-800 rounded-lg transition-colors shadow-xs"
-            >
-              <PlusIcon size={14} />
-              <span>+ Add Investor</span>
-            </Link>
+            {!business.isViewOnlyForAdmin && (
+              <Link
+                href={`/investors/new?businessId=${encodeURIComponent(business.id)}`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-gray-800 rounded-lg transition-colors shadow-xs"
+              >
+                <PlusIcon size={14} />
+                <span>+ Add Investor</span>
+              </Link>
+            )}
           </div>
         </div>
       </FadeUp>
+
+      {/* View Only Admin Notice */}
+      {business.isViewOnlyForAdmin && (
+        <FadeUp delay={0.1}>
+          <div className="p-3.5 rounded-xl border border-amber-200/80 bg-amber-50/60 text-xs text-amber-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="font-bold uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900">
+                Admin Notice
+              </span>
+              <span>
+                This partner-owned business operates without Admin participation. Configuration and financial records are in <strong>View-Only</strong> mode.
+              </span>
+            </div>
+          </div>
+        </FadeUp>
+      )}
 
       {/* 5 Financial Overview KPI Cards */}
       <FadeUp delay={0.12}>
@@ -412,12 +435,14 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-950">
                 Purchases & Sourcing ({business.purchases.length})
               </h2>
-              <Link
-                href="/purchase/new"
-                className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
-              >
-                + New Purchase Batch
-              </Link>
+              {!business.isViewOnlyForAdmin && (
+                <Link
+                  href="/purchase/new"
+                  className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
+                >
+                  + New Purchase Batch
+                </Link>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -479,12 +504,14 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-950">
                 Sales & Realization ({business.sales.length})
               </h2>
-              <Link
-                href="/sales/new"
-                className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
-              >
-                + New Sale Entry
-              </Link>
+              {!business.isViewOnlyForAdmin && (
+                <Link
+                  href="/sales/new"
+                  className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
+                >
+                  + New Sale Entry
+                </Link>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -550,12 +577,14 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-950">
                 Direct & Operating Expenses ({business.expenses.length})
               </h2>
-              <Link
-                href="/expenses/new"
-                className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
-              >
-                + Add Expense
-              </Link>
+              {!business.isViewOnlyForAdmin && (
+                <Link
+                  href="/expenses/new"
+                  className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
+                >
+                  + Add Expense
+                </Link>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -613,12 +642,14 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               <h2 className="text-xs font-bold uppercase tracking-wider text-gray-950">
                 Registered Investors & Participants ({business.investments.length})
               </h2>
-              <Link
-                href={`/investors/new?businessId=${encodeURIComponent(business.id)}`}
-                className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
-              >
-                + Add Investor to Business
-              </Link>
+              {!business.isViewOnlyForAdmin && (
+                <Link
+                  href={`/investors/new?businessId=${encodeURIComponent(business.id)}`}
+                  className="text-xs font-semibold text-gray-600 hover:text-gray-950 underline"
+                >
+                  + Add Investor to Business
+                </Link>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">

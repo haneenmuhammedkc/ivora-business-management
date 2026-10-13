@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBusinessById, updateBusiness } from "@/services/business/business.service";
+import { getBusinessById, updateBusiness, deleteBusiness } from "@/services/business/business.service";
 import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
 import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
 
@@ -51,6 +51,29 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "VALIDATION_ERROR", message: error.message }, { status: error.statusCode });
     }
     console.error("[Update Business API Error]", error);
+    return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await requireActiveSession();
+    const { id } = await params;
+    const result = await deleteBusiness(session, id);
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      if (error.statusCode === 404) {
+        return NextResponse.json({ success: false, error: "NOT_FOUND", message: error.message }, { status: 404 });
+      }
+      if (error.statusCode === 401) return unauthorizedResponse(error.message);
+      if (error.statusCode === 403) return forbiddenErrorResponse(error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode });
+    }
+    console.error("[Delete Business API Error]", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

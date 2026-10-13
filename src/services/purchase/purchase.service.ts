@@ -113,6 +113,68 @@ export async function getPurchaseById(session: SessionPayload, purchaseId: strin
   return resource;
 }
 
+/**
+ * Calculates authoritative business purchase capacity.
+ * Remaining Capacity = Business.totalInvestmentAED - sum(valid purchases)
+ * Valid purchases: status IN [CLEARED, IN_PROGRESS]
+ */
+export async function getBusinessPurchaseCapacity(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  excludePurchaseId?: string
+): Promise<{
+  business: { id: string; name: string; code: string; totalInvestmentAED: Prisma.Decimal };
+  totalInvestment: Prisma.Decimal;
+  existingPurchaseCost: Prisma.Decimal;
+  remainingPurchaseCapacity: Prisma.Decimal;
+}> {
+  const business = await tx.business.findUnique({
+    where: { id: businessId },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      totalInvestmentAED: true,
+    },
+  });
+
+  if (!business) {
+    throw new AuthError("Business entity not found.", 404);
+  }
+
+  const validPurchases = await tx.purchase.findMany({
+    where: {
+      businessId,
+      id: excludePurchaseId ? { not: excludePurchaseId } : undefined,
+      status: { in: [PurchaseStatus.CLEARED, PurchaseStatus.IN_PROGRESS] },
+    },
+    select: {
+      totalLandedCost: true,
+      baseAcquisitionValue: true,
+    },
+  });
+
+  const existingPurchaseCost = validPurchases.reduce((acc, p) => {
+    const cost = p.totalLandedCost ?? p.baseAcquisitionValue ?? 0;
+    return acc.plus(new Prisma.Decimal(cost));
+  }, new Prisma.Decimal(0));
+
+  const totalInvestment = new Prisma.Decimal(business.totalInvestmentAED || 0);
+  const remainingPurchaseCapacity = totalInvestment.minus(existingPurchaseCost);
+
+  return {
+    business: {
+      id: business.id,
+      name: business.name,
+      code: business.code,
+      totalInvestmentAED: totalInvestment,
+    },
+    totalInvestment,
+    existingPurchaseCost,
+    remainingPurchaseCapacity,
+  };
+}
+
 export async function createPurchase(session: SessionPayload, input: CreatePurchaseInput) {
   // 1. Zod Validation
   const validationResult = createPurchaseSchema.safeParse(input);
@@ -122,40 +184,21 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
   }
   const validated = validationResult.data;
 
-  // 2. Business Existence Validation
-  const business = await prisma.business.findUnique({
-    where: { id: validated.businessId },
-    select: { id: true, partnerId: true, name: true, code: true },
-  });
+  // 2. Business Existence & Authorization Check
+  await requireBusinessAccess(validated.businessId, session, "WRITE");
 
-  if (!business) {
-    throw new AuthError("Business entity not found.", 404);
-  }
-
-  // 3. Authorization Check
-  if (session.role === UserRole.PARTNER && business.partnerId !== session.userId) {
-    await logAuditEvent({
-      userId: session.userId,
-      action: "UNAUTHORIZED_ACCESS_ATTEMPT",
-      entity: "Purchase",
-      entityId: validated.businessId,
-      oldValues: { attemptedRole: session.role },
-    });
-    throw new AuthError("You do not have permission to access this business", 403);
-  }
-
-  // 4. Server-Side ID Generation
+  // 3. Server-Side ID Generation
   const purchaseCode =
     input.purchaseCode && input.purchaseCode.trim()
       ? input.purchaseCode.trim()
       : await generateUniquePurchaseCode();
 
-  // 5. Quantity & Unit Assignment
+  // 4. Quantity & Unit Assignment
   const quantityDecimal = new Prisma.Decimal(validated.quantity);
   const quantityGms =
     validated.quantityUnit === QuantityUnit.GRAM ? quantityDecimal : null;
 
-  // 6. Total Purchase Amount & Authoritative Base Amount Calculation (totalPurchaseAmount ÷ quantity)
+  // 5. Total Purchase Amount & Authoritative Base Amount Calculation
   const inputTotal = validated.totalPurchaseAmount ?? validated.baseAcquisitionValue;
   if (
     inputTotal === undefined ||
@@ -171,8 +214,6 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
     Prisma.Decimal.ROUND_HALF_UP
   );
 
-  // Authoritative server-side calculation: Base Amount = Total Purchase Amount / Quantity
-  // Precision: 4 decimal places for base price
   const basePricePerUnitAEDDecimal = baseAcquisitionValueDecimal
     .div(quantityDecimal)
     .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
@@ -190,30 +231,64 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
     .add(csDecimal)
     .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-  // 7. Persist to Database
-  const purchase = await prisma.purchase.create({
-    data: {
-      businessId: validated.businessId,
-      purchaseCode,
-      purchaseDate: new Date(validated.purchaseDate),
-      sourcingVault: input.sourcingVault?.trim() || null,
-      productType: validated.productType.trim(),
-      quantity: quantityDecimal,
-      quantityUnit: validated.quantityUnit,
-      quantityGms,
-      basePricePerUnitAED: basePricePerUnitAEDDecimal,
-      basePricePerGm: basePricePerGmDecimal,
-      baseAcquisitionValue: baseAcquisitionValueDecimal,
-      transitInsuranceFreight: tifDecimal,
-      vaultHandlingLabour: vhlDecimal,
-      customsSecurity: csDecimal,
-      totalLandedCost: totalLandedCostDecimal,
-      status: input.status || PurchaseStatus.CLEARED,
-    },
-    include: { business: { select: { id: true, name: true, code: true } } },
+  const effectiveStatus = input.status || PurchaseStatus.CLEARED;
+
+  // 6. Atomic Concurrency Lock, Capital Limit Validation & Database Persistence
+  const purchase = await prisma.$transaction(async (tx) => {
+    // Concurrency Lock on Business row
+    await tx.$queryRaw`
+      SELECT id FROM "Business" WHERE id = ${validated.businessId} FOR UPDATE
+    `;
+
+    // Calculate authoritative purchase capacity
+    const { totalInvestment, existingPurchaseCost, remainingPurchaseCapacity } =
+      await getBusinessPurchaseCapacity(tx, validated.businessId);
+
+    // Enforce business purchase capital limit for committed purchases
+    if (effectiveStatus !== PurchaseStatus.DRAFT) {
+      if (totalLandedCostDecimal.greaterThan(remainingPurchaseCapacity)) {
+        const remainingNum = Math.max(0, Number(remainingPurchaseCapacity.toFixed(2)));
+        throw new AuthError(
+          "Purchase amount exceeds the remaining business investment capacity.",
+          400,
+          {
+            totalInvestment: Number(totalInvestment.toFixed(2)),
+            existingPurchaseCost: Number(existingPurchaseCost.toFixed(2)),
+            remainingPurchaseCapacity: remainingNum,
+            requestedPurchaseCost: Number(totalLandedCostDecimal.toFixed(2)),
+          }
+        );
+      }
+    }
+
+    const created = await tx.purchase.create({
+      data: {
+        businessId: validated.businessId,
+        purchaseCode,
+        purchaseDate: new Date(validated.purchaseDate),
+        sourcingVault: input.sourcingVault?.trim() || null,
+        productType: validated.productType.trim(),
+        quantity: quantityDecimal,
+        quantityUnit: validated.quantityUnit,
+        quantityGms,
+        basePricePerUnitAED: basePricePerUnitAEDDecimal,
+        basePricePerGm: basePricePerGmDecimal,
+        baseAcquisitionValue: baseAcquisitionValueDecimal,
+        transitInsuranceFreight: tifDecimal,
+        vaultHandlingLabour: vhlDecimal,
+        customsSecurity: csDecimal,
+        totalLandedCost: totalLandedCostDecimal,
+        status: effectiveStatus,
+      },
+      include: { business: { select: { id: true, name: true, code: true } } },
+    });
+
+    await reconcileInventory(tx, created.businessId, created.productType, created.quantityUnit);
+
+    return created;
   });
 
-  // 8. Audit Logging
+  // 7. Audit Logging
   await logAuditEvent({
     userId: session.userId,
     action: "PURCHASE_CREATED",
@@ -231,10 +306,7 @@ export async function createPurchase(session: SessionPayload, input: CreatePurch
     },
   });
 
-  // 9. Reconcile Inventory
-  await reconcileInventory(prisma, purchase.businessId, purchase.productType, purchase.quantityUnit);
-
-  // Invalidate Redis caches
+  // 8. Invalidate Redis caches
   await invalidateTransactionCaches(purchase.businessId, "purchases", purchase.id);
 
   return purchase;
@@ -256,6 +328,11 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
     "WRITE",
     session
   );
+
+  const targetBusinessId = validated.businessId || existing.businessId;
+  if (validated.businessId && validated.businessId !== existing.businessId) {
+    await requireBusinessAccess(validated.businessId, session, "WRITE");
+  }
 
   const newQuantity =
     validated.quantity !== undefined
@@ -281,7 +358,6 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
   }
 
   if (baseAcquisitionValue !== null && !newQuantity.isZero()) {
-    // Authoritative calculation: Base Amount = Total Purchase Amount / Quantity
     basePricePerUnitAED = baseAcquisitionValue
       .div(newQuantity)
       .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
@@ -316,33 +392,72 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
       .add(vhl)
       .add(cs)
       .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  } else if (existing.totalLandedCost !== null) {
+    totalLandedCost = new Prisma.Decimal(existing.totalLandedCost);
   }
 
-  // If businessId is changing, verify access to the destination business
-  if (validated.businessId && validated.businessId !== existing.businessId) {
-    await requireBusinessAccess(validated.businessId, session);
-  }
+  const effectiveStatus = input.status !== undefined ? input.status : existing.status;
 
-  const updated = await prisma.purchase.update({
-    where: { id: purchaseId },
-    data: {
-      businessId: validated.businessId || undefined,
-      purchaseDate: validated.purchaseDate ? new Date(validated.purchaseDate) : undefined,
-      sourcingVault: input.sourcingVault !== undefined ? input.sourcingVault?.trim() || null : undefined,
-      productType: validated.productType?.trim(),
-      quantity: validated.quantity !== undefined ? newQuantity : undefined,
-      quantityUnit: validated.quantityUnit || undefined,
-      quantityGms,
-      basePricePerUnitAED,
-      basePricePerGm,
-      baseAcquisitionValue,
-      transitInsuranceFreight: tif,
-      vaultHandlingLabour: vhl,
-      customsSecurity: cs,
-      totalLandedCost,
-      status: input.status,
-    },
-    include: { business: { select: { id: true, name: true, code: true } } },
+  // 3. Atomic Concurrency Lock, Capital Limit Validation & Database Persistence
+  const updated = await prisma.$transaction(async (tx) => {
+    // Concurrency Lock on Business row
+    await tx.$queryRaw`
+      SELECT id FROM "Business" WHERE id = ${targetBusinessId} FOR UPDATE
+    `;
+
+    // Calculate authoritative purchase capacity excluding current purchase being edited
+    const { totalInvestment, existingPurchaseCost, remainingPurchaseCapacity } =
+      await getBusinessPurchaseCapacity(tx, targetBusinessId, purchaseId);
+
+    // Enforce business purchase capital limit for committed purchases
+    if (effectiveStatus !== PurchaseStatus.DRAFT && totalLandedCost !== null) {
+      if (totalLandedCost.greaterThan(remainingPurchaseCapacity)) {
+        const remainingNum = Math.max(0, Number(remainingPurchaseCapacity.toFixed(2)));
+        throw new AuthError(
+          "Purchase amount exceeds the remaining business investment capacity.",
+          400,
+          {
+            totalInvestment: Number(totalInvestment.toFixed(2)),
+            existingPurchaseCost: Number(existingPurchaseCost.toFixed(2)),
+            remainingPurchaseCapacity: remainingNum,
+            requestedPurchaseCost: Number(totalLandedCost.toFixed(2)),
+          }
+        );
+      }
+    }
+
+    const res = await tx.purchase.update({
+      where: { id: purchaseId },
+      data: {
+        businessId: validated.businessId || undefined,
+        purchaseDate: validated.purchaseDate ? new Date(validated.purchaseDate) : undefined,
+        sourcingVault: input.sourcingVault !== undefined ? input.sourcingVault?.trim() || null : undefined,
+        productType: validated.productType?.trim(),
+        quantity: validated.quantity !== undefined ? newQuantity : undefined,
+        quantityUnit: validated.quantityUnit || undefined,
+        quantityGms,
+        basePricePerUnitAED,
+        basePricePerGm,
+        baseAcquisitionValue,
+        transitInsuranceFreight: tif,
+        vaultHandlingLabour: vhl,
+        customsSecurity: cs,
+        totalLandedCost,
+        status: input.status,
+      },
+      include: { business: { select: { id: true, name: true, code: true } } },
+    });
+
+    await reconcileInventory(tx, res.businessId, res.productType, res.quantityUnit);
+    if (
+      existing.businessId !== res.businessId ||
+      existing.productType !== res.productType ||
+      existing.quantityUnit !== res.quantityUnit
+    ) {
+      await reconcileInventory(tx, existing.businessId, existing.productType, existing.quantityUnit);
+    }
+
+    return res;
   });
 
   await logAuditEvent({
@@ -357,15 +472,6 @@ export async function updatePurchase(session: SessionPayload, purchaseId: string
       totalLandedCost: updated.totalLandedCost ? Number(updated.totalLandedCost) : null,
     },
   });
-
-  await reconcileInventory(prisma, updated.businessId, updated.productType, updated.quantityUnit);
-  if (
-    existing.businessId !== updated.businessId ||
-    existing.productType !== updated.productType ||
-    existing.quantityUnit !== updated.quantityUnit
-  ) {
-    await reconcileInventory(prisma, existing.businessId, existing.productType, existing.quantityUnit);
-  }
 
   // Invalidate Redis caches
   await invalidateTransactionCaches(updated.businessId, "purchases", updated.id);

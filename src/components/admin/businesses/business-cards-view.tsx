@@ -91,6 +91,11 @@ export function BusinessCardsView({
                         >
                           {b.status}
                         </span>
+                        {b.isViewOnlyForAdmin && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold tracking-wider rounded uppercase bg-amber-50 text-amber-700 border border-amber-200">
+                            View Only
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{b.subtitle}</p>
                     </div>

@@ -56,6 +56,12 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`;
 }
 
+interface BusinessCapacity {
+  totalInvestment: number;
+  existingPurchaseCost: number;
+  remainingPurchaseCapacity: number;
+}
+
 export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
   const router = useRouter();
 
@@ -72,6 +78,10 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState<"GRAM" | "PIECE">("GRAM");
   const [totalPurchaseAmount, setTotalPurchaseAmount] = useState("");
+
+  // Capacity state
+  const [capacity, setCapacity] = useState<BusinessCapacity | null>(null);
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
 
   // Live client-side calculation for display: Base Amount = Total Purchase Amount ÷ Quantity
   const calculatedBaseAmount = React.useMemo(() => {
@@ -90,10 +100,77 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
     })} / ${unitSuffix}`;
   }, [calculatedBaseAmount, quantityUnit]);
 
+  // Live calculation: Current purchase cost and remaining capacity after purchase
+  const currentPurchaseCost = React.useMemo(() => {
+    const t = parseFloat(totalPurchaseAmount);
+    return isNaN(t) || t <= 0 ? 0 : t;
+  }, [totalPurchaseAmount]);
+
+  const remainingAfterPurchase = React.useMemo(() => {
+    if (!capacity) return null;
+    return capacity.remainingPurchaseCapacity - currentPurchaseCost;
+  }, [capacity, currentPurchaseCost]);
+
+  // Live Capacity validation error
+  const capacityError = React.useMemo(() => {
+    if (!businessId || capacity === null || !totalPurchaseAmount) return null;
+    const t = parseFloat(totalPurchaseAmount);
+    if (isNaN(t) || t <= 0) return null;
+    if (t > capacity.remainingPurchaseCapacity) {
+      const maxAllowed = Math.max(0, capacity.remainingPurchaseCapacity);
+      return `Purchase amount exceeds remaining business capital. Maximum allowed is AED ${maxAllowed.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}.`;
+    }
+    return null;
+  }, [businessId, capacity, totalPurchaseAmount]);
+
+  const isFormValid = React.useMemo(() => {
+    if (!businessId || !purchaseDate || !productType.trim()) return false;
+    const q = parseFloat(quantity);
+    if (isNaN(q) || q <= 0) return false;
+    if (quantityUnit === "PIECE" && !Number.isInteger(q)) return false;
+    const t = parseFloat(totalPurchaseAmount);
+    if (isNaN(t) || t <= 0) return false;
+    if (capacity !== null && t > capacity.remainingPurchaseCapacity) return false;
+    return true;
+  }, [businessId, purchaseDate, productType, quantity, quantityUnit, totalPurchaseAmount, capacity]);
+
   // Submission state
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Load business purchase capacity when business changes
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCapacity() {
+      if (!businessId) {
+        setCapacity(null);
+        return;
+      }
+      try {
+        setLoadingCapacity(true);
+        const res = await fetch(`/api/purchases/capacity?businessId=${encodeURIComponent(businessId)}`);
+        const data = await res.json();
+        if (isMounted && data.success && data.capacity) {
+          setCapacity(data.capacity);
+        } else if (isMounted) {
+          setCapacity(null);
+        }
+      } catch (err) {
+        console.error("Error loading purchase capacity:", err);
+        if (isMounted) setCapacity(null);
+      } finally {
+        if (isMounted) setLoadingCapacity(false);
+      }
+    }
+    loadCapacity();
+    return () => {
+      isMounted = false;
+    };
+  }, [businessId]);
 
   // Close dropdown on click outside or Escape
   useEffect(() => {
@@ -226,6 +303,15 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       return;
     }
 
+    if (capacity !== null && totalNum > capacity.remainingPurchaseCapacity) {
+      const maxAllowed = Math.max(0, capacity.remainingPurchaseCapacity);
+      setErrorMessage(`Purchase amount exceeds remaining business capital. Maximum allowed is AED ${maxAllowed.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}.`);
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -248,7 +334,10 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || result.error || "Failed to record purchase.");
+        const errorDetail = result.details?.remainingPurchaseCapacity !== undefined
+          ? ` (Remaining capacity: AED ${Number(result.details.remainingPurchaseCapacity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+          : "";
+        throw new Error((result.message || result.error || "Failed to record purchase.") + errorDetail);
       }
 
       setSuccessMessage(`Purchase ${result.purchase.purchaseCode} created successfully!`);
@@ -431,6 +520,97 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
             </div>
           </div>
 
+          {/* Business Capital & Purchase Capacity Breakdown */}
+          {businessId && (
+            <div className="sm:col-span-2 rounded-xl border border-gray-200/90 bg-neutral-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                  Business Capital & Purchase Capacity
+                </span>
+                {loadingCapacity && (
+                  <span className="text-[10px] text-gray-400 font-medium animate-pulse">
+                    Calculating capacity...
+                  </span>
+                )}
+                {!loadingCapacity && selectedBusiness && (
+                  <span className="text-[10px] font-mono text-gray-500 bg-gray-200/60 px-1.5 py-0.5 rounded">
+                    {selectedBusiness.code}
+                  </span>
+                )}
+              </div>
+
+              {capacity ? (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                    <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                      Total Investment
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-gray-900 font-mono">
+                      AED {capacity.totalInvestment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                    <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                      Already Purchased
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-gray-800 font-mono">
+                      AED {capacity.existingPurchaseCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                    <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                      Remaining Capacity
+                    </span>
+                    <span className={`text-xs sm:text-sm font-bold font-mono ${capacity.remainingPurchaseCapacity > 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                      AED {capacity.remainingPurchaseCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                    <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                      Current Purchase
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-gray-950 font-mono">
+                      {currentPurchaseCost > 0
+                        ? `AED ${currentPurchaseCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : "—"}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg bg-white border border-gray-200 p-2.5">
+                    <span className="text-[10px] font-semibold uppercase text-gray-500 block">
+                      Capacity After Purchase
+                    </span>
+                    <span className={`text-xs sm:text-sm font-bold font-mono ${
+                      remainingAfterPurchase !== null && remainingAfterPurchase < 0
+                        ? "text-red-600"
+                        : "text-gray-900"
+                    }`}>
+                      {remainingAfterPurchase !== null && currentPurchaseCost > 0
+                        ? `AED ${remainingAfterPurchase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : capacity
+                        ? `AED ${capacity.remainingPurchaseCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : "—"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-2 text-xs text-gray-500">
+                  {loadingCapacity ? "Loading capital details..." : "Unable to load business capacity."}
+                </div>
+              )}
+
+              {capacityError && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-2.5 text-xs text-red-800 font-semibold flex items-center gap-2">
+                  <span className="text-red-600">⚠️ Capital Limit Exceeded:</span>
+                  <span>{capacityError}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 2. Purchase Date */}
           <div className="space-y-1">
             <Input
@@ -532,12 +712,23 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
                 setErrorMessage(null);
               }}
               disabled={submitting}
-              className="w-full h-10 px-3 text-xs bg-white border border-gray-200 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black font-medium transition-colors"
+              className={`w-full h-10 px-3 text-xs bg-white border rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none font-medium transition-colors ${
+                capacityError
+                  ? "border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500"
+                  : "border-gray-200 focus:ring-1 focus:ring-black focus:border-black"
+              }`}
               required
             />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Total monetary value in AED paid for this acquisition.
-            </p>
+            {capacityError ? (
+              <p className="text-[11px] text-red-600 font-semibold mt-1">
+                {capacityError}
+              </p>
+            ) : (
+              <p className="text-[11px] text-gray-500 mt-1">
+                Total monetary value in AED paid for this acquisition.
+                {capacity ? ` Maximum available: AED ${Math.max(0, capacity.remainingPurchaseCapacity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` : ""}
+              </p>
+            )}
           </div>
 
           {/* 6. Base Amount (Read-Only, Auto-Calculated) */}
@@ -573,7 +764,7 @@ export function NewPurchaseEntry({ onRecordPurchase }: NewPurchaseEntryProps) {
           <Button
             type="submit"
             variant="primary"
-            disabled={submitting || loadingBusinesses}
+            disabled={submitting || loadingBusinesses || loadingCapacity || !isFormValid}
             className="px-6 text-xs font-bold"
           >
             {submitting ? "Recording..." : "Record Purchase"}

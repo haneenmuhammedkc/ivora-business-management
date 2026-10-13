@@ -37,7 +37,12 @@ export async function POST(req: NextRequest) {
     if (error instanceof AuthError) {
       if (error.statusCode === 400) {
         return NextResponse.json(
-          { success: false, error: "BAD_REQUEST", message: error.message },
+          {
+            success: false,
+            error: "BAD_REQUEST",
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
           { status: 400 }
         );
       }

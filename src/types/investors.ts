@@ -79,6 +79,7 @@ export interface BusinessInvestorDetails {
   status: string;
   createdAt: string;
   participants: InvestorRecord[];
+  isViewOnlyForAdmin?: boolean;
 }
 
 export interface InvestorSummaryKPIs {
