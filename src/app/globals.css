@@ -61,7 +61,8 @@ body {
   nav,
   header,
   .no-print,
-  button {
+  button,
+  [role="dialog"] {
     display: none !important;
   }
 
@@ -69,6 +70,22 @@ body {
     background: #ffffff !important;
     color: #000000 !important;
     font-size: 11pt !important;
+  }
+
+  /* Reset layout constraints in print */
+  .lg\:pl-64,
+  div[class*="lg:pl-64"] {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  main,
+  div[class*="overflow-y-auto"],
+  div[class*="overflow-x-auto"] {
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
   }
 
   .shadow-2xs,

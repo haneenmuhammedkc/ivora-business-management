@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/icons";
 import { BusinessWorkspaceDetail } from "@/types/business";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
+import { BusinessClosureModal } from "@/components/admin/businesses/business-closure-modal";
+import { BusinessClosureEligibility } from "@/services/business/business.service";
 
 interface BusinessDetailPageProps {
   params: Promise<{ id: string }>;
@@ -20,12 +22,19 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
   const resolvedParams = use(params);
   const businessId = resolvedParams.id;
 
-  const { data, error: fetchError, isLoading } = useCachedFetch<{
+  const { data, error: fetchError, isLoading, mutate } = useCachedFetch<{
     success: boolean;
     business: BusinessWorkspaceDetail;
     message?: string;
     error?: string;
   }>(businessId ? `/api/businesses/${encodeURIComponent(businessId)}` : null);
+
+  const { data: closureData, isLoading: isLoadingEligibility, mutate: mutateEligibility } = useCachedFetch<{
+    success: boolean;
+    eligibility: BusinessClosureEligibility;
+  }>(businessId ? `/api/businesses/${encodeURIComponent(businessId)}/closure` : null);
+
+  const [isClosureModalOpen, setIsClosureModalOpen] = useState(false);
 
   const business = data?.business || null;
   const error = fetchError
@@ -144,6 +153,16 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
 
           {/* Action Shortcuts */}
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {business.status !== "SETTLED" && (
+              <button
+                type="button"
+                onClick={() => setIsClosureModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors shadow-2xs cursor-pointer"
+              >
+                <span>Close Business & Settle</span>
+              </button>
+            )}
+
             <Link
               href={`/investors/business/${encodeURIComponent(business.id)}`}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors shadow-2xs"
@@ -708,6 +727,23 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
             </div>
           </div>
         </FadeUp>
+      )}
+
+      {/* Business Closure & Final Settlement Modal */}
+      {isClosureModalOpen && (
+        <BusinessClosureModal
+          isOpen={isClosureModalOpen}
+          onClose={() => setIsClosureModalOpen(false)}
+          businessId={business.id}
+          businessName={business.name}
+          businessCode={business.code}
+          eligibility={closureData?.eligibility || null}
+          isLoadingEligibility={isLoadingEligibility}
+          onSuccess={() => {
+            mutate();
+            mutateEligibility();
+          }}
+        />
       )}
     </div>
   );

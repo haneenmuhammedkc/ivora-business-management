@@ -3,8 +3,9 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType } from "@prisma/client";
+import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType, WalletEntryType, BusinessStatus } from "@prisma/client";
 import { getFullProfitLossData } from "@/services/financials/financials.service";
+import { getBusinessInventoryLiquidationStatus } from "@/services/business/business.service";
 import { ensureBusinessParticipants } from "@/services/investor/investor.service";
 import { invalidateInvestorCaches, invalidateBusinessFinancials } from "@/lib/redis/invalidation";
 import { getOrSetCache } from "@/lib/redis/cache";
@@ -64,6 +65,12 @@ export interface InvestorSettlementOverview {
   totalOutstandingAED: number;
   isAllocationLocked: boolean;
   isFullySettled: boolean;
+  businessClosure?: {
+    isClosed: boolean;
+    hasRemainingInventory: boolean;
+    unsoldUnitsCount: number;
+    reasons: string[];
+  };
   paymentHistory: DisbursalPaymentGroup[];
 }
 
@@ -83,6 +90,7 @@ export interface RecordDisbursalPaymentInput {
   escrowAccount?: string | null;
   transactionDate?: string | Date;
   notes?: string;
+  creditToWallet?: boolean;
 }
 
 /**
@@ -129,28 +137,49 @@ export async function getInvestorSettlementOverview(
     await requireResourceAccess("Investor", investorId, "READ", session);
   }
 
-  // Ensure DB participants exist
-  await ensureBusinessParticipants(businessId);
+  // Ensure DB participants exist only if checking synthetic admin or partner participants
+  if (
+    investorId.startsWith("admin-") ||
+    investorId.startsWith("partner-") ||
+    investorId.startsWith("INV-ADM-") ||
+    investorId.startsWith("INV-PTR-")
+  ) {
+    await ensureBusinessParticipants(businessId);
+  }
 
   const cacheKey = CacheKeys.investors.settlement(businessId, investorId);
 
   return getOrSetCache(cacheKey, CacheTTL.MEDIUM, async () => {
-    // 1. Fetch authoritative business
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      include: {
-        partner: {
-          select: { id: true, name: true, email: true, phone: true },
+    // 1. Fetch authoritative business, PnL, dbInvestor, and stock status concurrently
+    const [business, pnlData, dbInvestor, invStatus] = await Promise.all([
+      prisma.business.findUnique({
+        where: { id: businessId },
+        include: {
+          partner: {
+            select: { id: true, name: true, email: true, phone: true },
+          },
         },
-      },
-    });
+      }),
+      getFullProfitLossData(session, { businessId }),
+      prisma.investor.findFirst({
+        where: {
+          OR: [{ id: investorId }, { code: investorId }],
+        },
+        include: {
+          investments: {
+            where: { businessId },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      }),
+      getBusinessInventoryLiquidationStatus(businessId),
+    ]);
 
     if (!business) {
       throw new AuthError("Business not found", 404);
     }
 
-    // 2. Fetch authoritative business Net Profit from existing P&L engine
-    const pnlData = await getFullProfitLossData(session, { businessId });
+    // 2. Fetch authoritative business Net Profit from P&L result
     const rawNetProfit = pnlData.kpis?.netProfitAED ?? pnlData.statement?.netProfitAED ?? 0;
     const netProfitAED = Math.max(0, Number(rawNetProfit));
 
@@ -164,19 +193,6 @@ export async function getInvestorSettlementOverview(
     let contractualSharePct = 0;
     let persistedAllocatedProfitAED: number | null = null;
     const relatedInvestorIds: string[] = [investorId];
-
-    // Check if investorId matches an existing DB record
-    const dbInvestor = await prisma.investor.findFirst({
-      where: {
-        OR: [{ id: investorId }, { code: investorId }],
-      },
-      include: {
-        investments: {
-          where: { businessId },
-          orderBy: { createdAt: "desc" },
-        },
-      },
-    });
 
     const isAdmin =
       investorId.startsWith("admin-") ||
@@ -399,6 +415,19 @@ export async function getInvestorSettlementOverview(
       (a, b) => new Date(b.dateRaw).getTime() - new Date(a.dateRaw).getTime()
     );
 
+    // Check business closure and inventory liquidation status using pre-fetched invStatus
+    const isClosed = business.status === BusinessStatus.SETTLED || business.status === BusinessStatus.INACTIVE;
+    const businessClosure = {
+      isClosed,
+      hasRemainingInventory: !invStatus.isLiquidated,
+      unsoldUnitsCount: invStatus.totalUnsoldQuantity,
+      reasons: !invStatus.isLiquidated
+        ? [`Cannot disburse final settlement to personal wallet: ${invStatus.totalUnsoldQuantity} unsold units remain in inventory.`]
+        : isClosed
+        ? ["Business is closed and settled."]
+        : [],
+    };
+
     return {
       investor: {
         id: investorId,
@@ -433,6 +462,7 @@ export async function getInvestorSettlementOverview(
       totalOutstandingAED,
       isAllocationLocked,
       isFullySettled,
+      businessClosure,
       paymentHistory,
     };
   });
@@ -608,8 +638,8 @@ export async function recordDisbursalPayment(
   transactions: Array<{ id: string; transactionCode: string; amount: number; type: TransactionType }>;
   isFullySettled: boolean;
 }> {
-  if (session.role !== UserRole.ADMIN) {
-    throw new AuthError("Only Admins are authorized to record settlement disbursals.", 403);
+  if (session.role !== UserRole.ADMIN && session.role !== UserRole.PARTNER) {
+    throw new AuthError("Only Admins and assigned Partners are authorized to record settlement disbursals.", 403);
   }
 
   const {
@@ -622,6 +652,7 @@ export async function recordDisbursalPayment(
     escrowAccount,
     transactionDate,
     notes,
+    creditToWallet,
   } = input;
 
   await requireBusinessAccess(businessId, session);
@@ -675,6 +706,22 @@ export async function recordDisbursalPayment(
       });
       if (!business) {
         throw new AuthError("Business not found", 404);
+      }
+
+      // Requirement: "Show the 'Credit to Investor Personal Wallet' Option Only After Business Closure"
+      // If creditToWallet is explicitly requested, verify business is officially closed (SETTLED) or eligible for final settlement with zero unsold inventory
+      if (creditToWallet) {
+        const { getBusinessClosureEligibility } = await import("@/services/business/business.service");
+        const eligibility = await getBusinessClosureEligibility(session, businessId);
+        const isClosedOrEligible = business.status === BusinessStatus.SETTLED || eligibility.isEligible;
+        const hasZeroInventory = eligibility.unsoldInventory.length === 0;
+
+        if (!isClosedOrEligible || !hasZeroInventory) {
+          throw new AuthError(
+            `Wallet settlement is only permitted for closed businesses with zero unsold inventory. ${eligibility.reasons[0] || ""}`,
+            400
+          );
+        }
       }
 
       // 2. Resolve participant & target investment
@@ -855,6 +902,87 @@ export async function recordDisbursalPayment(
         });
       }
 
+      // C. Optional Direct Routing to Investor Personal Wallet
+      // Applicable ONLY for external investors (not synthetic admin/partner participants)
+      if (creditToWallet && targetInvestor.type === InvestorType.INVESTOR) {
+        let wallet = await tx.investorWallet.findUnique({
+          where: { investorId: targetInvestor.id },
+        });
+
+        if (!wallet) {
+          wallet = await tx.investorWallet.create({
+            data: {
+              investorId: targetInvestor.id,
+              currency: "AED",
+              availableBalance: new Prisma.Decimal(0),
+              reservedBalance: new Prisma.Decimal(0),
+            },
+          });
+        }
+
+        let runningBalance = wallet.availableBalance;
+
+        // 1. Credit Capital Return if > 0
+        if (capDecimal.gt(0)) {
+          const capTxItem = createdTransactions.find((t) => t.type === TransactionType.CAPITAL_RETURN);
+          if (capTxItem) {
+            runningBalance = runningBalance.plus(capDecimal);
+            await tx.investorWallet.update({
+              where: { id: wallet.id },
+              data: { availableBalance: runningBalance },
+            });
+
+            await tx.investorWalletEntry.create({
+              data: {
+                walletId: wallet.id,
+                entryCode: `WLT-STL-CAP-${capTxItem.transactionCode}`,
+                type: WalletEntryType.CAPITAL_RETURN_CREDIT,
+                amount: capDecimal,
+                balanceAfter: runningBalance,
+                description: `Settlement capital returned from ${business.code}`,
+                reference: cleanRef,
+                paymentMethod,
+                businessId: business.id,
+                investmentId: investment.id,
+                sourceTxId: capTxItem.id,
+                createdById: session.userId,
+                createdAt: effectiveDate,
+              },
+            });
+          }
+        }
+
+        // 2. Credit Realized Profit if > 0
+        if (prfDecimal.gt(0)) {
+          const prfTxItem = createdTransactions.find((t) => t.type === TransactionType.PROFIT_DISBURSAL);
+          if (prfTxItem) {
+            runningBalance = runningBalance.plus(prfDecimal);
+            await tx.investorWallet.update({
+              where: { id: wallet.id },
+              data: { availableBalance: runningBalance },
+            });
+
+            await tx.investorWalletEntry.create({
+              data: {
+                walletId: wallet.id,
+                entryCode: `WLT-STL-PRF-${prfTxItem.transactionCode}`,
+                type: WalletEntryType.PROFIT_CREDIT,
+                amount: prfDecimal,
+                balanceAfter: runningBalance,
+                description: `Settlement realized profit credited from ${business.code}`,
+                reference: cleanRef,
+                paymentMethod,
+                businessId: business.id,
+                investmentId: investment.id,
+                sourceTxId: prfTxItem.id,
+                createdById: session.userId,
+                createdAt: effectiveDate,
+              },
+            });
+          }
+        }
+      }
+
       // 6. Check if participant is now fully settled
       const newRemainingCapital = outstandingCapital.minus(capDecimal);
       const newRemainingProfit = outstandingProfit.minus(prfDecimal);
@@ -932,18 +1060,13 @@ export async function recordDisbursalPayment(
         }
       }
 
-      let businessSettled = false;
-      if (allParticipantsSettled && allInvestments.length > 0) {
+      let businessSettled = business.status === "SETTLED";
+      if (allParticipantsSettled && allInvestments.length > 0 && !businessSettled) {
         await tx.business.update({
           where: { id: businessId },
           data: { status: "SETTLED" },
         });
         businessSettled = true;
-      } else if (business.status === "SETTLED" && !allParticipantsSettled) {
-        await tx.business.update({
-          where: { id: businessId },
-          data: { status: "ACTIVE" },
-        });
       }
 
       return {

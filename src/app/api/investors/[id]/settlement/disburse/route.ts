@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordDisbursalPayment } from "@/services/investor/settlement.service";
 import { requireActiveSession, forbiddenErrorResponse } from "@/lib/auth/authorization";
-import { AuthError, unauthorizedResponse, requireAdmin } from "@/lib/auth/guards";
+import { AuthError, unauthorizedResponse } from "@/lib/auth/guards";
 import { validateDisbursalPaymentInput } from "@/validators/investor.validator";
 import { prisma } from "@/lib/prisma";
 
@@ -31,14 +31,17 @@ export async function POST(
 ) {
   try {
     const session = await requireActiveSession();
-    await requireAdmin();
+    if (session.role !== "ADMIN" && session.role !== "PARTNER") {
+      return forbiddenErrorResponse("Forbidden: Only Admins and assigned Partners can record disbursals.");
+    }
     const { id: investorId } = await params;
-    const businessId = await resolveBusinessIdForInvestor(investorId);
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
     }
+
+    const businessId = body.businessId || (await resolveBusinessIdForInvestor(investorId));
 
     const validationResult = validateDisbursalPaymentInput(body);
     if (!validationResult.isValid || !validationResult.data) {
@@ -63,6 +66,7 @@ export async function POST(
       escrowAccount: validationResult.data.escrowAccount,
       transactionDate: validationResult.data.transactionDate,
       notes: validationResult.data.notes,
+      creditToWallet: (validationResult.data as { creditToWallet?: boolean }).creditToWallet,
     });
 
     return NextResponse.json(result);

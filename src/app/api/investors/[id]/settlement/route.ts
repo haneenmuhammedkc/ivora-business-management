@@ -29,13 +29,15 @@ async function resolveBusinessIdForInvestor(investorId: string): Promise<string>
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await requireActiveSession();
     const { id: investorId } = await params;
-    const businessId = await resolveBusinessIdForInvestor(investorId);
+    const searchParams = req.nextUrl?.searchParams || new URL(req.url).searchParams;
+    const queryBizId = searchParams.get("businessId");
+    const businessId = queryBizId || (await resolveBusinessIdForInvestor(investorId));
 
     const overview = await getInvestorSettlementOverview(session, businessId, investorId);
     return NextResponse.json({ success: true, settlement: overview });

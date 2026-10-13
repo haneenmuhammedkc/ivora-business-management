@@ -134,7 +134,7 @@ export interface BusinessWorkspaceDetail {
   netProfitAED: number;
   marginPercentage: number;
   status: "ACTIVE" | "INACTIVE" | "PENDING" | "SETTLED";
-  partnerId: string;
+  partnerId?: string | null;
   partnerName: string;
   partnersSummary: string;
   partnerEquityPct: number;

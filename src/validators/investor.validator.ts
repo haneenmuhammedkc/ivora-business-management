@@ -507,6 +507,7 @@ export interface DisbursalPaymentValidationResult {
     escrowAccount?: string | null;
     transactionDate?: string;
     notes?: string;
+    creditToWallet?: boolean;
   };
 }
 
@@ -588,6 +589,7 @@ export function validateDisbursalPaymentInput(input: unknown): DisbursalPaymentV
           escrowAccount: typeof raw.escrowAccount === "string" ? raw.escrowAccount.trim() : null,
           transactionDate: typeof raw.transactionDate === "string" ? raw.transactionDate.trim() : undefined,
           notes: typeof raw.notes === "string" ? raw.notes.trim() : undefined,
+          creditToWallet: Boolean((raw as { creditToWallet?: unknown }).creditToWallet),
         }
       : undefined,
   };

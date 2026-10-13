@@ -141,13 +141,13 @@ model Business {
   totalInvestmentAED   Decimal        @db.Decimal(18, 2)
   adminInvestmentAED   Decimal        @db.Decimal(18, 2)
   partnerInvestmentAED Decimal        @db.Decimal(18, 2)
-  partnerId            String
+  partnerId            String?
   partnerEquityPct     Decimal        @db.Decimal(5, 2)
   status               BusinessStatus @default(ACTIVE)
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  partner       User          @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  partner       User?         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   investors     Investor[]
   investments   Investment[]
   purchases     Purchase[]
@@ -155,6 +155,7 @@ model Business {
   inventory     Inventory[]
   expenses      Expense[]
   transactions  Transaction[]
+  walletEntries InvestorWalletEntry[]
 
   @@index([code])
   @@index([status])
@@ -174,9 +175,10 @@ model Investor {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  business     Business?     @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  investments  Investment[]
-  transactions Transaction[]
+  business      Business?             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investments   Investment[]
+  transactions  Transaction[]
+  wallet        InvestorWallet?
 
   @@index([code])
   @@index([status])
@@ -197,8 +199,9 @@ model Investment {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investor      Investor              @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  business      Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  walletEntries InvestorWalletEntry[]
 
   @@index([investorId])
   @@index([businessId])
@@ -343,4 +346,99 @@ model AuditLog {
   @@index([entityId])
   @@index([createdAt])
   @@index([userId])
+}
+
+// ==========================================
+// INVESTOR WALLET SYSTEM ENUMS & MODELS
+// ==========================================
+
+enum WalletEntryType {
+  INITIAL_DEPOSIT
+  INVESTMENT_ALLOCATION
+  CAPITAL_RETURN_CREDIT
+  PROFIT_CREDIT
+  WITHDRAWAL_DEBIT
+  WITHDRAWAL_REVERSAL
+  RECONCILIATION_ADJUSTMENT
+}
+
+enum WithdrawalStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+model InvestorWallet {
+  id               String   @id @default(cuid())
+  investorId       String   @unique
+  currency         String   @default("AED")
+  availableBalance Decimal  @default(0) @db.Decimal(18, 2)
+  reservedBalance  Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  investor         Investor              @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  entries          InvestorWalletEntry[]
+  withdrawals      InvestorWithdrawal[]
+
+  @@index([investorId])
+}
+
+model InvestorWalletEntry {
+  id            String          @id @default(cuid())
+  walletId      String
+  entryCode     String          @unique
+  type          WalletEntryType
+  amount        Decimal         @db.Decimal(18, 2)
+  balanceAfter  Decimal         @db.Decimal(18, 2)
+  description   String
+  reference     String?
+  paymentMethod PaymentMethod?
+
+  businessId    String?
+  investmentId  String?
+  sourceTxId    String?
+  withdrawalId  String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+
+  wallet        InvestorWallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  business      Business?           @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  investment    Investment?         @relation(fields: [investmentId], references: [id], onDelete: Restrict)
+  withdrawal    InvestorWithdrawal? @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceTxId, type])
+  @@index([walletId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([businessId])
+  @@index([investmentId])
+  @@index([withdrawalId])
+}
+
+model InvestorWithdrawal {
+  id             String           @id @default(cuid())
+  withdrawalCode String           @unique
+  walletId       String
+  investorId     String
+  amount         Decimal          @db.Decimal(18, 2)
+  paymentMethod  PaymentMethod
+  bankReference  String?
+  notes          String?
+  status         WithdrawalStatus @default(PENDING)
+  requestedById  String
+  processedById  String?
+  requestedAt    DateTime         @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  wallet         InvestorWallet        @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  entries        InvestorWalletEntry[]
+
+  @@index([walletId])
+  @@index([investorId])
+  @@index([status])
+  @@index([createdAt])
 }

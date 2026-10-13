@@ -320,7 +320,7 @@ export async function listBusinessInvestorRows(session: SessionPayload) {
         partnerInvestmentAED: partnerInv,
         partnerEquityPct: partnerEquity,
         partnerId: b.partnerId,
-        partnerName: b.partner?.name || "Partner",
+        partnerName: b.partner?.name?.trim() || "No partner",
         externalInvestorsCount: externalCount,
         totalParticipantsCount,
         status: b.status,
@@ -557,11 +557,13 @@ export async function getBusinessInvestorDetails(
     adminInvestmentAED: adminInvestmentVal,
     partnerInvestmentAED: partnerInvestmentVal,
     partnerEquityPct: partnerEquityVal,
-    partner: {
-      id: b.partner.id,
-      name: b.partner.name,
-      email: b.partner.email,
-    },
+    partner: b.partner
+      ? {
+          id: b.partner.id,
+          name: b.partner.name,
+          email: b.partner.email,
+        }
+      : null,
     totalExternalInvestmentAED: totalExternalInvestmentVal,
     status: b.status,
     createdAt: businessDateFormatted,

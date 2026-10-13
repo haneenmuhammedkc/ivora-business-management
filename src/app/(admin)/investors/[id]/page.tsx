@@ -14,6 +14,8 @@ import {
   TrashIcon,
   DownloadIcon,
   PrinterIcon,
+  WalletIcon,
+  ArrowRightIcon,
 } from "@/components/ui/icons";
 import { InvestorRecord } from "@/types/investors";
 import { InvestorSettlementOverview } from "@/services/investor/settlement.service";
@@ -23,8 +25,6 @@ import { EditInvestorModal } from "@/components/admin/investors/edit-investor-mo
 import { DeleteInvestorModal } from "@/components/admin/investors/delete-investor-modal";
 import { ProfitAllocationSection } from "@/components/investors/settlement/profit-allocation-section";
 import { InvestorDueSection } from "@/components/investors/settlement/investor-due-section";
-import { RecordDisbursalSection } from "@/components/investors/settlement/record-disbursal-section";
-import { DisbursalHistoryTable } from "@/components/investors/settlement/disbursal-history-table";
 import { exportInvestorToPdf } from "@/lib/export/export-investor-pdf";
 import { exportInvestorToExcel } from "@/lib/export/export-investor-excel";
 
@@ -54,6 +54,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
   // 2. Fetch Authoritative Settlement Overview
   const {
     data: settlementData,
+    error: settlementFetchError,
     isLoading: isSettlementLoading,
     mutate: mutateSettlement,
   } = useCachedFetch<{
@@ -109,7 +110,8 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
     window.print();
   };
 
-  const isLoading = isInvestorLoading || (isSettlementLoading && !settlement);
+  // Only block full page if basic investor profile metadata is loading
+  const isLoading = isInvestorLoading && !investor;
   const error = fetchError
     ? fetchError.message
     : investorData && !investorData.success
@@ -296,6 +298,17 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
                 <span>Workspace</span>
               </Link>
             )}
+
+            {pType === "INVESTOR" && (
+              <Link
+                href={`/investors/${encodeURIComponent(investorId)}/wallet`}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-[#1e222d] rounded-lg transition-colors shadow-xs cursor-pointer"
+              >
+                <WalletIcon size={14} />
+                <span>Open Investor Wallet</span>
+                <ArrowRightIcon size={13} />
+              </Link>
+            )}
           </div>
         </div>
       </FadeUp>
@@ -470,43 +483,81 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
         </div>
       </FadeUp>
 
-      {/* SECTION 1 — PROFIT ALLOCATION */}
-      {settlement && (
-        <FadeUp delay={0.25}>
-          <ProfitAllocationSection
-            settlement={settlement}
-            isAdmin={isAdmin}
-            onAllocationUpdated={handleRefreshAll}
-          />
+      {/* SECTION: INVESTOR PERSONAL WALLET & SETTLEMENT HUB LINK (External Investors Only) */}
+      {pType === "INVESTOR" && (
+        <FadeUp delay={0.22}>
+          <div className="rounded-xl border border-gray-200/90 bg-linear-to-r from-gray-50/90 via-slate-50/50 to-white p-5 sm:p-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-5">
+            <div className="space-y-1.5 max-w-2xl">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="p-2 rounded-lg bg-[#0c0d12] text-white shadow-xs shrink-0">
+                  <WalletIcon size={18} />
+                </div>
+                <h3 className="text-sm sm:text-base font-bold text-gray-950 tracking-tight">
+                  Investor Personal Wallet & Fund Settlements
+                </h3>
+                <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-100 text-gray-800 rounded border border-gray-200">
+                  Dedicated Hub
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Settlement disbursals, capital return credits, cross-business reinvestments, and withdrawal processing are managed in the dedicated investor wallet.
+              </p>
+            </div>
+            <Link
+              href={`/investors/${encodeURIComponent(investorId)}/wallet`}
+              className="inline-flex items-center justify-center gap-2 px-4.5 py-2.5 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-[#1e222d] rounded-lg transition-colors shadow-xs shrink-0 w-full md:w-auto cursor-pointer"
+            >
+              <WalletIcon size={15} />
+              <span>Open Investor Wallet</span>
+              <ArrowRightIcon size={14} />
+            </Link>
+          </div>
         </FadeUp>
       )}
 
-      {/* SECTION 2 — INVESTOR DUE */}
-      {settlement && (
-        <FadeUp delay={0.3}>
-          <InvestorDueSection settlement={settlement} />
-        </FadeUp>
-      )}
-
-      {/* SECTION 3 — PAYMENT / DISBURSAL */}
-      {settlement && (
-        <div className="print:hidden">
-          <FadeUp delay={0.35}>
-            <RecordDisbursalSection
+      {/* SETTLEMENT SECTIONS */}
+      {settlement ? (
+        <>
+          {/* SECTION 1 — PROFIT ALLOCATION */}
+          <FadeUp delay={0.25}>
+            <ProfitAllocationSection
               settlement={settlement}
               isAdmin={isAdmin}
-              onPaymentRecorded={handleRefreshAll}
+              onAllocationUpdated={handleRefreshAll}
             />
           </FadeUp>
-        </div>
-      )}
 
-      {/* SECTION 4 — SETTLEMENT PAYMENT HISTORY TABLE */}
-      {settlement && (
-        <FadeUp delay={0.4}>
-          <DisbursalHistoryTable paymentHistory={settlement.paymentHistory} />
+          {/* SECTION 2 — INVESTOR DUE */}
+          <FadeUp delay={0.3}>
+            <InvestorDueSection settlement={settlement} />
+          </FadeUp>
+        </>
+      ) : isSettlementLoading ? (
+        <FadeUp delay={0.25}>
+          <div className="rounded-xl border border-gray-200/90 bg-white p-6 shadow-2xs space-y-4">
+            <div className="h-5 w-48 rounded bg-gray-100 animate-pulse" />
+            <div className="h-28 w-full rounded-xl bg-gray-100 animate-pulse" />
+          </div>
         </FadeUp>
-      )}
+      ) : settlementFetchError ? (
+        <FadeUp delay={0.25}>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xs font-bold text-amber-900">Settlement Calculations Unavailable</h3>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                {settlementFetchError.message || "Could not retrieve participant settlement calculations."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => mutateSettlement()}
+              className="px-3 py-1.5 text-xs font-semibold bg-white border border-amber-300 text-amber-900 rounded-lg hover:bg-amber-100/50 shadow-2xs cursor-pointer self-start sm:self-auto"
+            >
+              Retry Settlement
+            </button>
+          </div>
+        </FadeUp>
+      ) : null}
 
       {/* Modals */}
       {isEditModalOpen && (

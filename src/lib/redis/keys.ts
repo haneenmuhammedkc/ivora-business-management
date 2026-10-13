@@ -17,6 +17,7 @@ export const CacheKeys = {
     business: (businessId: string) => `${PREFIX}:biz:${businessId}:investors:detail`,
     detail: (investorId: string) => `${PREFIX}:investor:${investorId}:detail`,
     settlement: (businessId: string, investorId: string) => `${PREFIX}:biz:${businessId}:investor:${investorId}:settlement`,
+    wallet: (investorId: string) => `${PREFIX}:investor:${investorId}:wallet`,
   },
   purchases: {
     list: (businessId?: string, role = "ADMIN", userId = "") =>
