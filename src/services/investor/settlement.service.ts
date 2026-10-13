@@ -3,7 +3,7 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess, isBusinessPartnerOwnedWithoutAdmin } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType } from "@prisma/client";
+import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType, BusinessStatus } from "@prisma/client";
 import { getFullProfitLossData } from "@/services/financials/financials.service";
 import { ensureBusinessParticipants } from "@/services/investor/investor.service";
 import { invalidateInvestorCaches, invalidateBusinessFinancials } from "@/lib/redis/invalidation";
@@ -942,13 +942,13 @@ export async function recordDisbursalPayment(
       if (allParticipantsSettled && allInvestments.length > 0) {
         await tx.business.update({
           where: { id: businessId },
-          data: { status: "SETTLED" },
+          data: { status: BusinessStatus.SETTLED },
         });
         businessSettled = true;
-      } else if (business.status === "SETTLED" && !allParticipantsSettled) {
+      } else if (business.status === BusinessStatus.SETTLED && !allParticipantsSettled) {
         await tx.business.update({
           where: { id: businessId },
-          data: { status: "ACTIVE" },
+          data: { status: BusinessStatus.ACTIVE },
         });
       }
 

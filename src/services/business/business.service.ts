@@ -463,7 +463,7 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
   }
 
   // Determine effective partnerId based on caller role
-  let effectivePartnerId: string | null = null;
+  let effectivePartnerId: string | undefined = undefined;
   if (session.role === UserRole.PARTNER) {
     // Strictly enforce partner's own ID regardless of input to prevent IDOR
     effectivePartnerId = session.userId;
@@ -477,7 +477,7 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
       }
       effectivePartnerId = partnerUser.id;
     } else {
-      effectivePartnerId = null;
+      effectivePartnerId = undefined;
     }
   }
 
@@ -568,7 +568,7 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
       totalInvestmentAED: new Prisma.Decimal(totalInvNum),
       adminInvestmentAED: new Prisma.Decimal(adminInvNum),
       partnerInvestmentAED: new Prisma.Decimal(partnerInvNum),
-      partnerId: effectivePartnerId,
+      partnerId: effectivePartnerId ?? undefined,
       partnerEquityPct: new Prisma.Decimal(calculatedEquity),
       status: BusinessStatus.ACTIVE,
     },
