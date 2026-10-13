@@ -23,6 +23,10 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await requireActiveSession();
+    if (session.role !== "ADMIN" && session.role !== "PARTNER") {
+      return forbiddenErrorResponse("You do not have permission to create business entities.");
+    }
+
     const body = await req.json().catch(() => null);
 
     if (!body || typeof body !== "object") {
@@ -34,6 +38,11 @@ export async function POST(req: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // Strictly enforce partnerId for Partners (IDOR prevention)
+    if (session.role === "PARTNER") {
+      body.partnerId = session.userId;
     }
 
     // 1. Centralized Business Input Validation

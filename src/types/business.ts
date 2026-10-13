@@ -10,6 +10,7 @@ export interface BusinessEntity {
   businessType?: string;
   description?: string | null;
   subtitle: string;
+  partnerId?: string | null;
   partnerName?: string;
   partners: PartnerShare[];
   partnersSummary: string;
@@ -18,6 +19,8 @@ export interface BusinessEntity {
   partnerInvestmentAED?: number;
   investmentAED: number;
   purchaseCostAED: number;
+  totalPurchases?: number;
+  remainingPurchaseCapacity?: number;
   salesIndiaAED: number;
   expensesAED: number;
   netProfitAED: number;
@@ -26,6 +29,8 @@ export interface BusinessEntity {
   createdAt: string;
   productType: string;
   locationRoute: string;
+  isPartnerOwnedWithoutAdmin?: boolean;
+  isViewOnlyForAdmin?: boolean;
 }
 
 export interface BusinessesSummaryKPIs {
@@ -134,7 +139,7 @@ export interface BusinessWorkspaceDetail {
   netProfitAED: number;
   marginPercentage: number;
   status: "ACTIVE" | "INACTIVE" | "PENDING" | "SETTLED";
-  partnerId: string;
+  partnerId: string | null;
   partnerName: string;
   partnersSummary: string;
   partnerEquityPct: number;
@@ -147,11 +152,13 @@ export interface BusinessWorkspaceDetail {
     email: string;
     role: string;
     status: string;
-  };
+  } | null;
   investors: BusinessInvestorSummary[];
   investments: BusinessInvestmentSummary[];
   purchases: BusinessPurchaseSummary[];
   sales: BusinessSaleSummary[];
   expenses: BusinessExpenseSummary[];
   transactions: BusinessTransactionSummary[];
+  isPartnerOwnedWithoutAdmin?: boolean;
+  isViewOnlyForAdmin?: boolean;
 }

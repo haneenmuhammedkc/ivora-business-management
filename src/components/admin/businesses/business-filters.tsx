@@ -37,7 +37,10 @@ export function BusinessFilters({
   showAddBusiness,
 }: BusinessFiltersProps) {
   const { user } = useAuth();
-  const canAddBusiness = showAddBusiness !== undefined ? showAddBusiness : user?.role === "ADMIN";
+  const canAddBusiness =
+    showAddBusiness !== undefined
+      ? showAddBusiness
+      : user?.role === "ADMIN" || user?.role === "PARTNER";
 
   const defaultBusinessOptions: SelectOption[] = businessOptions || [
     { value: "all", label: "All Businesses" },

@@ -35,6 +35,8 @@ export interface SaleRecord {
 export interface AvailableProductItem {
   productType: string;
   quantityUnit: "GRAM" | "PIECE";
+  totalPurchasedQuantity?: number;
+  totalSoldQuantity?: number;
   remainingQuantity: number;
   averageCostPerUnitAED: number;
   lastPurchaseDate: string | null;

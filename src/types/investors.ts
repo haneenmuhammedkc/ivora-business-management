@@ -52,7 +52,7 @@ export interface BusinessInvestorRow {
   adminInvestmentAED: number;
   partnerInvestmentAED: number;
   partnerEquityPct: number;
-  partnerId: string;
+  partnerId: string | null;
   partnerName: string;
   externalInvestorsCount: number;
   totalParticipantsCount: number;
@@ -70,15 +70,16 @@ export interface BusinessInvestorDetails {
   adminInvestmentAED: number;
   partnerInvestmentAED: number;
   partnerEquityPct: number;
-  partner: {
+  partner?: {
     id: string;
     name: string;
     email: string;
-  };
+  } | null;
   totalExternalInvestmentAED: number;
   status: string;
   createdAt: string;
   participants: InvestorRecord[];
+  isViewOnlyForAdmin?: boolean;
 }
 
 export interface InvestorSummaryKPIs {

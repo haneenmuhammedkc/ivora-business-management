@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SessionPayload } from "@/lib/auth/session";
-import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
+import { requireBusinessAccess, requireResourceAccess, isBusinessPartnerOwnedWithoutAdmin } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { Prisma, TransactionType, PaymentMethod, UserRole, InvestorType } from "@prisma/client";
@@ -48,6 +48,8 @@ export interface InvestorSettlementOverview {
     adminInvestmentAED: number;
     partnerInvestmentAED: number;
     partnerEquityPct: number;
+    isPartnerOwnedWithoutAdmin?: boolean;
+    isViewOnlyForAdmin?: boolean;
   };
   netProfitAED: number;
   contractualSharePct: number;
@@ -417,6 +419,10 @@ export async function getInvestorSettlementOverview(
         adminInvestmentAED: Number(business.adminInvestmentAED) || 0,
         partnerInvestmentAED: Number(business.partnerInvestmentAED) || 0,
         partnerEquityPct: Number(business.partnerEquityPct) || 0,
+        isPartnerOwnedWithoutAdmin: await isBusinessPartnerOwnedWithoutAdmin(business),
+        isViewOnlyForAdmin:
+          session.role === UserRole.ADMIN &&
+          (await isBusinessPartnerOwnedWithoutAdmin(business)),
       },
       netProfitAED,
       contractualSharePct,
@@ -450,7 +456,7 @@ export async function updateInvestorProfitAllocation(
   }
 
   const { businessId, investorId, allocatedProfitAmount } = input;
-  await requireBusinessAccess(businessId, session);
+  await requireBusinessAccess(businessId, session, "WRITE");
 
   if (typeof allocatedProfitAmount !== "number" || isNaN(allocatedProfitAmount) || allocatedProfitAmount < 0) {
     throw new AuthError("Allocated profit amount must be a valid non-negative number.", 400);
@@ -624,7 +630,7 @@ export async function recordDisbursalPayment(
     notes,
   } = input;
 
-  await requireBusinessAccess(businessId, session);
+  await requireBusinessAccess(businessId, session, "WRITE");
 
   const capNum = Number(capitalAmount) || 0;
   const prfNum = Number(profitAmount) || 0;

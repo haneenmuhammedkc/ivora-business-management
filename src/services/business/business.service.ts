@@ -3,7 +3,7 @@ import { SessionPayload } from "@/lib/auth/session";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { ensureBusinessParticipants } from "@/services/investor/investor.service";
-import { Prisma, UserRole, BusinessStatus } from "@prisma/client";
+import { Prisma, UserRole, BusinessStatus, PurchaseStatus } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidateBusinessFinancials } from "@/lib/redis/invalidation";
@@ -13,7 +13,7 @@ export interface CreateBusinessInput {
   code?: string;
   businessType: string;
   description?: string | null;
-  partnerId: string;
+  partnerId?: string | null;
   partnerEquityPct?: number | string;
   totalInvestment: number | string;
   adminInvestment?: number | string;
@@ -58,6 +58,9 @@ async function generateUniqueBusinessCode(name: string): Promise<string> {
   return finalCode;
 }
 
+import { isBusinessPartnerOwnedWithoutAdmin } from "@/lib/auth/authorization";
+export { isBusinessPartnerOwnedWithoutAdmin };
+
 /**
  * List Businesses within the caller's authorization scope.
  * ADMIN: all businesses. PARTNER: only businesses assigned to caller.
@@ -87,7 +90,8 @@ export async function listBusinesses(session: SessionPayload) {
           select: { committedAmount: true },
         },
         purchases: {
-          select: { totalLandedCost: true },
+          where: { status: { in: [PurchaseStatus.CLEARED, PurchaseStatus.IN_PROGRESS] } },
+          select: { totalLandedCost: true, baseAcquisitionValue: true },
         },
         sales: {
           select: { aedEquivalent: true },
@@ -99,13 +103,34 @@ export async function listBusinesses(session: SessionPayload) {
       orderBy: { createdAt: "desc" },
     });
 
+    const businessIds = rawBusinesses.map((b) => b.id);
+    const creationLogs = await prisma.auditLog.findMany({
+      where: {
+        entity: "Business",
+        entityId: { in: businessIds },
+        action: "BUSINESS_CREATED",
+      },
+      select: {
+        entityId: true,
+        user: { select: { role: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const creationRoleMap = new Map<string, UserRole>();
+    for (const log of creationLogs) {
+      if (log.entityId && !creationRoleMap.has(log.entityId) && log.user?.role) {
+        creationRoleMap.set(log.entityId, log.user.role);
+      }
+    }
+
     return rawBusinesses.map((b) => {
       const totalExternalInvestments = b.investments.reduce(
         (acc, inv) => acc + Number(inv.committedAmount),
         0
       );
       const purchaseCost = b.purchases.reduce(
-        (acc, p) => acc + Number(p.totalLandedCost),
+        (acc, p) => acc + Number(p.totalLandedCost ?? p.baseAcquisitionValue ?? 0),
         0
       );
       const sales = b.sales.reduce(
@@ -130,6 +155,15 @@ export async function listBusinesses(session: SessionPayload) {
 
       const adminInvestmentAED = Number(b.adminInvestmentAED) || 0;
       const partnerInvestmentAED = Number(b.partnerInvestmentAED) || 0;
+
+      const creatorRole = creationRoleMap.get(b.id);
+      const isPartnerOwnedWithoutAdmin =
+        Boolean(b.partnerId) &&
+        adminInvestmentAED <= 0 &&
+        (creatorRole ? creatorRole === UserRole.PARTNER : true);
+
+      const isViewOnlyForAdmin =
+        session.role === UserRole.ADMIN && isPartnerOwnedWithoutAdmin;
 
       const formattedDate = new Intl.DateTimeFormat("en-GB", {
         day: "2-digit",
@@ -159,6 +193,8 @@ export async function listBusinesses(session: SessionPayload) {
         partnerName: displayPartnerName,
         investmentAED: effectiveInvestmentAED,
         purchaseCostAED: purchaseCost,
+        totalPurchases: purchaseCost,
+        remainingPurchaseCapacity: Math.max(0, effectiveInvestmentAED - purchaseCost),
         salesIndiaAED: sales,
         expensesAED: expenses,
         netProfitAED: netProfit,
@@ -167,6 +203,8 @@ export async function listBusinesses(session: SessionPayload) {
         createdAt: formattedDate,
         productType: b.businessType || "Gold Bullion",
         locationRoute: "Dubai (DXB) → Mumbai (BOM)",
+        isPartnerOwnedWithoutAdmin,
+        isViewOnlyForAdmin,
       };
     });
   });
@@ -296,10 +334,9 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
       (acc, inv) => acc + Number(inv.committedAmount),
       0
     );
-    const purchaseCost = raw.purchases.reduce(
-      (acc, p) => acc + Number(p.totalLandedCost),
-      0
-    );
+    const purchaseCost = raw.purchases
+      .filter((p) => p.status !== PurchaseStatus.DRAFT)
+      .reduce((acc, p) => acc + Number(p.totalLandedCost ?? p.baseAcquisitionValue ?? 0), 0);
     const sales = raw.sales.reduce(
       (acc, s) => acc + Number(s.aedEquivalent),
       0
@@ -328,6 +365,23 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
       year: "numeric",
     }).format(new Date(raw.createdAt));
 
+    const creationLog = await prisma.auditLog.findFirst({
+      where: {
+        entity: "Business",
+        entityId: raw.id,
+        action: "BUSINESS_CREATED",
+      },
+      select: {
+        user: { select: { role: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const isPartnerOwnedWithoutAdmin =
+      Boolean(raw.partnerId) &&
+      adminInvestmentAED <= 0 &&
+      (creationLog && creationLog.user ? creationLog.user.role === UserRole.PARTNER : true);
+
     return {
       ...raw,
       totalInvestmentAED: effectiveInvestmentAED,
@@ -339,12 +393,15 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
       partnersSummary: displayPartnerName,
       investmentAED: effectiveInvestmentAED,
       purchaseCostAED: purchaseCost,
+      totalPurchases: purchaseCost,
+      remainingPurchaseCapacity: Math.max(0, effectiveInvestmentAED - purchaseCost),
       salesIndiaAED: sales,
       expensesAED: expenses,
       netProfitAED: netProfit,
       marginPercentage: Number(margin.toFixed(2)),
       createdAtFormatted: formattedDate,
       subtitle: raw.description || `${raw.name} • ${raw.code}`,
+      isPartnerOwnedWithoutAdmin,
     };
   });
 
@@ -362,15 +419,22 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
     throw new AuthError("You do not have permission to access this business", 403);
   }
 
-  return business;
+  const isViewOnlyForAdmin =
+    session.role === UserRole.ADMIN && Boolean(business.isPartnerOwnedWithoutAdmin);
+
+  return {
+    ...business,
+    isPartnerOwnedWithoutAdmin: Boolean(business.isPartnerOwnedWithoutAdmin),
+    isViewOnlyForAdmin,
+  };
 }
 
 /**
- * Create a new Business (ADMIN ONLY).
+ * Create a new Business (ADMIN or PARTNER).
  */
 export async function createBusiness(session: SessionPayload, input: CreateBusinessInput) {
-  if (session.role !== UserRole.ADMIN) {
-    throw new AuthError("Only system administrators can create business entities.", 403);
+  if (session.role !== UserRole.ADMIN && session.role !== UserRole.PARTNER) {
+    throw new AuthError("You do not have permission to create business entities.", 403);
   }
 
   const {
@@ -398,17 +462,23 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
     throw new AuthError("Please provide a valid total investment amount greater than 0.", 400);
   }
 
-  if (!partnerId || !partnerId.trim()) {
-    throw new AuthError("Please select a partner for this business.", 400);
-  }
-
-  // Verify that partnerId belongs to an existing User with role PARTNER
-  const partnerUser = await prisma.user.findUnique({
-    where: { id: partnerId.trim() },
-  });
-
-  if (!partnerUser || partnerUser.role !== UserRole.PARTNER) {
-    throw new AuthError("A business can only be assigned to a valid Partner user account.", 400);
+  // Determine effective partnerId based on caller role
+  let effectivePartnerId: string | null = null;
+  if (session.role === UserRole.PARTNER) {
+    // Strictly enforce partner's own ID regardless of input to prevent IDOR
+    effectivePartnerId = session.userId;
+  } else if (session.role === UserRole.ADMIN) {
+    if (partnerId && partnerId.trim()) {
+      const partnerUser = await prisma.user.findUnique({
+        where: { id: partnerId.trim() },
+      });
+      if (!partnerUser || partnerUser.role !== UserRole.PARTNER) {
+        throw new AuthError("A business can only be assigned to a valid Partner user account.", 400);
+      }
+      effectivePartnerId = partnerUser.id;
+    } else {
+      effectivePartnerId = null;
+    }
   }
 
   const adminInvNum =
@@ -418,7 +488,7 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
       ? Number(adminInvestment)
       : 0;
 
-  const partnerInvNum =
+  let partnerInvNum =
     partnerInvestment !== undefined &&
     partnerInvestment !== null &&
     partnerInvestment !== ""
@@ -431,6 +501,15 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
   if (isNaN(partnerInvNum) || partnerInvNum < 0) {
     throw new AuthError("Partner investment amount cannot be negative.", 400);
   }
+
+  // If no partner is assigned, partner investment must be 0
+  if (!effectivePartnerId) {
+    if (partnerInvNum > 0) {
+      throw new AuthError("Partner investment must be 0 when no partner is assigned.", 400);
+    }
+    partnerInvNum = 0;
+  }
+
   if (partnerInvNum > totalInvNum) {
     throw new AuthError("Partner investment cannot exceed total investment.", 400);
   }
@@ -442,21 +521,23 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
   }
 
   // Calculate Partner Equity % safely
-  let calculatedEquity: number;
-  if (partnerInvNum > 0 && totalInvNum > 0) {
-    calculatedEquity = Number(((partnerInvNum / totalInvNum) * 100).toFixed(2));
-  } else if (
-    partnerEquityPct !== undefined &&
-    partnerEquityPct !== null &&
-    partnerEquityPct !== ""
-  ) {
-    const pct = Number(partnerEquityPct);
-    if (isNaN(pct) || pct < 0 || pct > 100) {
-      throw new AuthError("Partner equity percentage must be between 0% and 100%.", 400);
+  let calculatedEquity = 0.0;
+  if (effectivePartnerId) {
+    if (partnerInvNum > 0 && totalInvNum > 0) {
+      calculatedEquity = Number(((partnerInvNum / totalInvNum) * 100).toFixed(2));
+    } else if (
+      partnerEquityPct !== undefined &&
+      partnerEquityPct !== null &&
+      partnerEquityPct !== ""
+    ) {
+      const pct = Number(partnerEquityPct);
+      if (isNaN(pct) || pct < 0 || pct > 100) {
+        throw new AuthError("Partner equity percentage must be between 0% and 100%.", 400);
+      }
+      calculatedEquity = Number(pct.toFixed(2));
+    } else {
+      calculatedEquity = 0.0;
     }
-    calculatedEquity = Number(pct.toFixed(2));
-  } else {
-    calculatedEquity = 0.0;
   }
 
   // Code determination & uniqueness check
@@ -487,7 +568,7 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
       totalInvestmentAED: new Prisma.Decimal(totalInvNum),
       adminInvestmentAED: new Prisma.Decimal(adminInvNum),
       partnerInvestmentAED: new Prisma.Decimal(partnerInvNum),
-      partnerId: partnerUser.id,
+      partnerId: effectivePartnerId,
       partnerEquityPct: new Prisma.Decimal(calculatedEquity),
       status: BusinessStatus.ACTIVE,
     },
@@ -526,23 +607,53 @@ export async function createBusiness(session: SessionPayload, input: CreateBusin
 }
 
 /**
- * Update Business configuration / Partner assignment (ADMIN ONLY).
+ * Update Business configuration / Partner assignment.
+ * ADMIN has full permissions on Admin-created businesses, but is VIEW-ONLY (403 Forbidden)
+ * on Partner-owned businesses created without Admin participation.
+ * PARTNER retains existing management permissions for their own businesses.
  */
 export async function updateBusiness(
   session: SessionPayload,
   businessId: string,
   input: UpdateBusinessInput
 ) {
-  if (session.role !== UserRole.ADMIN) {
-    throw new AuthError("Only system administrators can configure business assignments.", 403);
-  }
-
   const existing = await prisma.business.findUnique({
     where: { id: businessId },
   });
 
   if (!existing) {
     throw new AuthError("Business not found", 404);
+  }
+
+  // View-Only check for Admin on Partner-owned businesses without Admin participation
+  if (session.role === UserRole.ADMIN) {
+    const isPartnerOwned = await isBusinessPartnerOwnedWithoutAdmin(existing);
+    if (isPartnerOwned) {
+      await logAuditEvent({
+        userId: session.userId,
+        action: "UNAUTHORIZED_ACCESS_ATTEMPT",
+        entity: "Business",
+        entityId: businessId,
+        oldValues: {
+          reason: "ADMIN_VIEW_ONLY_PARTNER_OWNED",
+          attemptedUpdate: input,
+        },
+      });
+      throw new AuthError(
+        "This partner-owned business operates without Admin participation and is view-only for administrators.",
+        403
+      );
+    }
+  } else if (session.role === UserRole.PARTNER) {
+    if (existing.partnerId !== session.userId) {
+      throw new AuthError("You do not have permission to modify this business.", 403);
+    }
+    // Prevent partner from changing partnerId assignment to someone else
+    if (input.partnerId && input.partnerId !== session.userId) {
+      throw new AuthError("Partners cannot reassign business ownership.", 403);
+    }
+  } else {
+    throw new AuthError("Only system administrators and owning partners can configure business entities.", 403);
   }
 
   let partnerChanged = false;
@@ -679,3 +790,65 @@ export async function updateBusiness(
 
   return updated;
 }
+
+/**
+ * Delete a Business entity.
+ * Admins cannot delete Partner-owned businesses without Admin participation (403 Forbidden).
+ * Owning partners retain existing delete permissions for their own businesses.
+ */
+export async function deleteBusiness(session: SessionPayload, businessId: string) {
+  const existing = await prisma.business.findUnique({
+    where: { id: businessId },
+  });
+
+  if (!existing) {
+    throw new AuthError("Business not found", 404);
+  }
+
+  // View-Only check for Admin on Partner-owned businesses without Admin participation
+  if (session.role === UserRole.ADMIN) {
+    const isPartnerOwned = await isBusinessPartnerOwnedWithoutAdmin(existing);
+    if (isPartnerOwned) {
+      await logAuditEvent({
+        userId: session.userId,
+        action: "UNAUTHORIZED_ACCESS_ATTEMPT",
+        entity: "Business",
+        entityId: businessId,
+        oldValues: {
+          reason: "ADMIN_VIEW_ONLY_PARTNER_OWNED_DELETE_ATTEMPT",
+        },
+      });
+      throw new AuthError(
+        "This partner-owned business operates without Admin participation and cannot be deleted by administrators.",
+        403
+      );
+    }
+  } else if (session.role === UserRole.PARTNER) {
+    if (existing.partnerId !== session.userId) {
+      throw new AuthError("You do not have permission to delete this business.", 403);
+    }
+  } else {
+    throw new AuthError("You do not have permission to delete businesses.", 403);
+  }
+
+  await prisma.business.delete({
+    where: { id: businessId },
+  });
+
+  await invalidateBusinessFinancials(businessId, existing.partnerId);
+
+  await logAuditEvent({
+    userId: session.userId,
+    action: "BUSINESS_DELETED",
+    entity: "Business",
+    entityId: businessId,
+    oldValues: {
+      name: existing.name,
+      code: existing.code,
+      partnerId: existing.partnerId,
+    },
+  });
+
+  return { success: true };
+}
+

@@ -168,6 +168,8 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
     ? `/investors/business/${encodeURIComponent(investor.businessId)}`
     : "/investors";
   const isAdmin = user?.role === "ADMIN";
+  const isViewOnly = settlement?.business?.isViewOnlyForAdmin || false;
+  const canMutate = isAdmin && !isViewOnly;
 
   // Financial values from settlement or fallback
   const totalInvestmentAED = settlement ? settlement.totalInvestmentAED : (investor.details?.totalInvestmentAED ?? investor.investmentAED);
@@ -266,7 +268,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
             </button>
 
             {/* Admin Management Actions */}
-            {isAdmin && pType === "INVESTOR" && (
+            {canMutate && pType === "INVESTOR" && (
               <>
                 <button
                   type="button"
@@ -475,7 +477,7 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
         <FadeUp delay={0.25}>
           <ProfitAllocationSection
             settlement={settlement}
-            isAdmin={isAdmin}
+            isAdmin={canMutate}
             onAllocationUpdated={handleRefreshAll}
           />
         </FadeUp>
@@ -489,12 +491,12 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
       )}
 
       {/* SECTION 3 — PAYMENT / DISBURSAL */}
-      {settlement && (
+      {settlement && canMutate && (
         <div className="print:hidden">
           <FadeUp delay={0.35}>
             <RecordDisbursalSection
               settlement={settlement}
-              isAdmin={isAdmin}
+              isAdmin={canMutate}
               onPaymentRecorded={handleRefreshAll}
             />
           </FadeUp>

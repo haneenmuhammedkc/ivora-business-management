@@ -8,6 +8,7 @@ import {
   PurchaseStatus,
   SaleStatus,
   ExpensePaymentStatus,
+  Prisma,
 } from "@prisma/client";
 
 export type DomainResourceType =
@@ -44,6 +45,54 @@ export function lockedResourceResponse(message = "This financial record is locke
 }
 
 /**
+ * Authoritative check to identify if a business is Partner-owned without Admin participation.
+ * Rule:
+ * 1. Must have an assigned Partner (partnerId is not null).
+ * 2. Admin investment is 0 or less (no financial participation from Admin).
+ * 3. The business was created by a Partner user (creation audit log has creator role PARTNER, or non-ADMIN).
+ */
+export async function isBusinessPartnerOwnedWithoutAdmin(
+  businessOrId:
+    | string
+    | {
+        id: string;
+        partnerId: string | null;
+        adminInvestmentAED: Prisma.Decimal | number | string;
+      }
+): Promise<boolean> {
+  const b =
+    typeof businessOrId === "string"
+      ? await prisma.business.findUnique({
+          where: { id: businessOrId },
+          select: { id: true, partnerId: true, adminInvestmentAED: true },
+        })
+      : businessOrId;
+
+  if (!b || !b.partnerId || Number(b.adminInvestmentAED) > 0) {
+    return false;
+  }
+
+  const creationLog = await prisma.auditLog.findFirst({
+    where: {
+      entity: "Business",
+      entityId: b.id,
+      action: "BUSINESS_CREATED",
+    },
+    include: {
+      user: { select: { role: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (creationLog && creationLog.user) {
+    return creationLog.user.role === UserRole.PARTNER;
+  }
+
+  // Fallback: if no creation log found, partnerId is set and admin investment is 0
+  return true;
+}
+
+/**
  * Require a fully authenticated session where mustChangePassword has been completed.
  */
 export async function requireActiveSession(): Promise<SessionPayload> {
@@ -73,10 +122,12 @@ export async function getAuthorizedBusinessIds(session: SessionPayload): Promise
 
 /**
  * Enforce that the authenticated user has access to a specific Business ID.
+ * If operation is "WRITE" or "DELETE", verifies that Admins cannot mutate Partner-owned businesses without Admin participation.
  */
 export async function requireBusinessAccess(
   businessId: string,
-  currentSession?: SessionPayload
+  currentSession?: SessionPayload,
+  operation: "READ" | "WRITE" | "DELETE" = "READ"
 ): Promise<{
   session: SessionPayload;
   isGlobalAdmin: boolean;
@@ -85,7 +136,7 @@ export async function requireBusinessAccess(
 
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { id: true, partnerId: true },
+    select: { id: true, partnerId: true, adminInvestmentAED: true },
   });
 
   if (!business) {
@@ -93,6 +144,22 @@ export async function requireBusinessAccess(
   }
 
   if (session.role === UserRole.ADMIN) {
+    if (operation === "WRITE" || operation === "DELETE") {
+      const isPartnerOwned = await isBusinessPartnerOwnedWithoutAdmin(business);
+      if (isPartnerOwned) {
+        await logAuditEvent({
+          userId: session.userId,
+          action: "UNAUTHORIZED_ACCESS_ATTEMPT",
+          entity: "Business",
+          entityId: businessId,
+          oldValues: { attemptedOperation: operation, reason: "ADMIN_VIEW_ONLY_PARTNER_OWNED" },
+        });
+        throw new AuthError(
+          "This partner-owned business operates without Admin participation and is view-only for administrators.",
+          403
+        );
+      }
+    }
     return { session, isGlobalAdmin: true };
   }
 
@@ -289,6 +356,26 @@ export async function requireResourceAccess<T = Record<string, unknown>>(
         oldValues: { targetBusinessId: businessId },
       });
       throw new AuthError("You do not have permission to access this resource", 403);
+    }
+  }
+
+  // If the resource belongs to a Business and operation is WRITE or DELETE, enforce Admin View-Only on partner-owned businesses without Admin
+  if (businessId && (operation === "WRITE" || operation === "DELETE")) {
+    if (session.role === UserRole.ADMIN) {
+      const isPartnerOwned = await isBusinessPartnerOwnedWithoutAdmin(businessId);
+      if (isPartnerOwned) {
+        await logAuditEvent({
+          userId: session.userId,
+          action: "UNAUTHORIZED_ACCESS_ATTEMPT",
+          entity: resourceType,
+          entityId: resourceId,
+          oldValues: { operation, reason: "ADMIN_VIEW_ONLY_PARTNER_OWNED" },
+        });
+        throw new AuthError(
+          "This partner-owned business operates without Admin participation and is view-only for administrators.",
+          403
+        );
+      }
     }
   }
 

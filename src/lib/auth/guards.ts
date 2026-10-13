@@ -5,11 +5,13 @@ import { UserRole, UserStatus } from "@prisma/client";
 
 export class AuthError extends Error {
   statusCode: number;
+  details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode = 401) {
+  constructor(message: string, statusCode = 401, details?: Record<string, unknown>) {
     super(message);
     this.name = "AuthError";
     this.statusCode = statusCode;
+    this.details = details;
   }
 }
 

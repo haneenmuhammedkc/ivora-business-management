@@ -7,6 +7,7 @@ import { PlusIcon, CheckIcon, ArrowRightIcon } from "@/components/ui/icons";
 import { BusinessDetailsSection } from "./business-details-section";
 import { BusinessPartnerSection } from "./business-partner-section";
 import { InitialContributionsSection } from "./initial-contributions-section";
+import { useAuth } from "@/context/auth-context";
 import {
   validateCreateBusiness,
   validateBusinessName,
@@ -32,19 +33,25 @@ interface CreatedBusinessInfo {
 
 export function CreateBusinessForm() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isPartnerUser = user?.role === "PARTNER";
 
   // Form states
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
   const [description, setDescription] = useState("");
   const [totalInvestment, setTotalInvestment] = useState("");
-  const [partnerId, setPartnerId] = useState("");
+  const [selectedPartnerId, setSelectedPartnerId] = useState("");
+  const [includeAdminParticipation, setIncludeAdminParticipation] = useState(false);
   const [adminInvestment, setAdminInvestment] = useState("");
   const [partnerInvestment, setPartnerInvestment] = useState("");
 
+  // Derived partner identification
+  const partnerId = isPartnerUser ? (user?.id || "") : selectedPartnerId;
+
   // Dynamic Partners state
-  const [partnerOptions, setPartnerOptions] = useState<{ value: string; label: string }[]>([]);
-  const [isLoadingPartners, setIsLoadingPartners] = useState(true);
+  const [adminPartnerOptions, setAdminPartnerOptions] = useState<{ value: string; label: string }[]>([]);
+  const [isFetchingPartners, setIsFetchingPartners] = useState(true);
   const [partnersError, setPartnersError] = useState<string | null>(null);
 
   // Validation & Submission states
@@ -54,9 +61,18 @@ export function CreateBusinessForm() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [createdBusiness, setCreatedBusiness] = useState<CreatedBusinessInfo | null>(null);
 
+  const partnerOptions = isPartnerUser
+    ? user?.id
+      ? [{ value: user.id, label: user.name || "Current Partner" }]
+      : []
+    : adminPartnerOptions;
+
+  const isLoadingPartners = isPartnerUser ? false : isFetchingPartners;
+
   // Manual retry handler for partner options
   const handleRetryPartners = () => {
-    setIsLoadingPartners(true);
+    if (user?.role !== "ADMIN") return;
+    setIsFetchingPartners(true);
     setPartnersError(null);
     fetch("/api/partners", {
       method: "GET",
@@ -73,20 +89,24 @@ export function CreateBusinessForm() {
             value: p.id,
             label: p.name,
           }));
-          setPartnerOptions(options);
+          setAdminPartnerOptions(options);
         } else {
           setPartnersError(data.message || data.error || "Unable to load partners. Please try again.");
         }
-        setIsLoadingPartners(false);
+        setIsFetchingPartners(false);
       })
       .catch(() => {
         setPartnersError("Unable to load partners. Please try again.");
-        setIsLoadingPartners(false);
+        setIsFetchingPartners(false);
       });
   };
 
-  // Fetch real partners on component mount
+  // Fetch real partners on component mount for Admin only
   useEffect(() => {
+    if (user?.role !== "ADMIN") {
+      return;
+    }
+
     let isMounted = true;
 
     fetch("/api/partners", {
@@ -105,24 +125,24 @@ export function CreateBusinessForm() {
               value: p.id,
               label: p.name,
             }));
-            setPartnerOptions(options);
+            setAdminPartnerOptions(options);
           } else {
             setPartnersError(data.message || data.error || "Unable to load partners. Please try again.");
           }
-          setIsLoadingPartners(false);
+          setIsFetchingPartners(false);
         }
       })
       .catch(() => {
         if (isMounted) {
           setPartnersError("Unable to load partners. Please try again.");
-          setIsLoadingPartners(false);
+          setIsFetchingPartners(false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [user?.role]);
 
   /**
    * Helper to revalidate financial fields (total, admin, partner) and cross-field contribution sum.
@@ -243,7 +263,11 @@ export function CreateBusinessForm() {
         });
       }
     } else if (field === "partnerId") {
-      setPartnerId(value);
+      setSelectedPartnerId(value);
+      if (!value) {
+        setPartnerInvestment("");
+        revalidateFinancials(totalInvestment, adminInvestment, "", "partnerInvestment");
+      }
       if (errors.partnerId) {
         const err = validatePartnerId(value);
         setErrors((prev) => {
@@ -262,6 +286,14 @@ export function CreateBusinessForm() {
     } else if (field === "partnerInvestment") {
       setPartnerInvestment(value);
       revalidateFinancials(totalInvestment, adminInvestment, value, "partnerInvestment");
+    }
+  };
+
+  const handleAdminParticipationChange = (include: boolean) => {
+    setIncludeAdminParticipation(include);
+    if (!include) {
+      setAdminInvestment("");
+      revalidateFinancials(totalInvestment, "", partnerInvestment, "adminInvestment");
     }
   };
 
@@ -299,15 +331,20 @@ export function CreateBusinessForm() {
     e.preventDefault();
     setApiError(null);
 
+    const effectivePartnerId = isPartnerUser ? (user?.id || "") : partnerId;
+    const effectivePartnerInvestment = (isPartnerUser || effectivePartnerId) ? partnerInvestment : "";
+    const effectiveAdminInvestment =
+      isPartnerUser && !includeAdminParticipation ? 0 : adminInvestment;
+
     // Run centralized business validator
     const validationResult = validateCreateBusiness({
       businessName,
       businessType,
       totalInvestment,
       description,
-      partnerId,
-      adminInvestment,
-      partnerInvestment,
+      partnerId: effectivePartnerId || undefined,
+      adminInvestment: effectiveAdminInvestment,
+      partnerInvestment: effectivePartnerInvestment,
     });
 
     if (!validationResult.isValid || !validationResult.data) {
@@ -353,7 +390,8 @@ export function CreateBusinessForm() {
     setBusinessType("");
     setDescription("");
     setTotalInvestment("");
-    setPartnerId("");
+    setSelectedPartnerId("");
+    setIncludeAdminParticipation(false);
     setAdminInvestment("");
     setPartnerInvestment("");
     setErrors({});
@@ -363,9 +401,17 @@ export function CreateBusinessForm() {
   };
 
   if (isSuccess && createdBusiness) {
-    const selectedOption = partnerOptions.find((p) => p.value === partnerId);
+    const selectedOption = partnerOptions.find(
+      (p) => p.value === (createdBusiness.partner?.id || partnerId)
+    );
     const partnerDisplay =
-      createdBusiness.partner?.name || selectedOption?.label || partnerId;
+      createdBusiness.partner?.name ||
+      selectedOption?.label ||
+      (isPartnerUser
+        ? user?.name || "Partner"
+        : partnerId
+        ? partnerId
+        : "No Partner (Unassigned)");
 
     return (
       <div className="rounded-xl border border-gray-200/90 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
@@ -463,13 +509,16 @@ export function CreateBusinessForm() {
 
       {/* 2. Business Partner */}
       <BusinessPartnerSection
-        data={{ partnerId }}
+        data={{ partnerId: isPartnerUser ? (user?.id || "") : partnerId }}
         partnerOptions={partnerOptions}
         isLoading={isLoadingPartners}
         fetchError={partnersError}
         onRetry={handleRetryPartners}
         onChange={(_, value) => handleFieldChange("partnerId", value)}
         errors={errors}
+        isPartnerUser={isPartnerUser}
+        currentUserName={user?.name}
+        currentUserEmail={user?.email}
       />
 
       {/* 3. Initial Investment Contributions (Admin & Partner Optional Contributions) */}
@@ -477,6 +526,10 @@ export function CreateBusinessForm() {
         data={{ adminInvestment, partnerInvestment }}
         onChange={(field, value) => handleFieldChange(field, value)}
         errors={errors}
+        isPartnerAssigned={Boolean(isPartnerUser || partnerId)}
+        isPartnerUser={isPartnerUser}
+        includeAdminParticipation={includeAdminParticipation}
+        onAdminParticipationChange={handleAdminParticipationChange}
       />
 
       {/* Form Actions */}

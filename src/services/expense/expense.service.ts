@@ -140,7 +140,7 @@ export async function getExpenseById(session: SessionPayload, expenseId: string)
 
 export async function createExpense(session: SessionPayload, rawInput: unknown) {
   const input = createExpenseSchema.parse(rawInput);
-  await requireBusinessAccess(input.businessId, session);
+  await requireBusinessAccess(input.businessId, session, "WRITE");
 
   const expense = await prisma.$transaction(async (tx) => {
     const expenseCode = await generateUniqueExpenseCode(tx);
@@ -189,7 +189,7 @@ export async function updateExpense(session: SessionPayload, expenseId: string, 
   >("Expense", expenseId, "WRITE", session);
 
   if (input.businessId && input.businessId !== existing.businessId) {
-    await requireBusinessAccess(input.businessId, session);
+    await requireBusinessAccess(input.businessId, session, "WRITE");
   }
 
   const updated = await prisma.expense.update({
