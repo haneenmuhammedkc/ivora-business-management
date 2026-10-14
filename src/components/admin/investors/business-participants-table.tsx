@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { InvestorRecord } from "@/types/investors";
-import { ArrowRightIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
+import { ArrowRightIcon, PencilIcon, TrashIcon, WalletIcon } from "@/components/ui/icons";
 import { useAuth } from "@/context/auth-context";
 import { EditInvestorModal } from "./edit-investor-modal";
 import { DeleteInvestorModal } from "./delete-investor-modal";
@@ -183,6 +183,18 @@ export function BusinessParticipantsTable({
                           <span>View</span>
                           <ArrowRightIcon size={12} />
                         </Link>
+
+                        {p.investmentAED > 0 && (
+                          <Link
+                            href={`/investors/${encodeURIComponent(p.id)}/wallet`}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Open Personal Wallet"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors shadow-2xs"
+                          >
+                            <WalletIcon size={12} />
+                            <span className="hidden sm:inline">Wallet</span>
+                          </Link>
+                        )}
 
                         {isAdmin && pType === "INVESTOR" && (
                           <>

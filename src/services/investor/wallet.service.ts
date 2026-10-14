@@ -34,61 +34,167 @@ import {
 } from "@/validators/wallet.validator";
 
 /**
- * Ensures that only external investor records (not synthetic admin/partner participants)
- * can own personal wallets.
+ * Resolves an investor participant entity and verifies personal wallet eligibility.
+ * Personal wallet eligibility requires a genuine, registered investment participation:
+ * - External investors with a registered investment qualify.
+ * - Admin participants with a registered investment qualify.
+ * - Partner participants with a registered investment qualify.
+ * - Participants with no registered investment (committedAmount <= 0) do not qualify.
  */
-export async function requireExternalInvestor(investorId: string, tx: Prisma.TransactionClient = prisma) {
-  if (
-    investorId.startsWith("admin-") ||
-    investorId.startsWith("partner-") ||
-    investorId.startsWith("INV-ADM-") ||
-    investorId.startsWith("INV-PTR-")
-  ) {
-    throw new AuthError("Personal wallets are only provisioned for external investors.", 400);
+export async function resolveEligibleInvestor(
+  investorId: string,
+  tx: Prisma.TransactionClient = prisma
+) {
+  if (!investorId || typeof investorId !== "string") {
+    throw new AuthError("Invalid investor identifier provided.", 400);
   }
 
-  const investor = await tx.investor.findUnique({
-    where: { id: investorId },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      email: true,
-      phone: true,
-      status: true,
-      type: true,
-      businessId: true,
+  const cleanId = investorId.trim();
+
+  // 1. Direct lookup by cuid id or unique code
+  let investor = await tx.investor.findFirst({
+    where: {
+      OR: [{ id: cleanId }, { code: cleanId }],
+    },
+    include: {
+      investments: {
+        select: { id: true, committedAmount: true, status: true, businessId: true },
+      },
+      business: {
+        select: { id: true, code: true, name: true, partnerId: true },
+      },
     },
   });
 
-  if (!investor) {
-    throw new AuthError("Investor record not found.", 404);
+  // 2. Synthetic Admin identifier: admin-{businessId}
+  if (!investor && cleanId.startsWith("admin-")) {
+    const businessId = cleanId.replace("admin-", "");
+    investor = await tx.investor.findFirst({
+      where: {
+        businessId,
+        type: InvestorType.ADMIN,
+      },
+      include: {
+        investments: {
+          select: { id: true, committedAmount: true, status: true, businessId: true },
+        },
+        business: {
+          select: { id: true, code: true, name: true, partnerId: true },
+        },
+      },
+    });
+
+    if (!investor && businessId) {
+      const invRecord = await tx.investment.findFirst({
+        where: {
+          businessId,
+          investor: { type: InvestorType.ADMIN },
+        },
+        include: {
+          investor: {
+            include: {
+              investments: {
+                select: { id: true, committedAmount: true, status: true, businessId: true },
+              },
+              business: {
+                select: { id: true, code: true, name: true, partnerId: true },
+              },
+            },
+          },
+        },
+      });
+      if (invRecord?.investor) {
+        investor = invRecord.investor;
+      }
+    }
   }
 
-  if (investor.type !== InvestorType.INVESTOR) {
-    throw new AuthError("Personal wallets are only provisioned for external investors.", 400);
+  // 3. Synthetic Partner identifier: partner-{businessId}-{partnerId}
+  if (!investor && cleanId.startsWith("partner-")) {
+    const parts = cleanId.split("-");
+    const businessId = parts[1];
+    investor = await tx.investor.findFirst({
+      where: {
+        businessId,
+        type: InvestorType.PARTNER,
+      },
+      include: {
+        investments: {
+          select: { id: true, committedAmount: true, status: true, businessId: true },
+        },
+        business: {
+          select: { id: true, code: true, name: true, partnerId: true },
+        },
+      },
+    });
+
+    if (!investor && businessId) {
+      const invRecord = await tx.investment.findFirst({
+        where: {
+          businessId,
+          investor: { type: InvestorType.PARTNER },
+        },
+        include: {
+          investor: {
+            include: {
+              investments: {
+                select: { id: true, committedAmount: true, status: true, businessId: true },
+              },
+              business: {
+                select: { id: true, code: true, name: true, partnerId: true },
+              },
+            },
+          },
+        },
+      });
+      if (invRecord?.investor) {
+        investor = invRecord.investor;
+      }
+    }
+  }
+
+  if (!investor) {
+    throw new AuthError("Investor participant record not found.", 404);
+  }
+
+  // Personal wallet eligibility check:
+  // Must have a genuine registered investment with committedAmount > 0
+  const hasRegisteredInvestment = investor.investments.some(
+    (inv) => Number(inv.committedAmount) > 0
+  );
+
+  if (!hasRegisteredInvestment) {
+    throw new AuthError(
+      "Personal wallets are only provisioned for participants with registered investment participation.",
+      400
+    );
   }
 
   return investor;
 }
 
 /**
- * Idempotently retrieve or provision a personal wallet for an eligible external investor.
+ * Backward compatibility alias for resolveEligibleInvestor.
+ */
+export const requireExternalInvestor = resolveEligibleInvestor;
+
+/**
+ * Idempotently retrieve or provision a personal wallet for an eligible investment participant.
  */
 export async function getOrCreateInvestorWallet(
   investorId: string,
   tx: Prisma.TransactionClient = prisma
 ) {
-  await requireExternalInvestor(investorId, tx);
+  const investor = await resolveEligibleInvestor(investorId, tx);
 
   let wallet = await tx.investorWallet.findUnique({
-    where: { investorId },
+    where: { investorId: investor.id },
   });
 
   if (!wallet) {
     wallet = await tx.investorWallet.create({
       data: {
-        investorId,
+        investorId: investor.id,
         currency: "AED",
         availableBalance: new Prisma.Decimal(0),
         reservedBalance: new Prisma.Decimal(0),
@@ -132,28 +238,47 @@ export async function getInvestorWalletSummary(
     throw new AuthError("Forbidden: Only Admins and assigned Partners are authorized to view investor wallets.", 403);
   }
 
-  await requireExternalInvestor(investorId);
+  const investor = await resolveEligibleInvestor(investorId);
 
-  if (session.role === UserRole.PARTNER) {
-    const partnerInvestment = await prisma.investment.findFirst({
-      where: {
-        investorId,
-        business: { partnerId: session.userId },
-      },
-    });
-    if (!partnerInvestment) {
-      throw new AuthError("Forbidden: You are not authorized to view this investor's wallet.", 403);
+  // Authorization enforcement:
+  if (investor.type === InvestorType.ADMIN) {
+    if (session.role !== UserRole.ADMIN) {
+      throw new AuthError("Forbidden: Only system administrators can access Admin investment wallets.", 403);
+    }
+  } else if (investor.type === InvestorType.PARTNER) {
+    if (session.role === UserRole.PARTNER) {
+      const ownPartnerBusiness = await prisma.business.findFirst({
+        where: {
+          id: investor.businessId || undefined,
+          partnerId: session.userId,
+        },
+      });
+      if (!ownPartnerBusiness) {
+        throw new AuthError("Forbidden: You are not authorized to view another partner's wallet.", 403);
+      }
+    }
+  } else {
+    // External INVESTOR:
+    if (session.role === UserRole.PARTNER) {
+      const partnerInvestment = await prisma.investment.findFirst({
+        where: {
+          investorId: investor.id,
+          business: { partnerId: session.userId },
+        },
+      });
+      if (!partnerInvestment) {
+        throw new AuthError("Forbidden: You are not authorized to view this investor's wallet.", 403);
+      }
     }
   }
 
   const cacheKey =
     session.role === UserRole.PARTNER
-      ? `${CacheKeys.investors.wallet(investorId)}:partner:${session.userId}`
-      : CacheKeys.investors.wallet(investorId);
+      ? `${CacheKeys.investors.wallet(investor.id)}:partner:${session.userId}`
+      : CacheKeys.investors.wallet(investor.id);
 
   return getOrSetCache(cacheKey, CacheTTL.SHORT, async () => {
-    const investor = await requireExternalInvestor(investorId);
-    const wallet = await getOrCreateInvestorWallet(investorId);
+    const wallet = await getOrCreateInvestorWallet(investor.id);
 
     // If Partner, determine their assigned business IDs
     let partnerBusinessIds: Set<string> | null = null;
@@ -526,6 +651,7 @@ export async function getInvestorWalletSummary(
         email: investor.email,
         phone: investor.phone,
         status: investor.status,
+        type: investor.type,
       },
       kpis,
       recentEntries,
@@ -567,8 +693,8 @@ export async function recordWalletDeposit(
   const amountDecimal = new Prisma.Decimal(depositAmount.toFixed(2));
 
   const result = await prisma.$transaction(async (tx) => {
-    const investor = await requireExternalInvestor(investorId, tx);
-    const wallet = await getOrCreateInvestorWallet(investorId, tx);
+    const investor = await resolveEligibleInvestor(investorId, tx);
+    const wallet = await getOrCreateInvestorWallet(investor.id, tx);
 
     const entryCode = idempotencyKey
       ? `WLT-DEP-${investor.code}-${idempotencyKey}`
@@ -717,8 +843,39 @@ export async function allocateWalletFundsToBusiness(
   const totalAllocatedDecimal = reinvestAmountDecimal.plus(additionalAmountDecimal);
 
   const result = await prisma.$transaction(async (tx) => {
-    const investor = await requireExternalInvestor(investorId, tx);
+    const investor = await resolveEligibleInvestor(investorId, tx);
     const wallet = await getOrCreateInvestorWallet(investor.id, tx);
+
+    // Authorization check on target participant
+    if (investor.type === InvestorType.ADMIN) {
+      if (session.role !== UserRole.ADMIN) {
+        throw new AuthError("Forbidden: Only system administrators can allocate Admin investment wallet funds.", 403);
+      }
+    } else if (investor.type === InvestorType.PARTNER) {
+      if (session.role === UserRole.PARTNER) {
+        const ownPartnerBusiness = await tx.business.findFirst({
+          where: {
+            id: investor.businessId || undefined,
+            partnerId: session.userId,
+          },
+        });
+        if (!ownPartnerBusiness) {
+          throw new AuthError("Forbidden: You are not authorized to allocate another partner's wallet funds.", 403);
+        }
+      }
+    } else {
+      if (session.role === UserRole.PARTNER) {
+        const partnerInvestment = await tx.investment.findFirst({
+          where: {
+            investorId: investor.id,
+            business: { partnerId: session.userId },
+          },
+        });
+        if (!partnerInvestment) {
+          throw new AuthError("Forbidden: You are not authorized to allocate this investor's wallet funds.", 403);
+        }
+      }
+    }
 
     const sourceBusinessId =
       typeof input.sourceBusinessId === "string" && input.sourceBusinessId.trim()
@@ -853,9 +1010,14 @@ export async function allocateWalletFundsToBusiness(
         investments: {
           where: {
             status: "ACTIVE",
-            investor: { type: InvestorType.INVESTOR },
           },
-          select: { committedAmount: true, investorId: true, id: true, profitSharePct: true },
+          select: {
+            committedAmount: true,
+            investorId: true,
+            id: true,
+            profitSharePct: true,
+            investor: { select: { type: true } },
+          },
         },
       },
     });
@@ -889,10 +1051,9 @@ export async function allocateWalletFundsToBusiness(
     // 3. Check remaining target business capacity
     const adminInv = Number(targetBusiness.adminInvestmentAED) || 0;
     const partnerInv = Number(targetBusiness.partnerInvestmentAED) || 0;
-    const existingExternalSum = targetBusiness.investments.reduce(
-      (sum, inv) => sum + (Number(inv.committedAmount) || 0),
-      0
-    );
+    const existingExternalSum = targetBusiness.investments
+      .filter((inv) => inv.investor.type === InvestorType.INVESTOR)
+      .reduce((sum, inv) => sum + (Number(inv.committedAmount) || 0), 0);
     const totalCommitted = adminInv + partnerInv + existingExternalSum;
     const remainingCapacity = Math.max(0, Math.round((businessTotalInv - totalCommitted) * 100) / 100);
 
@@ -1122,8 +1283,8 @@ export async function requestWithdrawal(
   const amountDecimal = new Prisma.Decimal(withdrawAmount.toFixed(2));
 
   const result = await prisma.$transaction(async (tx) => {
-    const investor = await requireExternalInvestor(investorId, tx);
-    const wallet = await getOrCreateInvestorWallet(investorId, tx);
+    const investor = await resolveEligibleInvestor(investorId, tx);
+    const wallet = await getOrCreateInvestorWallet(investor.id, tx);
 
     if (wallet.availableBalance.lt(amountDecimal)) {
       throw new AuthError(
@@ -1402,7 +1563,7 @@ export async function reconcileInvestorWallet(
   investorId: string,
   tx: Prisma.TransactionClient = prisma
 ) {
-  const investor = await requireExternalInvestor(investorId, tx);
+  const investor = await resolveEligibleInvestor(investorId, tx);
   const wallet = await tx.investorWallet.findUnique({
     where: { investorId: investor.id },
     include: {

@@ -116,6 +116,7 @@ export interface InvestorWalletSummary {
     email: string | null;
     phone: string | null;
     status: string;
+    type?: string;
   };
   kpis: WalletKPIs;
   recentEntries: WalletEntryDTO[];

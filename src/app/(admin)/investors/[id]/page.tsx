@@ -182,6 +182,10 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
   const outstandingAED = settlement ? settlement.totalOutstandingAED : (investor.details?.outstandingBalance ?? 0);
   const totalPaidAED = settlement ? settlement.totalPaidAED : (investor.details?.paidAmount ?? 0);
   const isSettled = settlement?.isFullySettled || investor.status === "SETTLED";
+  const hasWalletEligibility =
+    totalInvestmentAED > 0 ||
+    (investor.investmentAED > 0) ||
+    ((investor.details?.totalInvestmentAED ?? 0) > 0);
 
   return (
     <div className="space-y-6 pb-14 print:space-y-4 print:pb-0">
@@ -303,13 +307,17 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
               </Link>
             )}
 
-            {pType === "INVESTOR" && (
+            {hasWalletEligibility && (
               <Link
                 href={`/investors/${encodeURIComponent(investorId)}/wallet`}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-[#1e222d] rounded-lg transition-colors shadow-xs cursor-pointer"
               >
                 <WalletIcon size={14} />
-                <span>Open Investor Wallet</span>
+                <span>
+                  {pType === "ADMIN" || pType === "PARTNER"
+                    ? "Open Investment Wallet"
+                    : "Open Investor Wallet"}
+                </span>
                 <ArrowRightIcon size={13} />
               </Link>
             )}
@@ -487,8 +495,8 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
         </div>
       </FadeUp>
 
-      {/* SECTION: INVESTOR PERSONAL WALLET & SETTLEMENT HUB LINK (External Investors Only) */}
-      {pType === "INVESTOR" && (
+      {/* SECTION: INVESTOR PERSONAL WALLET & SETTLEMENT HUB LINK (Eligible Investment Participants) */}
+      {hasWalletEligibility && (
         <FadeUp delay={0.22}>
           <div className="rounded-xl border border-gray-200/90 bg-linear-to-r from-gray-50/90 via-slate-50/50 to-white p-5 sm:p-6 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-5">
             <div className="space-y-1.5 max-w-2xl">
@@ -497,14 +505,18 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
                   <WalletIcon size={18} />
                 </div>
                 <h3 className="text-sm sm:text-base font-bold text-gray-950 tracking-tight">
-                  Investor Personal Wallet & Fund Settlements
+                  {pType === "ADMIN"
+                    ? "Admin Investment Wallet & Settlements"
+                    : pType === "PARTNER"
+                    ? "Partner Investment Wallet & Settlements"
+                    : "Investor Personal Wallet & Fund Settlements"}
                 </h3>
                 <span className="px-2 py-0.5 text-[10px] font-bold bg-gray-100 text-gray-800 rounded border border-gray-200">
                   Dedicated Hub
                 </span>
               </div>
               <p className="text-xs text-gray-600 leading-relaxed">
-                Settlement disbursals, capital return credits, cross-business reinvestments, and withdrawal processing are managed in the dedicated investor wallet.
+                Settlement disbursals, capital return credits, cross-business reinvestments, and withdrawal processing are managed in the dedicated personal investment wallet.
               </p>
             </div>
             <Link
@@ -512,7 +524,11 @@ export default function InvestorDetailPage({ params }: InvestorDetailPageProps) 
               className="inline-flex items-center justify-center gap-2 px-4.5 py-2.5 text-xs font-semibold text-white bg-[#0c0d12] hover:bg-[#1e222d] rounded-lg transition-colors shadow-xs shrink-0 w-full md:w-auto cursor-pointer"
             >
               <WalletIcon size={15} />
-              <span>Open Investor Wallet</span>
+              <span>
+                {pType === "ADMIN" || pType === "PARTNER"
+                  ? "Open Investment Wallet"
+                  : "Open Investor Wallet"}
+              </span>
               <ArrowRightIcon size={14} />
             </Link>
           </div>

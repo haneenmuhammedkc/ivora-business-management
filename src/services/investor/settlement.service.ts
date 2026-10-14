@@ -908,9 +908,9 @@ export async function recordDisbursalPayment(
         });
       }
 
-      // C. Optional Direct Routing to Investor Personal Wallet
-      // Applicable ONLY for external investors (not synthetic admin/partner participants)
-      if (creditToWallet && targetInvestor.type === InvestorType.INVESTOR) {
+      // C. Optional Direct Routing to Personal Wallet
+      // Applicable for any registered investment participant (External, Admin, or Partner)
+      if (creditToWallet) {
         let wallet = await tx.investorWallet.findUnique({
           where: { investorId: targetInvestor.id },
         });
