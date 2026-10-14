@@ -1004,6 +1004,13 @@ export async function getBusinessClosureEligibility(
       amount: Number(e.amount) || 0,
     }));
 
+  if (pendingExpenses.length > 0) {
+    const totalPendingAmount = pendingExpenses.reduce((sum, e) => sum + e.amount, 0);
+    reasons.push(
+      `Cannot close business: ${pendingExpenses.length} expense(s) are pending payment (Total: AED ${totalPendingAmount.toLocaleString()}). All operational expenses must be cleared prior to closure.`
+    );
+  }
+
   // Fetch Authoritative Financials
   const { getFullProfitLossData } = await import("@/services/financials/financials.service");
 
@@ -1123,15 +1130,39 @@ export async function getBusinessClosureEligibility(
 }
 
 /**
- * Admin closes the business, confirms inventory liquidation,
- * and automatically executes the final settlement by crediting each eligible external investor's personal wallet.
+ * Closes the business, confirms inventory liquidation,
+ * and finalizes investor settlement entitlements.
+ * Accessible to Admin (manual or automated) or assigned Partner (automated upon liquidation).
  */
 export async function closeBusinessAndExecuteFinalSettlement(
   session: SessionPayload,
-  businessId: string
+  businessId: string,
+  options?: { isAutomated?: boolean }
 ) {
-  if (session.role !== UserRole.ADMIN) {
+  if (session.role !== UserRole.ADMIN && !options?.isAutomated) {
     throw new AuthError("Forbidden: Only system administrators can close a business and execute final settlement.", 403);
+  }
+
+  // Idempotency check: If already settled, return cleanly for automated runs
+  const preCheck = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { id: true, code: true, name: true, status: true, partnerId: true },
+  });
+
+  if (!preCheck) {
+    throw new AuthError("Business not found", 404);
+  }
+
+  if (preCheck.status === BusinessStatus.SETTLED) {
+    if (options?.isAutomated) {
+      return {
+        success: true,
+        alreadySettled: true,
+        business: preCheck,
+        message: `Business ${preCheck.name} (${preCheck.code}) is already closed and settled.`,
+      };
+    }
+    throw new AuthError("Business is already closed and settled.", 400);
   }
 
   const eligibility = await getBusinessClosureEligibility(session, businessId);
@@ -1139,69 +1170,106 @@ export async function closeBusinessAndExecuteFinalSettlement(
     throw new AuthError(eligibility.reasons[0] || "Business is not eligible for closure due to unsold inventory.", 400);
   }
 
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      investments: {
-        include: { investor: true },
-      },
-    },
-  });
+  // Atomic state transition with concurrency lock
+  const { updatedBusiness, businessEntity, alreadySettled } = await prisma.$transaction(async (tx) => {
+    // 1. Concurrency row lock on business record
+    const [locked] = await tx.$queryRaw<Array<{ id: string; status: BusinessStatus }>>`
+      SELECT id, status FROM "Business" WHERE id = ${businessId} FOR UPDATE
+    `;
 
-  if (!business) {
-    throw new AuthError("Business not found", 404);
-  }
-
-  // 1. Mark business SETTLED (operationally closed)
-  const updatedBusiness = await prisma.business.update({
-    where: { id: businessId },
-    data: { status: BusinessStatus.SETTLED },
-  });
-
-  // 2. Finalize / lock profit allocations for each participant if not explicitly set
-  const netProfitAED = eligibility.financialSummary.netProfitAED;
-  for (const inv of business.investments) {
-    if (inv.allocatedProfitAmount === null || inv.allocatedProfitAmount === undefined) {
-      const share = Number(inv.profitSharePct) || 0;
-      const alloc = netProfitAED > 0 && share > 0 ? ((netProfitAED * share) / 100).toFixed(2) : "0.00";
-      await prisma.investment.update({
-        where: { id: inv.id },
-        data: { allocatedProfitAmount: new Prisma.Decimal(alloc) },
-      });
+    if (!locked) {
+      throw new AuthError("Business not found", 404);
     }
+
+    if (locked.status === BusinessStatus.SETTLED) {
+      const b = await tx.business.findUnique({ where: { id: businessId } });
+      return { updatedBusiness: b!, businessEntity: b!, alreadySettled: true };
+    }
+
+    // 2. Mark business SETTLED (operationally closed)
+    const updated = await tx.business.update({
+      where: { id: businessId },
+      data: { status: BusinessStatus.SETTLED },
+    });
+
+    const businessWithInvestments = await tx.business.findUnique({
+      where: { id: businessId },
+      include: {
+        investments: {
+          include: { investor: true },
+        },
+      },
+    });
+
+    if (!businessWithInvestments) {
+      throw new AuthError("Business not found during finalization", 404);
+    }
+
+    // 3. Finalize / lock profit allocations for each participant if not explicitly set
+    const netProfitAED = eligibility.financialSummary.netProfitAED;
+    for (const inv of businessWithInvestments.investments) {
+      if (inv.allocatedProfitAmount === null || inv.allocatedProfitAmount === undefined) {
+        const share = Number(inv.profitSharePct) || 0;
+        const alloc = netProfitAED > 0 && share > 0 ? ((netProfitAED * share) / 100).toFixed(2) : "0.00";
+        await tx.investment.update({
+          where: { id: inv.id },
+          data: { allocatedProfitAmount: new Prisma.Decimal(alloc) },
+        });
+      }
+    }
+
+    return { updatedBusiness: updated, businessEntity: businessWithInvestments, alreadySettled: false };
+  });
+
+  if (alreadySettled && options?.isAutomated) {
+    return {
+      success: true,
+      alreadySettled: true,
+      business: updatedBusiness,
+      message: `Business ${updatedBusiness.name} (${updatedBusiness.code}) is already closed and settled.`,
+    };
   }
 
-  // 3. Audit log operational closure
+  const netProfitAED = eligibility.financialSummary.netProfitAED;
+
+  const investments =
+    "investments" in businessEntity && Array.isArray(businessEntity.investments)
+      ? businessEntity.investments
+      : [];
+
+  // 4. Audit log operational or automated closure
   await logAuditEvent({
     userId: session.userId,
-    action: "BUSINESS_OPERATIONALLY_CLOSED",
+    action: options?.isAutomated ? "BUSINESS_AUTOMATICALLY_CLOSED" : "BUSINESS_OPERATIONALLY_CLOSED",
     entity: "Business",
     entityId: businessId,
     newValues: {
-      businessCode: business.code,
+      businessCode: businessEntity.code,
       status: BusinessStatus.SETTLED,
       netProfitAED,
-      totalParticipants: business.investments.length,
+      totalParticipants: investments.length > 0 ? investments.length : undefined,
+      isAutomated: options?.isAutomated || false,
     },
   });
 
-  // 4. Invalidate caches so wallet summaries reflect newly closed business entitlements
-  await invalidateBusinessFinancials(business.id, business.partnerId);
+  // 5. Invalidate caches so wallet summaries reflect newly closed business entitlements
+  await invalidateBusinessFinancials(businessId, businessEntity.partnerId);
   const { invalidateInvestorCaches } = await import("@/lib/redis/invalidation");
-  for (const inv of business.investments) {
+  for (const inv of investments) {
     try {
-      await invalidateInvestorCaches(business.id, business.partnerId, inv.investorId);
+      await invalidateInvestorCaches(businessId, businessEntity.partnerId, inv.investorId);
     } catch (err) {
       console.warn(`Cache invalidation error for investor ${inv.investorId}:`, err);
     }
   }
 
-    return {
-      success: true,
-      business: updatedBusiness,
-      message: `Business ${business.name} (${business.code}) successfully closed. All investor entitlements are finalized and available for settlement or reinvestment.`,
-    };
-  }
+  return {
+    success: true,
+    business: updatedBusiness,
+    isAutomated: options?.isAutomated || false,
+    message: `Business ${businessEntity.name} (${businessEntity.code}) successfully closed. All investor entitlements are finalized and available for settlement or reinvestment.`,
+  };
+}
 
 /**
  * Delete a Business entity.

@@ -25,6 +25,7 @@ export function InvestorWalletSection({
     kpis: InvestorWalletSummary["kpis"];
     recentEntries: InvestorWalletSummary["recentEntries"];
     pendingWithdrawals: InvestorWalletSummary["pendingWithdrawals"];
+    businessSettlements: InvestorWalletSummary["businessSettlements"];
   }>(isAdmin ? `/api/investors/${encodeURIComponent(investorId)}/wallet` : null);
 
   const [isDepositOpen, setIsDepositOpen] = useState(false);
@@ -103,7 +104,7 @@ export function InvestorWalletSection({
           <button
             type="button"
             onClick={() => setIsAllocateOpen(true)}
-            disabled={kpis.availableBalance <= 0}
+            disabled={((kpis.availableBalance ?? 0) + (kpis.eligibleUncreditedEntitlement ?? 0)) <= 0}
             className="px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 disabled:opacity-50 rounded-lg transition-colors shadow-2xs cursor-pointer"
           >
             Allocate to Business
@@ -222,6 +223,8 @@ export function InvestorWalletSection({
           investorId={investorId}
           investorName={investorName}
           availableBalance={kpis.availableBalance}
+          eligibleEntitlements={kpis.eligibleUncreditedEntitlement || 0}
+          businessSettlements={data.businessSettlements || []}
           onSuccess={mutate}
         />
       )}
