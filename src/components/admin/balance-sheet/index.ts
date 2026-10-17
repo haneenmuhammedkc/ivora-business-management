@@ -4,3 +4,4 @@ export * from "./balance-sheet-period-bar";
 export * from "./balance-sheet-statement";
 export * from "./business-position-table";
 export * from "./settlement-breakdown-table";
+export * from "./client-balance-sheet-print-view";

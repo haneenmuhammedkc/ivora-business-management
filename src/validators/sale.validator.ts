@@ -78,12 +78,12 @@ export const createSaleSchema = z
     realizedFxRate: z
       .union([z.number(), z.string()])
       .transform((val) => (typeof val === "string" ? parseFloat(val) : val))
-      .refine((val) => !isNaN(val) && val > 0, {
-        message: "Realized FX Rate must be a positive number greater than 0",
+      .refine((val) => !isNaN(val) && Number.isFinite(val) && val > 0, {
+        message: "Conversion Rate (AED / INR) must be a positive number greater than 0",
       })
       .refine(
-        (val) => hasAtMostDecimals(val, 4),
-        "FX Rate cannot have more than 4 decimal places"
+        (val) => hasAtMostDecimals(val, 8),
+        "Conversion rate cannot have more than 8 decimal places"
       ),
     basePricePerUnitAED: z
       .union([z.number(), z.string()])
@@ -168,12 +168,12 @@ export const updateSaleSchema = z
       .union([z.number(), z.string()])
       .optional()
       .transform((val) => (val !== undefined ? (typeof val === "string" ? parseFloat(val) : val) : undefined))
-      .refine((val) => val === undefined || (!isNaN(val) && val > 0), {
-        message: "Realized FX Rate must be a positive number greater than 0",
+      .refine((val) => val === undefined || (!isNaN(val) && Number.isFinite(val) && val > 0), {
+        message: "Conversion Rate (AED / INR) must be a positive number greater than 0",
       })
       .refine(
-        (val) => val === undefined || hasAtMostDecimals(val, 4),
-        "FX Rate cannot have more than 4 decimal places"
+        (val) => val === undefined || hasAtMostDecimals(val, 8),
+        "Conversion rate cannot have more than 8 decimal places"
       ),
     basePricePerUnitAED: z
       .union([z.number(), z.string()])

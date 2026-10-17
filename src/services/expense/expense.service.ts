@@ -61,16 +61,17 @@ export async function listExpenses(
 
     // If query has specific dynamic search or sub-filters, fetch directly; otherwise use cache
     if (!filters?.category && !filters?.status && !filters?.search) {
-      return getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
+      const expenses = await getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
         prisma.expense.findMany({
           where: { businessId },
           include: { business: { select: { id: true, name: true, code: true, businessType: true } } },
           orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
         })
       );
+      return expenses.map(parseExpenseMetadata);
     }
 
-    return prisma.expense.findMany({
+    const expenses = await prisma.expense.findMany({
       where: {
         businessId,
         ...(filters?.category ? { category: filters.category } : {}),
@@ -89,6 +90,7 @@ export async function listExpenses(
       include: { business: { select: { id: true, name: true, code: true, businessType: true } } },
       orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
     });
+    return expenses.map(parseExpenseMetadata);
   }
 
   const authorized = await getAuthorizedBusinessIds(session);
@@ -110,37 +112,87 @@ export async function listExpenses(
 
   if (!filters?.category && !filters?.status && !filters?.search) {
     const cacheKey = CacheKeys.expenses.list(undefined, session.role, session.userId);
-    return getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
+    const expenses = await getOrSetCache(cacheKey, CacheTTL.MEDIUM, () =>
       prisma.expense.findMany({
         where,
         include: { business: { select: { id: true, name: true, code: true, businessType: true } } },
         orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
       })
     );
+    return expenses.map(parseExpenseMetadata);
   }
 
-  return prisma.expense.findMany({
+  const expenses = await prisma.expense.findMany({
     where,
     include: { business: { select: { id: true, name: true, code: true, businessType: true } } },
     orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
   });
+  return expenses.map(parseExpenseMetadata);
+}
+
+/**
+ * Parses conversion metadata from description if present.
+ * Format: "User Description [INR 5,000 @ 0.03624]" or "(INR 5000 @ 0.03624)"
+ */
+export function parseExpenseMetadata<T extends { description?: string | null; amount: unknown }>(expense: T) {
+  const desc = expense.description || "";
+  const match = desc.match(/^(.*?)\s*(?:\[|\()INR\s*([\d,]+(?:\.\d+)?)\s*@\s*([\d.]+)\s*(?:AED\/INR)?(?:\]|\))\s*$/i);
+  if (match) {
+    const cleanDesc = match[1].trim();
+    const inrAmount = parseFloat(match[2].replace(/,/g, ""));
+    const rate = parseFloat(match[3]);
+    return {
+      ...expense,
+      currency: "INR" as const,
+      sourceAmount: inrAmount,
+      conversionRate: rate,
+      cleanDescription: cleanDesc || desc,
+    };
+  }
+  return {
+    ...expense,
+    currency: "AED" as const,
+    sourceAmount: Number(expense.amount),
+    conversionRate: null as number | null,
+    cleanDescription: desc,
+  };
 }
 
 export async function getExpenseById(session: SessionPayload, expenseId: string) {
   await requireResourceAccess("Expense", expenseId, "READ", session);
 
   const cacheKey = CacheKeys.expenses.detail(expenseId);
-  return getOrSetCache(cacheKey, CacheTTL.MEDIUM, async () => {
+  const expense = await getOrSetCache(cacheKey, CacheTTL.MEDIUM, async () => {
     return prisma.expense.findUnique({
       where: { id: expenseId },
       include: { business: { select: { id: true, name: true, code: true, businessType: true } } },
     });
   });
+
+  return expense ? parseExpenseMetadata(expense) : null;
 }
 
 export async function createExpense(session: SessionPayload, rawInput: unknown) {
   const input = createExpenseSchema.parse(rawInput);
   await requireBusinessAccess(input.businessId, session, "WRITE");
+
+  let finalDescription = input.description.trim();
+  let settledAmountDecimal: Prisma.Decimal;
+
+  if (input.currency === "INR" && input.sourceAmount && input.conversionRate) {
+    const sourceDecimal = new Prisma.Decimal(input.sourceAmount);
+    const rateDecimal = new Prisma.Decimal(input.conversionRate);
+    if (sourceDecimal.lte(0) || rateDecimal.lte(0)) {
+      throw new Error("Source INR amount and conversion rate must be greater than zero");
+    }
+    // Expense Amount (AED) = Expense Amount (INR) × Conversion Rate (AED per INR)
+    settledAmountDecimal = sourceDecimal.mul(rateDecimal).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const formattedInr = sourceDecimal.toNumber().toLocaleString("en-IN");
+    const cleanDesc = finalDescription.replace(/\s*(?:\[|\()INR\s*[\d,]+(?:\.\d+)?\s*@\s*[\d.]+\s*(?:AED\/INR)?(?:\]|\))\s*$/i, "").trim();
+    finalDescription = cleanDesc ? `${cleanDesc} [INR ${formattedInr} @ ${rateDecimal.toString()}]` : `[INR ${formattedInr} @ ${rateDecimal.toString()}]`;
+  } else {
+    settledAmountDecimal = new Prisma.Decimal(input.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  }
 
   const expense = await prisma.$transaction(async (tx) => {
     const expenseCode = await generateUniqueExpenseCode(tx);
@@ -150,8 +202,8 @@ export async function createExpense(session: SessionPayload, rawInput: unknown) 
         businessId: input.businessId,
         expenseCode,
         category: input.category,
-        description: input.description,
-        amount: new Prisma.Decimal(input.amount),
+        description: finalDescription,
+        amount: settledAmountDecimal,
         expenseDate: input.expenseDate,
         status: input.status,
         paymentMethod: input.paymentMethod,
@@ -169,7 +221,10 @@ export async function createExpense(session: SessionPayload, rawInput: unknown) 
     newValues: {
       code: expense.expenseCode,
       businessId: expense.businessId,
-      amount: input.amount,
+      amount: settledAmountDecimal.toNumber(),
+      currency: input.currency,
+      sourceAmount: input.sourceAmount,
+      conversionRate: input.conversionRate,
       category: input.category,
       paymentMethod: input.paymentMethod,
       status: input.status,
@@ -179,7 +234,7 @@ export async function createExpense(session: SessionPayload, rawInput: unknown) 
   // Invalidate Redis caches
   await invalidateTransactionCaches(expense.businessId, "expenses", expense.id);
 
-  return expense;
+  return parseExpenseMetadata(expense);
 }
 
 export async function updateExpense(session: SessionPayload, expenseId: string, rawInput: unknown) {
@@ -192,13 +247,38 @@ export async function updateExpense(session: SessionPayload, expenseId: string, 
     await requireBusinessAccess(input.businessId, session, "WRITE");
   }
 
+  let finalDescription: string | undefined = input.description !== undefined ? input.description.trim() : undefined;
+  let settledAmountDecimal: Prisma.Decimal | undefined = undefined;
+
+  if (input.currency === "INR" && input.sourceAmount !== undefined && input.conversionRate !== undefined) {
+    const sourceDecimal = new Prisma.Decimal(input.sourceAmount);
+    const rateDecimal = new Prisma.Decimal(input.conversionRate);
+    if (sourceDecimal.lte(0) || rateDecimal.lte(0)) {
+      throw new Error("Source INR amount and conversion rate must be greater than zero");
+    }
+    // Expense Amount (AED) = Expense Amount (INR) × Conversion Rate (AED per INR)
+    settledAmountDecimal = sourceDecimal.mul(rateDecimal).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const formattedInr = sourceDecimal.toNumber().toLocaleString("en-IN");
+    const baseDesc = (finalDescription ?? existing.description).replace(/\s*(?:\[|\()INR\s*[\d,]+(?:\.\d+)?\s*@\s*[\d.]+\s*(?:AED\/INR)?(?:\]|\))\s*$/i, "").trim();
+    finalDescription = baseDesc ? `${baseDesc} [INR ${formattedInr} @ ${rateDecimal.toString()}]` : `[INR ${formattedInr} @ ${rateDecimal.toString()}]`;
+  } else if (input.currency === "AED") {
+    if (input.amount !== undefined) {
+      settledAmountDecimal = new Prisma.Decimal(input.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    }
+    if (finalDescription !== undefined) {
+      finalDescription = finalDescription.replace(/\s*(?:\[|\()INR\s*[\d,]+(?:\.\d+)?\s*@\s*[\d.]+\s*(?:AED\/INR)?(?:\]|\))\s*$/i, "").trim();
+    }
+  } else if (input.amount !== undefined) {
+    settledAmountDecimal = new Prisma.Decimal(input.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  }
+
   const updated = await prisma.expense.update({
     where: { id: expenseId },
     data: {
       businessId: input.businessId,
       category: input.category,
-      description: input.description,
-      amount: input.amount !== undefined ? new Prisma.Decimal(input.amount) : undefined,
+      description: finalDescription,
+      amount: settledAmountDecimal,
       expenseDate: input.expenseDate,
       status: input.status,
       paymentMethod: input.paymentMethod,
@@ -213,7 +293,10 @@ export async function updateExpense(session: SessionPayload, expenseId: string, 
     entity: "Expense",
     entityId: updated.id,
     newValues: {
-      amount: input.amount,
+      amount: settledAmountDecimal?.toNumber() ?? input.amount,
+      currency: input.currency,
+      sourceAmount: input.sourceAmount,
+      conversionRate: input.conversionRate,
       category: input.category,
       status: input.status,
       paymentMethod: input.paymentMethod,
@@ -226,7 +309,7 @@ export async function updateExpense(session: SessionPayload, expenseId: string, 
     await invalidateTransactionCaches(existing.businessId, "expenses", updated.id);
   }
 
-  return updated;
+  return parseExpenseMetadata(updated);
 }
 
 export async function deleteExpense(session: SessionPayload, expenseId: string) {

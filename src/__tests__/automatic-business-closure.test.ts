@@ -15,8 +15,8 @@
 import { prisma } from "../lib/prisma";
 import redis from "../lib/redis/client";
 import { Prisma, BusinessStatus, UserRole, QuantityUnit, SaleStatus, PurchaseStatus, ExpensePaymentStatus, TransactionType } from "@prisma/client";
-import { createSale, updateSale, deleteSale, triggerAutomaticBusinessClosureIfEligible } from "../services/sale/sale.service";
-import { getBusinessClosureEligibility, closeBusinessAndExecuteFinalSettlement } from "../services/business/business.service";
+import { createSale, updateSale, deleteSale } from "../services/sale/sale.service";
+import { closeBusinessAndExecuteFinalSettlement } from "../services/business/business.service";
 import { getInvestorWalletSummary } from "../services/investor/wallet.service";
 
 function assert(condition: boolean, msg: string) {
@@ -108,7 +108,7 @@ async function runTests() {
       quantity: 10,
       quantityUnit: QuantityUnit.GRAM,
       totalSellingPriceINR: 240000,
-      realizedFxRate: 20, // 240000 / 20 = AED 12,000.00 (Net Profit = 2,000 AED)
+      realizedFxRate: 0.05, // 240000 * 0.05 = AED 12,000.00 (Net Profit = 2,000 AED)
       status: SaleStatus.CLEARED,
     });
 
@@ -181,7 +181,7 @@ async function runTests() {
       quantity: 5,
       quantityUnit: QuantityUnit.GRAM,
       totalSellingPriceINR: 220000,
-      realizedFxRate: 20,
+      realizedFxRate: 0.05,
       status: SaleStatus.CLEARED,
     });
 
@@ -246,7 +246,7 @@ async function runTests() {
       quantity: 5,
       quantityUnit: QuantityUnit.GRAM,
       totalSellingPriceINR: 220000,
-      realizedFxRate: 20,
+      realizedFxRate: 0.05,
       status: SaleStatus.CLEARED,
     });
 
@@ -301,7 +301,7 @@ async function runTests() {
       quantity: 5,
       quantityUnit: QuantityUnit.GRAM,
       totalSellingPriceINR: 220000,
-      realizedFxRate: 20,
+      realizedFxRate: 0.05,
       status: SaleStatus.PENDING, // PENDING status
     });
 
@@ -316,7 +316,7 @@ async function runTests() {
     console.log("\n--- TEST 5: Idempotency & Concurrency Safety on Closure ---");
     const repeatResult = await closeBusinessAndExecuteFinalSettlement(adminSession, biz1.id, { isAutomated: true });
     assert(repeatResult.success === true, "Repeated closure call must succeed cleanly");
-    assert((repeatResult as any).alreadySettled === true, "Must flag alreadySettled = true");
+    assert((repeatResult as { alreadySettled?: boolean }).alreadySettled === true, "Must flag alreadySettled = true");
 
     // Run parallel calls to verify lock behavior
     const parallelResults = await Promise.all([
@@ -368,18 +368,20 @@ async function runTests() {
       await updateSale(adminSession, saleResult4.id, {
         quantity: 4,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       caughtMutation = true;
-      assert(err.message.includes("closed and settled business"), `Expected settled business error, got: ${err.message}`);
+      const error = err as Error;
+      assert(error.message.includes("closed and settled business"), `Expected settled business error, got: ${error.message}`);
     }
     assert(caughtMutation, "Editing a sale on a settled business must be strictly blocked");
 
     let caughtDeletion = false;
     try {
       await deleteSale(adminSession, saleResult4.id);
-    } catch (err: any) {
+    } catch (err: unknown) {
       caughtDeletion = true;
-      assert(err.message.includes("closed and settled business"), `Expected settled business error, got: ${err.message}`);
+      const error = err as Error;
+      assert(error.message.includes("closed and settled business"), `Expected settled business error, got: ${error.message}`);
     }
     assert(caughtDeletion, "Deleting a sale on a settled business must be strictly blocked");
     console.log("✓ TEST 8 PASSED: Mutating or deleting sales on settled businesses is strictly rejected.");

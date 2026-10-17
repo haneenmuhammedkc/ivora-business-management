@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/guards";
 import { unauthorizedResponse } from "@/lib/auth/guards";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   try {
     const user = await getCurrentUser();

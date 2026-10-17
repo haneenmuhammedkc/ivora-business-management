@@ -60,6 +60,34 @@ export const createExpenseSchema = z.object({
     .boolean()
     .optional()
     .default(false),
+  currency: z.enum(["AED", "INR"]).optional().default("AED"),
+  sourceAmount: z
+    .union([z.number(), z.string()])
+    .optional()
+    .nullable()
+    .transform((val) => (val !== undefined && val !== null ? (typeof val === "string" ? parseFloat(val) : val) : null)),
+  conversionRate: z
+    .union([z.number(), z.string()])
+    .optional()
+    .nullable()
+    .transform((val) => (val !== undefined && val !== null ? (typeof val === "string" ? parseFloat(val) : val) : null)),
+}).superRefine((data, ctx) => {
+  if (data.currency === "INR") {
+    if (!data.sourceAmount || isNaN(data.sourceAmount) || data.sourceAmount <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourceAmount"],
+        message: "Please enter a valid INR expense amount greater than 0",
+      });
+    }
+    if (!data.conversionRate || isNaN(data.conversionRate) || data.conversionRate <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["conversionRate"],
+        message: "Conversion Rate (AED / INR) must be a positive number greater than 0",
+      });
+    }
+  }
 });
 
 export const updateExpenseSchema = z.object({
@@ -124,6 +152,34 @@ export const updateExpenseSchema = z.object({
   isPurchaseLandedCost: z
     .boolean()
     .optional(),
+  currency: z.enum(["AED", "INR"]).optional(),
+  sourceAmount: z
+    .union([z.number(), z.string()])
+    .optional()
+    .nullable()
+    .transform((val) => (val !== undefined && val !== null ? (typeof val === "string" ? parseFloat(val) : val) : undefined)),
+  conversionRate: z
+    .union([z.number(), z.string()])
+    .optional()
+    .nullable()
+    .transform((val) => (val !== undefined && val !== null ? (typeof val === "string" ? parseFloat(val) : val) : undefined)),
+}).superRefine((data, ctx) => {
+  if (data.currency === "INR") {
+    if (data.sourceAmount !== undefined && (isNaN(data.sourceAmount) || data.sourceAmount <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourceAmount"],
+        message: "Please enter a valid INR expense amount greater than 0",
+      });
+    }
+    if (data.conversionRate !== undefined && (isNaN(data.conversionRate) || data.conversionRate <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["conversionRate"],
+        message: "Conversion Rate (AED / INR) must be a positive number greater than 0",
+      });
+    }
+  }
 });
 
 export const expenseQuerySchema = z.object({

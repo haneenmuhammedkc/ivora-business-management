@@ -109,6 +109,51 @@ export interface InvestorSettlementBreakdownItem {
   createdAt?: string | Date;
 }
 
+export interface ClientPurchaseSaleRow {
+  particulars: "PURCHASE" | "SELL";
+  grams: number;
+  grmRate: number;
+  totalAED: number;
+  rvRate: number | string | null;
+}
+
+export interface ClientExpenseItem {
+  id: string;
+  particulars: string;
+  description?: string;
+  amountINR: number | null;
+  amountAED: number;
+}
+
+export interface ClientParticipantProfitItem {
+  id?: string;
+  name: string;
+  perGramProfitAED: number;
+  grams: number;
+  profitAED: number;
+  committedAmountAED?: number;
+  profitSharePct?: number;
+}
+
+export interface ClientBalanceSheetReportData {
+  businessCode: string;
+  businessName: string;
+  reference: string;
+  asOfDate: string;
+  asOfDateFormatted: string;
+  purchase: ClientPurchaseSaleRow;
+  sell: ClientPurchaseSaleRow;
+  totalGapAED: number;
+  expenses: ClientExpenseItem[];
+  totalExpensesAED: number;
+  totalExpensesINR: number | null;
+  afterExpBalanceAED: number;
+  participants: ClientParticipantProfitItem[];
+  totalParticipantProfitAED: number;
+  unreconciledDifferenceAED: number;
+  unreconciledNote?: string;
+}
+
 export interface BalanceSheetResponseData {
   success: boolean;
   asOfDate: string;
@@ -120,5 +165,7 @@ export interface BalanceSheetResponseData {
   settlement: PartnerSettlementPositionData;
   businesses: BusinessPositionComparison[];
   settlementBreakdown: InvestorSettlementBreakdownItem[];
+  clientReport?: ClientBalanceSheetReportData;
 }
+
 

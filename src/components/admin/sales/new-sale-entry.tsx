@@ -61,7 +61,7 @@ export function NewSaleEntry() {
   // Derived available quantity
   const availableQty = activeProduct ? activeProduct.remainingQuantity : 0;
 
-  // Sales Base Price = (Total Selling Price INR ÷ Realized FX Rate) ÷ Quantity
+  // Sales Base Price = (Total Selling Price INR × Conversion Rate) ÷ Quantity
   // = AED Equivalent Realized ÷ Quantity
   const calculatedSalesBasePrice = useMemo(() => {
     const qty = parseFloat(quantity);
@@ -70,7 +70,7 @@ export function NewSaleEntry() {
     if (isNaN(qty) || isNaN(inr) || isNaN(fx) || qty <= 0 || inr <= 0 || fx <= 0) {
       return null;
     }
-    const aedTotal = inr / fx;
+    const aedTotal = inr * fx;
     return aedTotal / qty;
   }, [quantity, totalSellingPriceINR, realizedFxRate]);
 
@@ -93,12 +93,12 @@ export function NewSaleEntry() {
     })}`;
   }, [totalSellingPriceINR]);
 
-  // AED Equivalent Realized = Total Selling Price INR ÷ FX Rate
+  // AED Equivalent Realized = Total Selling Price INR × Conversion Rate (AED / INR)
   const displayAedEquivalent = useMemo(() => {
     const inr = parseFloat(totalSellingPriceINR);
     const fx = parseFloat(realizedFxRate);
     if (isNaN(inr) || isNaN(fx) || inr <= 0 || fx <= 0) return "—";
-    const aed = inr / fx;
+    const aed = inr * fx;
     return `AED ${aed.toLocaleString(undefined, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -794,15 +794,15 @@ export function NewSaleEntry() {
           </span>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-            {/* Realized FX Rate (₹ / AED) - USER ENTERS */}
+            {/* Conversion Rate (AED / INR) - USER ENTERS */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
-                Realized FX Rate (₹ / AED) <span className="text-red-500">*</span>
+                Conversion Rate (AED / INR) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
-                step="0.0001"
-                placeholder="e.g. 22.7400"
+                step="any"
+                placeholder="e.g. 0.03624"
                 value={realizedFxRate}
                 onChange={(e) => {
                   setRealizedFxRate(e.target.value);

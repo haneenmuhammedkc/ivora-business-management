@@ -24,6 +24,7 @@ import {
   PartnerSettlementItem,
   BalanceSheetItem,
   InvestorSettlementBreakdownItem,
+  ClientBalanceSheetReportData,
 } from "@/types/balance-sheet";
 
 const CATEGORY_NAMES: Record<ExpenseCategory, string> = {
@@ -1079,6 +1080,167 @@ export async function getFullBalanceSheetData(
       });
     }
 
+    // Construct Client-Format Balance Sheet Report Data
+    const formattedReportDate = (() => {
+      const d = asOfDateStr || new Date().toISOString().split("T")[0];
+      const parts = d.split("-");
+      if (parts.length === 3) {
+        const yy = parts[0].length === 4 ? parts[0].slice(2) : parts[0];
+        return `${parts[2]}/${parts[1]}/${yy}`;
+      }
+      return d;
+    })();
+
+    const purchaseGrams = purchases.reduce(
+      (sum, p) => sum + Number(p.quantityGms ?? p.quantity ?? 0),
+      0
+    );
+    const purchaseGrmRate =
+      purchaseGrams > 0
+        ? Number((purchaseSourcingCostAED / purchaseGrams).toFixed(4))
+        : 0;
+
+    const sellGrams = sales.reduce(
+      (sum, s) => sum + Number(s.quantityGms ?? s.quantity ?? 0),
+      0
+    );
+    const sellGrmRate =
+      sellGrams > 0
+        ? Number((realizedSalesAED / sellGrams).toFixed(4))
+        : 0;
+
+    const totalSaleINR = sales.reduce(
+      (sum, s) => sum + Number(s.inrRealizationValue ?? s.totalSellingPriceINR ?? 0),
+      0
+    );
+    let sellRvRate: number | string | null = null;
+    if (sales.length > 0) {
+      if (totalSaleINR > 0 && realizedSalesAED > 0) {
+        sellRvRate = Number((totalSaleINR / realizedSalesAED).toFixed(4));
+      } else if (sales[0]?.realizedFxRate) {
+        const rate = Number(sales[0].realizedFxRate);
+        sellRvRate = rate > 0 && rate < 1 ? Number((1 / rate).toFixed(4)) : rate;
+      }
+    }
+
+    const totalGapAED = Number((realizedSalesAED - purchaseSourcingCostAED).toFixed(2));
+
+    const effectiveFx =
+      typeof sellRvRate === "number" && sellRvRate > 0
+        ? sellRvRate
+        : sales[0]?.realizedFxRate
+        ? (Number(sales[0].realizedFxRate) < 1
+            ? Number((1 / Number(sales[0].realizedFxRate)).toFixed(4))
+            : Number(sales[0].realizedFxRate))
+        : null;
+
+    const clientExpenses = expenses.map((e) => {
+      let inrAmount: number | null = null;
+      const desc = e.description || "";
+      const inrPatternMatch = desc.match(/INR\s*([\d,]+(?:\.\d+)?)/i);
+      const kMatch = desc.match(/\b(\d+(?:\.\d+)?)K\b/i);
+      if (inrPatternMatch) {
+        inrAmount = Math.round(parseFloat(inrPatternMatch[1].replace(/,/g, "")));
+      } else if (kMatch) {
+        inrAmount = Math.round(parseFloat(kMatch[1]) * 1000);
+      } else if (
+        !e.category.toUpperCase().includes("DXB") &&
+        !desc.toUpperCase().includes("AED") &&
+        effectiveFx &&
+        effectiveFx > 0
+      ) {
+        inrAmount = Math.round(Number(e.amount) * effectiveFx);
+      }
+
+      return {
+        id: e.id,
+        particulars: e.category,
+        description: e.description,
+        amountINR: inrAmount,
+        amountAED: Number(Number(e.amount).toFixed(2)),
+      };
+    });
+
+    const hasAnyInr = clientExpenses.some((e) => e.amountINR !== null);
+    const totalExpensesINR = hasAnyInr
+      ? clientExpenses.reduce((sum, e) => sum + (e.amountINR || 0), 0)
+      : null;
+
+    const afterExpBalanceAED = Number((totalGapAED - operatingExpensesAED).toFixed(2));
+
+    const clientParticipants = allInvestments.map((inv) => {
+      const invCommitted = Number(inv.committedAmount || 0);
+      let invProfit = 0;
+      if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
+        invProfit = Number(inv.allocatedProfitAmount);
+      } else {
+        const bNet = bizNetProfitMap.get(inv.businessId) || 0;
+        const sharePct = Number(inv.profitSharePct || 0);
+        invProfit = bNet > 0 && sharePct > 0 ? Number(((bNet * sharePct) / 100).toFixed(2)) : 0;
+      }
+
+      let invGrams = 0;
+      if (inv.allocatedGrams !== null && inv.allocatedGrams !== undefined && Number(inv.allocatedGrams) > 0) {
+        invGrams = Number(inv.allocatedGrams);
+      } else if (totalCommittedCapitalAED > 0 && purchaseGrams > 0) {
+        invGrams = Number(((invCommitted / totalCommittedCapitalAED) * purchaseGrams).toFixed(2));
+      }
+
+      const perGramProfit = invGrams > 0 ? Number((invProfit / invGrams).toFixed(4)) : 0;
+
+      return {
+        id: inv.id,
+        name: inv.investor.name,
+        grams: invGrams,
+        perGramProfitAED: perGramProfit,
+        profitAED: invProfit,
+        committedAmountAED: invCommitted,
+        profitSharePct: Number(inv.profitSharePct || 0),
+      };
+    });
+
+    const totalParticipantProfitAED = Number(
+      clientParticipants.reduce((sum, p) => sum + p.profitAED, 0).toFixed(2)
+    );
+    const unreconciledDifferenceAED = Number(
+      (totalParticipantProfitAED - afterExpBalanceAED).toFixed(2)
+    );
+    const unreconciledNote =
+      Math.abs(unreconciledDifferenceAED) > 0.05
+        ? "Participant allocations reflect contractual trading gap distribution prior to deducting operational expenses."
+        : undefined;
+
+    const clientReport: ClientBalanceSheetReportData = {
+      businessCode: businesses.length === 1 ? businesses[0].code : "ALL",
+      businessName: businessScopeName,
+      reference: businesses.length === 1 ? businesses[0].code : "ALL",
+      asOfDate: asOfDateStr || new Date().toISOString().split("T")[0],
+      asOfDateFormatted: formattedReportDate,
+      purchase: {
+        particulars: "PURCHASE",
+        grams: purchaseGrams,
+        grmRate: purchaseGrmRate,
+        totalAED: purchaseSourcingCostAED,
+        rvRate: null,
+      },
+      sell: {
+        particulars: "SELL",
+        grams: sellGrams,
+        grmRate: sellGrmRate,
+        totalAED: realizedSalesAED,
+        rvRate: sellRvRate,
+      },
+      totalGapAED,
+      expenses: clientExpenses,
+      totalExpensesAED: operatingExpensesAED,
+      totalExpensesINR,
+      afterExpBalanceAED,
+      participants: clientParticipants,
+      totalParticipantProfitAED,
+      unreconciledDifferenceAED,
+      unreconciledNote,
+    };
+
     // KPIs
     const kpis: BalanceSheetSummaryKPIs = {
       totalCommittedCapitalAED,
@@ -1125,6 +1287,7 @@ export async function getFullBalanceSheetData(
       },
       businesses: businessComparisonList,
       settlementBreakdown: investorSettlementBreakdown,
+      clientReport,
     };
   });
 }

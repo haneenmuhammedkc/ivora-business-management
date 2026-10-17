@@ -554,19 +554,17 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
         2,
         Prisma.Decimal.ROUND_HALF_UP
       );
-      const fxRateDecimal = new Prisma.Decimal(validated.realizedFxRate).toDecimalPlaces(
-        4,
-        Prisma.Decimal.ROUND_HALF_UP
-      );
+      const fxRateDecimal = new Prisma.Decimal(validated.realizedFxRate);
 
       if (fxRateDecimal.lte(0)) {
-        throw new AuthError("Realized FX rate must be greater than zero", 400);
+        throw new AuthError("Conversion rate must be greater than zero", 400);
       }
 
-      const exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      // AED Equivalent Realized = Total Selling Price (INR) × Conversion Rate (AED per INR)
+      const exactAedTotal = inrRealizationDecimal.mul(fxRateDecimal);
       const aedEquivalentDecimal = exactAedTotal.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-      // SALES BASE PRICE = Total Selling Price INR ÷ FX Rate ÷ Quantity
+      // SALES BASE PRICE = AED Equivalent Realized ÷ Quantity
       const salesBasePriceDecimal = exactAedTotal
         .div(saleQtyDecimal)
         .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
@@ -773,12 +771,23 @@ export async function updateSale(
           ? validated.realizedFxRate
           : existing.realizedFxRate;
 
-      const fxRateDecimal = new Prisma.Decimal(rawFx).toDecimalPlaces(
-        4,
-        Prisma.Decimal.ROUND_HALF_UP
-      );
+      const fxRateDecimal = new Prisma.Decimal(rawFx);
 
-      const exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      if (fxRateDecimal.lte(0)) {
+        throw new AuthError("Conversion rate must be greater than zero", 400);
+      }
+
+      // Historical compatibility:
+      // If updating a historical sale where realizedFxRate was entered under legacy division (rate >= 1)
+      // and the user did NOT supply a new rate in this update, preserve legacy division for that rate.
+      // If a new rate was provided or the rate is a conversion rate (rate < 1), use multiplication:
+      let exactAedTotal: Prisma.Decimal;
+      if (validated.realizedFxRate === undefined && fxRateDecimal.gte(1)) {
+        exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      } else {
+        exactAedTotal = inrRealizationDecimal.mul(fxRateDecimal);
+      }
+
       const aedEquivalentDecimal = exactAedTotal.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
       const salesBasePriceDecimal = exactAedTotal
         .div(newQtyDecimal)

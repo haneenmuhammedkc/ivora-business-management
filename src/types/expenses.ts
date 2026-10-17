@@ -44,6 +44,10 @@ export interface ExpenseRecord {
   description: string;
   amountAED?: number;
   amount: number | string;
+  currency?: "AED" | "INR";
+  sourceAmount?: number;
+  conversionRate?: number;
+  cleanDescription?: string;
   status: ExpenseStatus;
   paymentMethod: string | null;
   isPurchaseLandedCost?: boolean;

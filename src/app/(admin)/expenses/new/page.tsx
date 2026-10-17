@@ -3,6 +3,8 @@ import Link from "next/link";
 import { FadeUp } from "@/components/ui/motion";
 import { NewExpenseEntry } from "@/components/admin/expenses";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "New Expense Entry - Ivora",
   description: "Record landed logistics, handling, and trading-level expense allocations.",
