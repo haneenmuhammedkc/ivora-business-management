@@ -99,7 +99,7 @@ export function SalesTableView({
               <th className="px-4 py-3.5 font-bold text-right">QUANTITY</th>
               <th className="px-4 py-3.5 font-bold text-center">UNIT</th>
               <th className="px-4 py-3.5 font-bold text-right">TOTAL SELLING PRICE</th>
-              <th className="px-4 py-3.5 font-bold text-right">REALIZED FX RATE</th>
+              <th className="px-4 py-3.5 font-bold text-right">CONVERSION RATE (AED / INR)</th>
               <th className="px-4 py-3.5 font-bold text-right">AED EQUIVALENT</th>
               <th className="px-5 py-3.5 font-bold text-center">ACTION</th>
             </tr>
@@ -207,10 +207,14 @@ export function SalesTableView({
                       </span>
                     </td>
 
-                    {/* Realized FX Rate */}
+                    {/* Conversion Rate */}
                     <td className="px-4 py-4 text-right whitespace-nowrap">
                       <span className="text-xs font-mono font-medium text-gray-700">
-                        {fxRateVal ? `₹ ${Number(fxRateVal).toFixed(4)}` : "—"}
+                        {fxRateVal
+                          ? Number(fxRateVal) < 1
+                            ? Number(fxRateVal).toFixed(5)
+                            : `₹ ${Number(fxRateVal).toFixed(4)}`
+                          : "—"}
                       </span>
                     </td>
 

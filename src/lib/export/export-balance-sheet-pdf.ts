@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { BalanceSheetResponseData } from "@/types/balance-sheet";
+import { getClientBalanceSheetReportData } from "./balance-sheet-client-adapter";
 
 export interface BalanceSheetExportOptions {
   businessName?: string;
@@ -9,250 +10,194 @@ export interface BalanceSheetExportOptions {
   productLabel?: string;
 }
 
+
 export function exportBalanceSheetToPdf(
   data: BalanceSheetResponseData,
   options: BalanceSheetExportOptions = {}
 ) {
+  const report = getClientBalanceSheetReportData(data, options);
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
     format: "a4",
   });
 
-  const businessName =
-    options.businessName || data.businessScope || "Consolidated Portfolio";
-  const asOfDate =
-    options.asOfDate || data.asOfDate || new Date().toISOString().split("T")[0];
   const generatedAt = new Date().toLocaleString("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
   });
 
-  // Primary brand palette
-  const brandDark = [12, 13, 18] as [number, number, number]; // #0c0d12
-  const textMuted = [100, 116, 139] as [number, number, number]; // #64748b
-  const bgLight = [248, 250, 252] as [number, number, number]; // #f8fafc
-  const borderLight = [226, 232, 240] as [number, number, number]; // #e2e8f0
+  // Theme Colors
+  const brandDark = [15, 23, 42] as [number, number, number]; // Slate 900
+  const textMuted = [100, 116, 139] as [number, number, number]; // Slate 500
+  const bgLight = [248, 250, 252] as [number, number, number]; // Slate 50
+  const borderLight = [226, 232, 240] as [number, number, number]; // Slate 200
+  const highlightGreen = [240, 253, 244] as [number, number, number]; // Emerald 50
+  const textGreen = [22, 101, 52] as [number, number, number]; // Emerald 800
 
-  // 1. Header Banner (28mm height)
+  // 1. Top Header Banner (Full Page Width: 210mm)
   doc.setFillColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.rect(0, 0, 210, 28, "F");
+  doc.rect(0, 0, 210, 20, "F");
 
   // Left branding
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(17);
-  doc.text("IVORA", 14, 13);
+  doc.setFontSize(13);
+  doc.text("IVORA — BALANCE SHEET STATEMENT", 14, 11);
 
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(203, 213, 225); // slate-300
-  doc.text("BUSINESS MANAGEMENT PLATFORM", 14, 20);
+  doc.text("CLIENT-FORMAT SETTLEMENT & REALIZATION RECORD", 14, 16);
+  doc.text(`GENERATED: ${generatedAt.toUpperCase()}`, 196, 16, { align: "right" });
 
-  // Right statement descriptor + timestamp
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.text("STATEMENT OF FINANCIAL POSITION", 196, 13, { align: "right" });
+  let currentY = 25;
 
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(148, 163, 184); // slate-400
-  doc.text(`GENERATED: ${generatedAt.toUpperCase()}`, 196, 20, { align: "right" });
-
-  // 2. Report Title & Subtitle
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
-  doc.text("BALANCE SHEET", 14, 38);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("Financial Position, Asset Allocations & Settlement Ledger", 14, 43.5);
-
-  // 3. Structured Metadata Card (18mm height)
-  const metaBoxY = 47.5;
-  const metaBoxHeight = 18;
+  // 2. Section A: Business Heading (Dynamic Metadata Box)
+  // Shared outer boundary: X = 14mm, width = 182mm (ends at 196mm)
   doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
   doc.setDrawColor(borderLight[0], borderLight[1], borderLight[2]);
   doc.setLineWidth(0.3);
-  doc.roundedRect(14, metaBoxY, 182, metaBoxHeight, 1.5, 1.5, "FD");
+  doc.roundedRect(14, currentY, 182, 20, 2, 2, "FD");
 
-  // Col 1: Scope / Entity
+  // Left column: Reference & Participant Name
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("ENTITY / SCOPE", 18, metaBoxY + 5.5);
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  const truncatedBiz =
-    businessName.length > 36 ? `${businessName.slice(0, 34)}...` : businessName;
-  doc.text(truncatedBiz, 18, metaBoxY + 12);
-
-  // Col 2: As of Date
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("AS OF DATE", 82, metaBoxY + 5.5);
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(asOfDate, 82, metaBoxY + 12);
-
-  // Col 3: Currency
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("CURRENCY", 122, metaBoxY + 5.5);
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text("AED (Dirhams)", 122, metaBoxY + 12);
-
-  // Col 4: Active Filters
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(6.5);
-  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-  doc.text("ACTIVE FILTERS", 158, metaBoxY + 5.5);
   doc.setFontSize(7.5);
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text("BUSINESS / REFERENCE:", 18, currentY + 6);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
   doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  const statusStr =
-    options.statusLabel && options.statusLabel !== "all"
-      ? options.statusLabel
-      : "All Status";
-  const productStr =
-    options.productLabel && options.productLabel !== "all"
-      ? options.productLabel
-      : "All Products";
-  doc.text(`${statusStr} • ${productStr}`, 158, metaBoxY + 12);
+  doc.text(report.reference || report.businessCode || "PAX-2", 60, currentY + 6);
 
-  let currentY = metaBoxY + metaBoxHeight + 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text("BUSINESS / PARTICIPANT:", 18, currentY + 14);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text(report.businessName || "PAX-ABI C OF SAMEER", 60, currentY + 14);
 
-  // 4. KPI Summary Table
-  const kpis = data.kpis;
-  autoTable(doc, {
-    startY: currentY,
-    head: [
-      [
-        "TOTAL INVESTED CAPITAL",
-        "INVENTORY ON HAND",
-        "SALES",
-        "NET PROFIT",
-        "PENDING DISBURSAL",
-      ],
-    ],
-    body: [
-      [
-        `AED ${kpis.totalCommittedCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `AED ${kpis.inventoryCarryingValueAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `AED ${kpis.totalRealizedSalesAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `AED ${kpis.netOperatingProfitAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        `AED ${kpis.pendingPartnerDisbursalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      ],
-    ],
-    theme: "plain",
-    headStyles: {
-      fillColor: [241, 245, 249],
-      textColor: [71, 85, 105],
-      fontSize: 7,
-      fontStyle: "bold",
-      halign: "center",
-      cellPadding: { top: 3.5, bottom: 2, left: 2, right: 2 },
-    },
-    bodyStyles: {
-      fillColor: [255, 255, 255],
-      fontSize: 9,
-      fontStyle: "bold",
-      textColor: brandDark,
-      halign: "center",
-      cellPadding: { top: 2.5, bottom: 4.5, left: 2, right: 2 },
-      minCellHeight: 12,
-    },
-    tableLineColor: borderLight,
-    tableLineWidth: 0.3,
-  });
+  // Right column: Date & Status
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text("DATE:", 140, currentY + 6);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text(report.asOfDateFormatted, 160, currentY + 6);
 
-  // @ts-expect-error jspdf-autotable extends jsPDF instance
-  currentY = doc.lastAutoTable.finalY + 9;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+  doc.text("CURRENCY:", 140, currentY + 14);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text("AED / INR", 160, currentY + 14);
 
-  // Section Header Helper
-  const addSectionHeader = (title: string, yPos: number, subtitle?: string) => {
+  currentY += 24;
+
+  // Helper for Section Titles
+  const addSectionTitle = (title: string, yPos: number) => {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-    doc.text(title, 14, yPos);
-
-    if (subtitle) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text(subtitle, 196, yPos, { align: "right" });
-    }
-
-    doc.setDrawColor(borderLight[0], borderLight[1], borderLight[2]);
-    doc.setLineWidth(0.3);
-    doc.line(14, yPos + 2.5, 196, yPos + 2.5);
-
-    doc.setDrawColor(brandDark[0], brandDark[1], brandDark[2]);
-    doc.setLineWidth(1.0);
-    doc.line(14, yPos + 2.5, 34, yPos + 2.5);
-
-    return yPos + 6.5;
+    doc.text(title.toUpperCase(), 14, yPos);
+    return yPos + 3;
   };
 
-  // 5. Section 1: Investment & Inventory
-  currentY = addSectionHeader("1. Investment & Inventory", currentY, "Committed Capital & Vault Valuation");
-  const capitalRows: (string | number)[][] = [
+  // 3. Section B: Purchase and Sale Summary Table
+  currentY = addSectionTitle("1. Purchase & Sale Summary", currentY);
+
+  const purchaseRateStr = report.purchase.grmRate.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+  const purchaseTotalStr = report.purchase.totalAED.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const sellRateStr = report.sell.grmRate.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+  const sellTotalStr = report.sell.totalAED.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const rvRateStr =
+    report.sell.rvRate !== null && report.sell.rvRate !== undefined
+      ? typeof report.sell.rvRate === "number"
+        ? report.sell.rvRate.toFixed(4)
+        : String(report.sell.rvRate)
+      : "—";
+
+  const totalGapStr = report.totalGapAED.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const tradingBody = [
     [
-      "Admin Capital",
-      `${data.capital.adminSharePercent.toFixed(1)}% of capital pool`,
-      `AED ${data.capital.adminCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      "PURCHASE",
+      report.purchase.grams.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 3,
+      }),
+      purchaseRateStr,
+      `AED ${purchaseTotalStr}`,
+      "—",
     ],
     [
-      "Partner Capital",
-      `${data.capital.partnerSharePercent.toFixed(1)}% of capital pool`,
-      `AED ${data.capital.partnerCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      "SELL",
+      report.sell.grams.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 3,
+      }),
+      sellRateStr,
+      `AED ${sellTotalStr}`,
+      rvRateStr,
     ],
-    [
-      "Total Invested Capital",
-      "100.0% of capital pool",
-      `AED ${data.capital.totalCommittedCapitalAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
-    [
-      `Inventory on Hand (${data.inventory.totalStockGrams.toLocaleString("en-US", { maximumFractionDigits: 1 })} gms in stock)`,
-      `Avg cost: AED ${data.inventory.averageCostPerGramAED.toFixed(2)} / g`,
-      `AED ${data.inventory.totalCarryingValueAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
+    ["TOTAL GAP", "", "", `AED ${totalGapStr}`, ""],
   ];
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Category / Asset Component", "Allocation & Notes", "Amount (AED)"]],
-    body: capitalRows,
-    theme: "striped",
+    margin: { left: 14, right: 14 },
+    tableWidth: 182,
+    head: [["PARTICULARS", "GRM", "GRM RATE", "TOTAL (AED)", "RV RATE"]],
+    body: tradingBody,
+    theme: "grid",
     headStyles: {
       fillColor: brandDark,
       textColor: [255, 255, 255],
       fontSize: 8,
       fontStyle: "bold",
-      cellPadding: { top: 3.2, bottom: 3.2, left: 4, right: 4 },
+      halign: "center",
+      cellPadding: 2,
     },
     bodyStyles: {
       fontSize: 8,
       textColor: [30, 41, 59],
-      cellPadding: { top: 3.2, bottom: 3.2, left: 4, right: 4 },
-      minCellHeight: 8,
+      cellPadding: 2.2,
     },
     columnStyles: {
-      0: { cellWidth: 80, fontStyle: "bold" },
-      1: { cellWidth: 58, textColor: textMuted },
-      2: { cellWidth: 44, halign: "right", fontStyle: "bold" },
+      0: { cellWidth: 42, fontStyle: "bold" },
+      1: { cellWidth: 32, halign: "right" },
+      2: { cellWidth: 32, halign: "right" },
+      3: { cellWidth: 46, halign: "right", fontStyle: "bold" },
+      4: { cellWidth: 30, halign: "center" },
     },
-    didParseCell: (dataCell) => {
-      const rawRow = dataCell.row.raw as unknown as (string | number)[];
-      const rowText = String(rawRow?.[0] || "");
-      if (rowText.startsWith("Total Invested") || rowText.startsWith("Inventory on Hand")) {
-        dataCell.cell.styles.fontStyle = "bold";
-        dataCell.cell.styles.fillColor = [241, 245, 249];
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && hookData.row.index === 2) {
+        hookData.cell.styles.fillColor = [241, 245, 249];
+        hookData.cell.styles.fontStyle = "bold";
+        hookData.cell.styles.textColor = brandDark;
       }
     },
     tableLineColor: borderLight,
@@ -260,178 +205,218 @@ export function exportBalanceSheetToPdf(
   });
 
   // @ts-expect-error jspdf-autotable extends jsPDF instance
-  currentY = doc.lastAutoTable.finalY + 9;
+  currentY = doc.lastAutoTable.finalY + 6;
 
-  // 6. Section 2: Sales, Costs & Profit
-  currentY = addSectionHeader("2. Sales, Costs & Profit", currentY, "Realized Trading Performance");
-  const tradingRows = [
-    [
-      "Sales",
-      "Cumulative sales revenue recognized",
-      `AED ${data.trading.realizedSalesAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
-    [
-      "Purchase Cost",
-      "Cumulative inventory purchases at landed cost",
-      `-AED ${data.trading.purchaseSourcingCostAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
-    [
-      "Operating Expenses",
-      "Cumulative operational expenses",
-      `-AED ${data.trading.operatingExpensesAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
-    [
-      `Net Profit (Net Margin: ${data.trading.operatingMarginPercent.toFixed(2)}%)`,
-      "Sales - Purchase Cost - Operating Expenses",
-      `AED ${data.trading.operatingProfitAED.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    ],
-  ];
+  // 4. Section C: Expense Breakdown Table
+  // PARTICULARS | INR | AED
+  // Formats amounts cleanly with right-alignment and draws official vector Rupee glyph
+  currentY = addSectionTitle("2. Expense Breakdown", currentY);
+
+  const expenseBody: (string | number)[][] = report.expenses.map((e) => {
+    const inrStr =
+  e.amountINR !== null && e.amountINR !== undefined
+    ? e.amountINR.toLocaleString("en-IN", {
+        maximumFractionDigits: 2,
+      })
+    : "—";
+    const aedStr = `AED ${e.amountAED.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    const label = e.description
+      ? `${e.particulars} (${e.description})`
+      : e.particulars;
+    return [label, inrStr, aedStr];
+  });
+
+  const totalExpAedStr = report.totalExpensesAED.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const totalExpInrStr =
+  report.totalExpensesINR !== null
+    ? report.totalExpensesINR.toLocaleString("en-IN", {
+        maximumFractionDigits: 2,
+      })
+    : "—";
+
+  expenseBody.push(["TOTAL EXP", totalExpInrStr, `AED ${totalExpAedStr}`]);
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Financial Line Item", "Description", "Amount (AED)"]],
-    body: tradingRows,
-    theme: "striped",
+    margin: { left: 14, right: 14 },
+    tableWidth: 182,
+    head: [["PARTICULARS", "INR", "AED"]],
+    body: expenseBody,
+    theme: "grid",
     headStyles: {
       fillColor: brandDark,
       textColor: [255, 255, 255],
       fontSize: 8,
       fontStyle: "bold",
-      cellPadding: { top: 3.2, bottom: 3.2, left: 4, right: 4 },
+      halign: "center",
+      cellPadding: 2,
     },
     bodyStyles: {
       fontSize: 8,
       textColor: [30, 41, 59],
-      cellPadding: { top: 3.2, bottom: 3.2, left: 4, right: 4 },
-      minCellHeight: 8,
+      cellPadding: 2.2,
     },
     columnStyles: {
-      0: { cellWidth: 80, fontStyle: "bold" },
-      1: { cellWidth: 58, textColor: textMuted },
-      2: { cellWidth: 44, halign: "right", fontStyle: "bold" },
+      0: { cellWidth: 82, fontStyle: "bold" },
+      1: { cellWidth: 50, halign: "right" },
+      2: { cellWidth: 50, halign: "right", fontStyle: "bold" },
     },
-    didParseCell: (dataCell) => {
-      const rawRow = dataCell.row.raw as unknown as (string | number)[];
-      const rowText = String(rawRow?.[0] || "");
-      if (rowText.startsWith("Net Profit")) {
-        dataCell.cell.styles.fontStyle = "bold";
-        dataCell.cell.styles.fillColor = [241, 245, 249];
-      }
-    },
-    tableLineColor: borderLight,
-    tableLineWidth: 0.2,
-  });
-
-  // @ts-expect-error jspdf-autotable extends jsPDF instance
-  currentY = doc.lastAutoTable.finalY + 9;
-
-  // 7. Section 3: Settlement Breakdown
-  const settlementItems = data.settlementBreakdown || [];
-  if (settlementItems.length > 0) {
-    // Check if section + rows will fit on page 1 without awkward clipping
-    const estimatedHeight = 8 + 8 + settlementItems.length * 11;
-    const pageBreakThreshold = 276;
-    if (currentY + estimatedHeight > pageBreakThreshold) {
-      doc.addPage();
-      currentY = 22;
-    }
-
-    currentY = addSectionHeader("3. Settlement Breakdown", currentY, "Participant Positions & Disbursal Status");
-    const settlementRows = settlementItems.map((s) => [
-      s.businessName,
-      s.investorName,
-      s.allocatedGrams && s.allocatedGrams > 0
-        ? `AED ${s.totalInvestmentAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}\n(${s.allocatedGrams.toLocaleString("en-US", { maximumFractionDigits: 2 })}g)`
-        : `AED ${s.totalInvestmentAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      s.perGramProfitAED && s.perGramProfitAED > 0
-        ? `AED ${s.profitAmountAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}\n(@AED ${s.perGramProfitAED.toFixed(2)}/g)`
-        : `AED ${s.profitAmountAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${s.totalDueAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${s.totalPaidAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      `AED ${s.pendingOutstandingAED.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-      s.status.toUpperCase(),
-    ]);
-
-    autoTable(doc, {
-      startY: currentY,
-      showHead: "everyPage",
-      head: [
-        [
-          "Business",
-          "Investor",
-          "Investment",
-          "Profit Alloc.",
-          "Total Due",
-          "Paid / Disbursed",
-          "Outstanding",
-          "Status",
-        ],
-      ],
-      body: settlementRows,
-      theme: "striped",
-      headStyles: {
-        fillColor: brandDark,
-        textColor: [255, 255, 255],
-        fontSize: 7.2,
-        fontStyle: "bold",
-        cellPadding: { top: 3.2, bottom: 3.2, left: 1.5, right: 1.5 },
-      },
-      bodyStyles: {
-        fontSize: 7.2,
-        textColor: [30, 41, 59],
-        cellPadding: { top: 2.8, bottom: 2.8, left: 1.5, right: 1.5 },
-        minCellHeight: 9.5,
-      },
-      columnStyles: {
-        0: { cellWidth: 28, fontStyle: "bold" },
-        1: { cellWidth: 32, fontStyle: "bold" },
-        2: { cellWidth: 21, halign: "right" },
-        3: { cellWidth: 22, halign: "right" },
-        4: { cellWidth: 21, halign: "right", fontStyle: "bold" },
-        5: { cellWidth: 22, halign: "right" },
-        6: { cellWidth: 20, halign: "right", fontStyle: "bold" },
-        7: { cellWidth: 16, halign: "center", fontStyle: "bold" },
-      },
-      didParseCell: (dataCell) => {
-        if (dataCell.column.index === 7) {
-          const statusText = String(dataCell.cell.raw || "");
-          if (statusText === "SETTLED") {
-            dataCell.cell.styles.textColor = [4, 120, 87]; // emerald-700
-          } else if (statusText === "PARTIALLY SETTLED") {
-            dataCell.cell.styles.textColor = [29, 78, 216]; // blue-700
-          } else {
-            dataCell.cell.styles.textColor = [180, 83, 9]; // amber-700
-          }
+    didParseCell: (hookData) => {
+      if (hookData.section === "body") {
+        if (hookData.row.index === expenseBody.length - 1) {
+          hookData.cell.styles.fillColor = [241, 245, 249];
+          hookData.cell.styles.fontStyle = "bold";
+          hookData.cell.styles.textColor = brandDark;
         }
-      },
-      tableLineColor: borderLight,
-      tableLineWidth: 0.2,
+     
+      }
+    },
+    
+    tableLineColor: borderLight,
+    tableLineWidth: 0.2,
+  });
+
+  // @ts-expect-error jspdf-autotable extends jsPDF instance
+  currentY = doc.lastAutoTable.finalY + 5;
+
+  // 5. Section D: After-Expense Balance Callout Box
+  // Shared boundary: X = 14mm, width = 182mm (ends at 196mm)
+  const afterExpStr = report.afterExpBalanceAED.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  doc.setFillColor(highlightGreen[0], highlightGreen[1], highlightGreen[2]);
+  doc.setDrawColor(187, 247, 208);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(14, currentY, 182, 12, 1.5, 1.5, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(textGreen[0], textGreen[1], textGreen[2]);
+  doc.text("AFTER EXP BALANCE", 20, currentY + 7.5);
+
+  doc.setFontSize(10.5);
+  doc.text(`AED ${afterExpStr}`, 190, currentY + 7.5, { align: "right" });
+
+  currentY += 16;
+
+  // 6. Section E: Profit Allocation by Participant Table
+  // Shared boundary: X = 14mm, width = 182mm (ends at 196mm)
+  currentY = addSectionTitle("3. Profit Allocation By Participant", currentY);
+
+  const participantBody: (string | number)[][] = report.participants.map((p) => {
+    const perGStr = p.perGramProfitAED.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
     });
-  }
+    const gramsStr = p.grams.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const profitStr = `AED ${p.profitAED.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    return [p.name, perGStr, gramsStr, profitStr];
+  });
 
-  // 8. Footers across all pages
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
+  const totalGramsSum = report.participants.reduce((sum, p) => sum + p.grams, 0);
+  const totalAllocatedProfitStr = report.totalParticipantProfitAED.toLocaleString(
+    "en-US",
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+  );
 
-    // Hairline divider
+  participantBody.push([
+    "TOTAL ALLOCATED PROFIT",
+    "",
+    totalGramsSum.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }),
+    `AED ${totalAllocatedProfitStr}`,
+  ]);
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: 14, right: 14 },
+    tableWidth: 182,
+    head: [["NAME", "PER G PROFIT", "GRAM", "PROFIT"]],
+    body: participantBody,
+    theme: "grid",
+    headStyles: {
+      fillColor: brandDark,
+      textColor: [255, 255, 255],
+      fontSize: 8,
+      fontStyle: "bold",
+      halign: "center",
+      cellPadding: 2,
+    },
+    bodyStyles: {
+      fontSize: 8,
+      textColor: [30, 41, 59],
+      cellPadding: 2,
+    },
+    columnStyles: {
+      0: { cellWidth: 56, fontStyle: "bold" },
+      1: { cellWidth: 38, halign: "right" },
+      2: { cellWidth: 38, halign: "right" },
+      3: { cellWidth: 50, halign: "right", fontStyle: "bold" },
+    },
+    didParseCell: (hookData) => {
+      if (
+        hookData.section === "body" &&
+        hookData.row.index === participantBody.length - 1
+      ) {
+        hookData.cell.styles.fillColor = [241, 245, 249];
+        hookData.cell.styles.fontStyle = "bold";
+        hookData.cell.styles.textColor = brandDark;
+      }
+    },
+    tableLineColor: borderLight,
+    tableLineWidth: 0.2,
+  });
+
+  // @ts-expect-error jspdf-autotable extends jsPDF instance
+  currentY = doc.lastAutoTable.finalY + 4;
+
+  // 7. Reconciliation Note if difference exists
+  if (Math.abs(report.unreconciledDifferenceAED) > 0.05) {
+    const diffStr = Math.abs(report.unreconciledDifferenceAED).toLocaleString(
+      "en-US",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    );
+    doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
     doc.setDrawColor(borderLight[0], borderLight[1], borderLight[2]);
     doc.setLineWidth(0.2);
-    doc.line(14, 283, 196, 283);
+    doc.roundedRect(14, currentY, 182, 10, 1, 1, "FD");
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
     doc.text("IVORA PLATFORM • CONFIDENTIAL FINANCIAL STATEMENT", 14, 288);
     doc.text(
-      `As of ${asOfDate} — Page ${i} of ${totalPages}`,
-      196,
-      288,
-      { align: "right" }
+      `Reconciliation Variance: Sum of participant profits (AED ${totalAllocatedProfitStr}) differs from After-Expense Balance (AED ${afterExpStr}) by AED ${diffStr}.`,
+      17,
+      currentY + 4
+    );
+    doc.text(
+      report.unreconciledNote ||
+        "Note: Participant allocations reflect contractual distribution on gross trading gap prior to deducting expenses.",
+      17,
+      currentY + 7.5
     );
   }
 
-  // Trigger download
-  const sanitizedBiz = businessName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-  doc.save(`ivora-balance-sheet-${sanitizedBiz}-${asOfDate}.pdf`);
+  // Trigger Save
+  const sanitizedBiz = (report.reference || report.businessName || "balance-sheet")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "_");
+  doc.save(`ivora-balance-sheet-${sanitizedBiz}-${report.asOfDate}.pdf`);
 }

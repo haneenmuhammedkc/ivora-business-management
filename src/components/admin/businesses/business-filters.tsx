@@ -59,8 +59,8 @@ export function BusinessFilters({
       </div>
 
       {/* Select Dropdowns and Action Button */}
-      <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-        <div className="w-full sm:w-auto min-w-[170px]">
+      <div className="flex flex-nowrap items-center gap-2.5 w-full lg:w-auto">
+        <div className="w-full sm:w-auto min-w-0 flex-1">
           <Select
             value={selectedBusiness}
             onChange={(e) => onBusinessChange(e.target.value)}

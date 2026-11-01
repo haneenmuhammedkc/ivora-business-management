@@ -23,6 +23,7 @@ export function RecordDisbursalSection({
     new Date().toISOString().split("T")[0]
   );
   const [notes, setNotes] = useState<string>("");
+  const creditToWallet = false;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -31,6 +32,7 @@ export function RecordDisbursalSection({
   const outstandingPrf = settlement.outstandingProfitAED;
   const totalOutstanding = settlement.totalOutstandingAED;
   const isFullySettled = settlement.isFullySettled || totalOutstanding <= 0.005;
+  const isExternalInvestor = settlement.investor.participantType === "INVESTOR";
 
   const parsedCap = useMemo(() => {
     const raw = capitalAmount.trim();
@@ -109,6 +111,7 @@ export function RecordDisbursalSection({
           bankReference: bankReference.trim() || undefined,
           transactionDate: paymentDate,
           notes: notes.trim() || undefined,
+          creditToWallet: isExternalInvestor ? creditToWallet : false,
         }),
       });
 
@@ -374,6 +377,19 @@ export function RecordDisbursalSection({
                   className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-950"
                 />
               </div>
+            </div>
+
+            {/* Direct Disbursal Notice */}
+            <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/70 text-xs text-gray-600 flex items-center justify-between">
+              <div>
+                <span className="font-bold text-gray-900 block">Direct Settlement Payout</span>
+                <span className="text-[11px] text-gray-500 block mt-0.5">
+                  Disburses funds directly to investor via selected payment method. Deducts from available settlement balance immediately.
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-gray-700 border border-gray-200">
+                Direct External Payout
+              </span>
             </div>
 
             {/* Optional Notes & Submit Button */}

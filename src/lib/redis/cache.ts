@@ -1,4 +1,4 @@
-import { getRedisClient } from "./client";
+import { getRedisClient, isRedisReady } from "./client";
 
 /**
  * Cache-aside wrapper with fallback to source of truth.
@@ -12,36 +12,38 @@ export async function getOrSetCache<T>(
   ttlSeconds: number,
   fetchFn: () => Promise<T>
 ): Promise<T> {
-  const redis = getRedisClient();
-
-  if (!redis) {
+  // If Redis is not ready or offline, immediately execute source of truth (0ms delay)
+  if (!isRedisReady()) {
     return fetchFn();
   }
 
-  try {
-    const cachedData = await redis.get(key);
-    if (cachedData !== null && cachedData !== undefined) {
-      try {
-        return JSON.parse(cachedData) as T;
-      } catch (parseErr) {
-        console.warn(`[Redis] Failed to parse cache key ${key}. Refetching:`, parseErr);
-        // Delete corrupt cache entry asynchronously
-        redis.del(key).catch(() => {});
+  const redis = getRedisClient();
+
+  if (redis && redis.status === "ready") {
+    try {
+      const cachedData = await redis.get(key);
+      if (cachedData !== null && cachedData !== undefined) {
+        try {
+          return JSON.parse(cachedData) as T;
+        } catch {
+          // Corrupt cache entry: delete asynchronously without throwing
+          redis.del(key).catch(() => {});
+        }
       }
+    } catch {
+      // Ignore read error; fall through to database
     }
-  } catch (err) {
-    console.warn(`[Redis] Error reading cache key ${key}. Falling back to PostgreSQL:`, err);
   }
 
-  // Cache miss or Redis unavailable: fetch from source of truth
+  // Fetch from source of truth
   const freshData = await fetchFn();
 
-  // Asynchronously populate cache without blocking response
-  if (freshData !== undefined && freshData !== null) {
+  // Populate cache only if Redis is still ready
+  if (freshData !== undefined && freshData !== null && isRedisReady()) {
     try {
-      await redis.setex(key, ttlSeconds, JSON.stringify(freshData));
-    } catch (setErr) {
-      console.warn(`[Redis] Error setting cache key ${key}:`, setErr);
+      await redis?.setex(key, ttlSeconds, JSON.stringify(freshData));
+    } catch {
+      // Ignore write errors to prevent breaking client response
     }
   }
 
@@ -52,15 +54,15 @@ export async function getOrSetCache<T>(
  * Read directly from cache if available.
  */
 export async function getCache<T>(key: string): Promise<T | null> {
+  if (!isRedisReady()) return null;
   const redis = getRedisClient();
-  if (!redis) return null;
+  if (!redis || redis.status !== "ready") return null;
 
   try {
     const data = await redis.get(key);
     if (!data) return null;
     return JSON.parse(data) as T;
-  } catch (err) {
-    console.warn(`[Redis] Error in getCache for ${key}:`, err);
+  } catch {
     return null;
   }
 }
@@ -69,13 +71,14 @@ export async function getCache<T>(key: string): Promise<T | null> {
  * Set a key with TTL in seconds.
  */
 export async function setCache<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  if (!isRedisReady()) return;
   const redis = getRedisClient();
-  if (!redis) return;
+  if (!redis || redis.status !== "ready") return;
 
   try {
     await redis.setex(key, ttlSeconds, JSON.stringify(value));
-  } catch (err) {
-    console.warn(`[Redis] Error in setCache for ${key}:`, err);
+  } catch {
+    // Ignore write errors
   }
 }
 
@@ -83,26 +86,27 @@ export async function setCache<T>(key: string, value: T, ttlSeconds: number): Pr
  * Invalidate one or more exact cache keys.
  */
 export async function invalidateCacheKeys(...keys: (string | null | undefined)[]): Promise<void> {
+  if (!isRedisReady()) return;
   const redis = getRedisClient();
-  if (!redis) return;
+  if (!redis || redis.status !== "ready") return;
 
   const validKeys = keys.filter((k): k is string => typeof k === "string" && k.length > 0);
   if (validKeys.length === 0) return;
 
   try {
     await redis.del(...validKeys);
-  } catch (err) {
-    console.warn("[Redis] Error deleting cache keys:", validKeys, err);
+  } catch {
+    // Ignore invalidation errors
   }
 }
 
 /**
  * Invalidate cache keys matching a pattern using non-blocking SCAN.
- * Useful for broad namespace clears (e.g. `ivora:biz:{businessId}:*`).
  */
 export async function invalidateCacheByPattern(pattern: string): Promise<void> {
+  if (!isRedisReady() || !pattern) return;
   const redis = getRedisClient();
-  if (!redis || !pattern) return;
+  if (!redis || redis.status !== "ready") return;
 
   try {
     let cursor = "0";
@@ -114,7 +118,7 @@ export async function invalidateCacheByPattern(pattern: string): Promise<void> {
         await redis.del(...keys);
       }
     } while (cursor !== "0");
-  } catch (err) {
-    console.warn(`[Redis] Error invalidating pattern ${pattern}:`, err);
+  } catch {
+    // Ignore pattern deletion errors
   }
 }

@@ -18,26 +18,27 @@ function createRedisInstance(): Redis | null {
   try {
     const client = new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
-      connectTimeout: 3000,
-      lazyConnect: true,
-      enableOfflineQueue: false,
+      connectTimeout: 2000,
+      lazyConnect: false, // Attempt connection immediately in background without blocking
+      enableOfflineQueue: false, // Fail immediately instead of queuing commands when offline
       retryStrategy(times) {
-        if (times > 3) {
-          return null; // Stop retrying after 3 rapid failures to prevent hanging requests
+        if (times > 2) {
+          // Cease retrying quickly when Redis is unreachable to avoid spinning
+          return null;
         }
-        return Math.min(times * 200, 1000);
+        return Math.min(times * 300, 1000);
       },
     });
 
     client.on("error", (err) => {
       // Log connection error once to avoid polluting server logs
       if (!globalForRedis.redisErrorLogged) {
-        console.warn("[Redis] Connection error. Operating in PostgreSQL-only mode:", err.message);
+        console.warn("[Redis] Connection unavailable. Operating in PostgreSQL-only mode:", err.message);
         globalForRedis.redisErrorLogged = true;
       }
     });
 
-    client.on("connect", () => {
+    client.on("ready", () => {
       if (globalForRedis.redisErrorLogged) {
         console.log("[Redis] Connected successfully. Cache active.");
         globalForRedis.redisErrorLogged = false;
@@ -46,7 +47,10 @@ function createRedisInstance(): Redis | null {
 
     return client;
   } catch (err) {
-    console.warn("[Redis] Failed to initialize client. Operating in PostgreSQL-only mode:", err);
+    if (!globalForRedis.redisErrorLogged) {
+      console.warn("[Redis] Failed to initialize client. Operating in PostgreSQL-only mode:", err);
+      globalForRedis.redisErrorLogged = true;
+    }
     return null;
   }
 }
@@ -58,6 +62,15 @@ export function getRedisClient(): Redis | null {
 
   globalForRedis.redisClient = createRedisInstance();
   return globalForRedis.redisClient;
+}
+
+/**
+ * Checks whether Redis is ready to accept commands.
+ * Guaranteed to return false if disconnected, connecting, or offline.
+ */
+export function isRedisReady(): boolean {
+  const client = getRedisClient();
+  return Boolean(client && client.status === "ready");
 }
 
 export default getRedisClient;

@@ -3,7 +3,7 @@ import { SessionPayload } from "@/lib/auth/session";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
 import { ensureBusinessParticipants } from "@/services/investor/investor.service";
-import { Prisma, UserRole, BusinessStatus, PurchaseStatus } from "@prisma/client";
+import { Prisma, UserRole, BusinessStatus, PurchaseStatus, TransactionType } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidateBusinessFinancials } from "@/lib/redis/invalidation";
@@ -824,6 +824,486 @@ export async function updateBusiness(
   return updated;
 }
 
+export interface InventoryCheckResult {
+  productType: string;
+  quantityUnit: string;
+  remainingQuantity: number;
+  carryingValueAED: number;
+}
+
+export interface ParticipantSettlementPreview {
+  investorId: string;
+  investorName: string;
+  investorCode: string;
+  type: string;
+  committedCapitalAED: number;
+  contractualSharePct: number;
+  allocatedProfitAED: number;
+  capitalPaidAED: number;
+  profitPaidAED: number;
+  outstandingCapitalAED: number;
+  outstandingProfitAED: number;
+  totalSettlementDueAED: number;
+  destination: "INVESTOR_PERSONAL_WALLET" | "DIRECT_BANK_DISBURSAL";
+}
+
+export interface BusinessClosureEligibility {
+  isEligible: boolean;
+  businessId: string;
+  businessName: string;
+  businessCode: string;
+  status: BusinessStatus;
+  unsoldInventory: InventoryCheckResult[];
+  totalUnsoldQuantity: number;
+  totalCarryingValueAED: number;
+  unfinalizedSales: Array<{ id: string; saleCode: string; status: string; aedEquivalent: number }>;
+  pendingExpenses: Array<{ id: string; expenseCode: string; status: string; amount: number }>;
+  financialSummary: {
+    totalRevenueAED: number;
+    totalPurchasesAED: number;
+    totalExpensesAED: number;
+    netProfitAED: number;
+  };
+  settlementPreviews: ParticipantSettlementPreview[];
+  totalSettlementDueAED: number;
+  reasons: string[];
+}
+
+export interface BusinessInventoryLiquidationStatus {
+  isLiquidated: boolean;
+  unsoldInventory: InventoryCheckResult[];
+  totalUnsoldQuantity: number;
+  totalCarryingValueAED: number;
+}
+
+/**
+ * Low-level, read-only stock liquidation reconciliation for a business.
+ * Acyclic Layer 0 function with zero dependencies on settlement or closure services.
+ */
+export async function getBusinessInventoryLiquidationStatus(
+  businessId: string
+): Promise<BusinessInventoryLiquidationStatus> {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: {
+      inventory: true,
+      purchases: {
+        where: { status: { in: ["CLEARED", "IN_PROGRESS"] } },
+        select: { productType: true, quantityUnit: true, quantity: true },
+      },
+      sales: {
+        select: { productType: true, quantityUnit: true, quantity: true },
+      },
+    },
+  });
+
+  if (!business) {
+    return {
+      isLiquidated: false,
+      unsoldInventory: [],
+      totalUnsoldQuantity: 0,
+      totalCarryingValueAED: 0,
+    };
+  }
+
+  const productKeys = new Set<string>();
+  for (const p of business.purchases) {
+    productKeys.add(`${p.productType}:::${p.quantityUnit}`);
+  }
+  for (const s of business.sales) {
+    productKeys.add(`${s.productType}:::${s.quantityUnit}`);
+  }
+
+  const unsoldInventory: InventoryCheckResult[] = [];
+  let totalUnsoldQuantity = 0;
+  let totalCarryingValueAED = 0;
+
+  for (const key of Array.from(productKeys)) {
+    const [pType, qUnit] = key.split(":::");
+    const purchased = business.purchases
+      .filter((p) => p.productType === pType && p.quantityUnit === qUnit)
+      .reduce((acc, p) => acc + Number(p.quantity), 0);
+    const sold = business.sales
+      .filter((s) => s.productType === pType && s.quantityUnit === qUnit)
+      .reduce((acc, s) => acc + Number(s.quantity), 0);
+
+    const remaining = Math.max(0, Math.round((purchased - sold) * 1000) / 1000);
+
+    if (remaining > 0.0001) {
+      const invRecord = business.inventory.find(
+        (i) => i.productType === pType && i.quantityUnit === qUnit
+      );
+      const carryingVal = invRecord ? Number(invRecord.carryingValueAED) : 0;
+      unsoldInventory.push({
+        productType: pType,
+        quantityUnit: qUnit,
+        remainingQuantity: remaining,
+        carryingValueAED: carryingVal,
+      });
+      totalUnsoldQuantity += remaining;
+      totalCarryingValueAED += carryingVal;
+    }
+  }
+
+  return {
+    isLiquidated: unsoldInventory.length === 0,
+    unsoldInventory,
+    totalUnsoldQuantity,
+    totalCarryingValueAED,
+  };
+}
+
+/**
+ * Checks whether a business is strictly eligible for closure.
+ * Closure Conditions:
+ * 1. Business exists and is not already SETTLED.
+ * 2. All purchases have matching sales and remaining inventory quantity is <= 0 for every product.
+ * 3. All sales are finalized / reconciled (none in draft/cancelled states).
+ * 4. All operating expenses are accounted for.
+ */
+export async function getBusinessClosureEligibility(
+  session: SessionPayload,
+  businessId: string
+): Promise<BusinessClosureEligibility> {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    include: {
+      inventory: true,
+      purchases: {
+        where: { status: { in: ["CLEARED", "IN_PROGRESS"] } },
+        select: { productType: true, quantityUnit: true, quantity: true, totalLandedCost: true },
+      },
+      sales: {
+        select: { id: true, saleCode: true, status: true, productType: true, quantityUnit: true, quantity: true, aedEquivalent: true },
+      },
+      expenses: {
+        select: { id: true, expenseCode: true, status: true, amount: true, isPurchaseLandedCost: true },
+      },
+      investments: {
+        include: { investor: true },
+      },
+    },
+  });
+
+  if (!business) {
+    throw new AuthError("Business not found", 404);
+  }
+
+  // Authorize
+  if (session.role === UserRole.PARTNER && business.partnerId !== session.userId) {
+    throw new AuthError("Unauthorized: You do not have access to this business.", 403);
+  }
+
+  const reasons: string[] = [];
+
+  // Check 1: Already Settled
+  if (business.status === BusinessStatus.SETTLED) {
+    reasons.push("Business is already closed and settled.");
+  }
+
+  // Check 2: Check inventory liquidation status
+  const inventoryStatus = await getBusinessInventoryLiquidationStatus(businessId);
+  const { unsoldInventory, totalUnsoldQuantity, totalCarryingValueAED } = inventoryStatus;
+
+  if (unsoldInventory.length > 0) {
+    reasons.push(
+      `Cannot close business: ${unsoldInventory.length} product(s) still have remaining unsold inventory (Total: ${totalUnsoldQuantity.toLocaleString()} units, Carrying Value: AED ${totalCarryingValueAED.toLocaleString()}). All sellable inventory must be liquidated before business closure.`
+    );
+  }
+
+  // Check 3: Check sales records
+  const unfinalizedSales = business.sales
+    .filter((s) => s.status !== "CLEARED" && s.status !== "PENDING")
+    .map((s) => ({
+      id: s.id,
+      saleCode: s.saleCode,
+      status: s.status,
+      aedEquivalent: Number(s.aedEquivalent) || 0,
+    }));
+
+  if (unfinalizedSales.length > 0) {
+    reasons.push(
+      `Cannot close business: ${unfinalizedSales.length} sale(s) are in an invalid/unrecognized status.`
+    );
+  }
+
+  // Check 4: Check expenses
+  const pendingExpenses = business.expenses
+    .filter((e) => !e.isPurchaseLandedCost && (e.status as string) !== "CLEARED" && (e.status as string) !== "PAID")
+    .map((e) => ({
+      id: e.id,
+      expenseCode: e.expenseCode,
+      status: e.status,
+      amount: Number(e.amount) || 0,
+    }));
+
+  if (pendingExpenses.length > 0) {
+    const totalPendingAmount = pendingExpenses.reduce((sum, e) => sum + e.amount, 0);
+    reasons.push(
+      `Cannot close business: ${pendingExpenses.length} expense(s) are pending payment (Total: AED ${totalPendingAmount.toLocaleString()}). All operational expenses must be cleared prior to closure.`
+    );
+  }
+
+  // Fetch Authoritative Financials
+  const { getFullProfitLossData } = await import("@/services/financials/financials.service");
+
+  let netProfitAED = 0;
+  let totalRevenueAED = 0;
+  let totalPurchasesAED = 0;
+  let totalExpensesAED = 0;
+
+  try {
+    const pnl = await getFullProfitLossData(session, { businessId });
+    totalRevenueAED = Number(pnl.kpis?.totalSalesAED ?? pnl.statement?.totalRevenueAED ?? 0);
+    totalPurchasesAED = Number(pnl.kpis?.purchaseCostAED ?? pnl.statement?.totalPurchaseCostAED ?? 0);
+    totalExpensesAED = Number(pnl.kpis?.totalExpensesAED ?? pnl.statement?.totalExpensesAED ?? 0);
+    netProfitAED = Math.max(0, Number(pnl.kpis?.netProfitAED ?? pnl.statement?.netProfitAED ?? 0));
+  } catch (err) {
+    console.warn("Could not prefetch PnL for business closure eligibility:", err);
+  }
+
+  // Authoritatively compute participant settlement previews in ONE batch query without circular calls
+  const allSettlementTxs = await prisma.transaction.findMany({
+    where: {
+      businessId,
+      type: { in: [TransactionType.CAPITAL_RETURN, TransactionType.PROFIT_DISBURSAL] },
+    },
+    select: {
+      investorId: true,
+      amount: true,
+      type: true,
+    },
+  });
+
+  const settlementPreviews: ParticipantSettlementPreview[] = [];
+  let totalSettlementDueAED = 0;
+
+  for (const inv of business.investments) {
+    const committedCapitalAED = Number(inv.committedAmount) || 0;
+    const contractualSharePct = Number(inv.profitSharePct) || 0;
+    const defaultAllocatedProfitAED =
+      netProfitAED > 0 && contractualSharePct > 0
+        ? Number(((netProfitAED * contractualSharePct) / 100).toFixed(2))
+        : 0;
+    const allocatedProfitAED =
+      inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined
+        ? Number(inv.allocatedProfitAmount)
+        : defaultAllocatedProfitAED;
+
+    let capitalPaidDec = new Prisma.Decimal(0);
+    let profitPaidDec = new Prisma.Decimal(0);
+
+    for (const tx of allSettlementTxs) {
+      if (tx.investorId === inv.investorId) {
+        if (tx.type === TransactionType.CAPITAL_RETURN) {
+          capitalPaidDec = capitalPaidDec.plus(tx.amount);
+        } else if (tx.type === TransactionType.PROFIT_DISBURSAL) {
+          profitPaidDec = profitPaidDec.plus(tx.amount);
+        }
+      }
+    }
+
+    const capitalPaidAED = Number(capitalPaidDec.toFixed(2));
+    const profitPaidAED = Number(profitPaidDec.toFixed(2));
+    const outstandingCapitalAED = Math.max(
+      0,
+      Number(new Prisma.Decimal(committedCapitalAED).minus(capitalPaidDec).toFixed(2))
+    );
+    const outstandingProfitAED = Math.max(
+      0,
+      Number(new Prisma.Decimal(allocatedProfitAED).minus(profitPaidDec).toFixed(2))
+    );
+    const due = Number(
+      new Prisma.Decimal(outstandingCapitalAED).plus(new Prisma.Decimal(outstandingProfitAED)).toFixed(2)
+    );
+
+    totalSettlementDueAED += due;
+
+    const isExternal = inv.investor.type === "INVESTOR";
+    settlementPreviews.push({
+      investorId: inv.investorId,
+      investorName: inv.investor.name,
+      investorCode: inv.investor.code,
+      type: inv.investor.type,
+      committedCapitalAED,
+      contractualSharePct,
+      allocatedProfitAED,
+      capitalPaidAED,
+      profitPaidAED,
+      outstandingCapitalAED,
+      outstandingProfitAED,
+      totalSettlementDueAED: due,
+      destination: isExternal ? "INVESTOR_PERSONAL_WALLET" : "DIRECT_BANK_DISBURSAL",
+    });
+  }
+
+  const isEligible = reasons.length === 0;
+
+  return {
+    isEligible,
+    businessId: business.id,
+    businessName: business.name,
+    businessCode: business.code,
+    status: business.status,
+    unsoldInventory,
+    totalUnsoldQuantity,
+    totalCarryingValueAED,
+    unfinalizedSales,
+    pendingExpenses,
+    financialSummary: {
+      totalRevenueAED,
+      totalPurchasesAED,
+      totalExpensesAED,
+      netProfitAED,
+    },
+    settlementPreviews,
+    totalSettlementDueAED,
+    reasons,
+  };
+}
+
+/**
+ * Closes the business, confirms inventory liquidation,
+ * and finalizes investor settlement entitlements.
+ * Accessible to Admin (manual or automated) or assigned Partner (automated upon liquidation).
+ */
+export async function closeBusinessAndExecuteFinalSettlement(
+  session: SessionPayload,
+  businessId: string,
+  options?: { isAutomated?: boolean }
+) {
+  if (session.role !== UserRole.ADMIN && !options?.isAutomated) {
+    throw new AuthError("Forbidden: Only system administrators can close a business and execute final settlement.", 403);
+  }
+
+  // Idempotency check: If already settled, return cleanly for automated runs
+  const preCheck = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { id: true, code: true, name: true, status: true, partnerId: true },
+  });
+
+  if (!preCheck) {
+    throw new AuthError("Business not found", 404);
+  }
+
+  if (preCheck.status === BusinessStatus.SETTLED) {
+    if (options?.isAutomated) {
+      return {
+        success: true,
+        alreadySettled: true,
+        business: preCheck,
+        message: `Business ${preCheck.name} (${preCheck.code}) is already closed and settled.`,
+      };
+    }
+    throw new AuthError("Business is already closed and settled.", 400);
+  }
+
+  const eligibility = await getBusinessClosureEligibility(session, businessId);
+  if (!eligibility.isEligible) {
+    throw new AuthError(eligibility.reasons[0] || "Business is not eligible for closure due to unsold inventory.", 400);
+  }
+
+  // Atomic state transition with concurrency lock
+  const { updatedBusiness, businessEntity, alreadySettled } = await prisma.$transaction(async (tx) => {
+    // 1. Concurrency row lock on business record
+    const [locked] = await tx.$queryRaw<Array<{ id: string; status: BusinessStatus }>>`
+      SELECT id, status FROM "Business" WHERE id = ${businessId} FOR UPDATE
+    `;
+
+    if (!locked) {
+      throw new AuthError("Business not found", 404);
+    }
+
+    if (locked.status === BusinessStatus.SETTLED) {
+      const b = await tx.business.findUnique({ where: { id: businessId } });
+      return { updatedBusiness: b!, businessEntity: b!, alreadySettled: true };
+    }
+
+    // 2. Mark business SETTLED (operationally closed)
+    const updated = await tx.business.update({
+      where: { id: businessId },
+      data: { status: BusinessStatus.SETTLED },
+    });
+
+    const businessWithInvestments = await tx.business.findUnique({
+      where: { id: businessId },
+      include: {
+        investments: {
+          include: { investor: true },
+        },
+      },
+    });
+
+    if (!businessWithInvestments) {
+      throw new AuthError("Business not found during finalization", 404);
+    }
+
+    // 3. Finalize / lock profit allocations for each participant if not explicitly set
+    const netProfitAED = eligibility.financialSummary.netProfitAED;
+    for (const inv of businessWithInvestments.investments) {
+      if (inv.allocatedProfitAmount === null || inv.allocatedProfitAmount === undefined) {
+        const share = Number(inv.profitSharePct) || 0;
+        const alloc = netProfitAED > 0 && share > 0 ? ((netProfitAED * share) / 100).toFixed(2) : "0.00";
+        await tx.investment.update({
+          where: { id: inv.id },
+          data: { allocatedProfitAmount: new Prisma.Decimal(alloc) },
+        });
+      }
+    }
+
+    return { updatedBusiness: updated, businessEntity: businessWithInvestments, alreadySettled: false };
+  });
+
+  if (alreadySettled && options?.isAutomated) {
+    return {
+      success: true,
+      alreadySettled: true,
+      business: updatedBusiness,
+      message: `Business ${updatedBusiness.name} (${updatedBusiness.code}) is already closed and settled.`,
+    };
+  }
+
+  const netProfitAED = eligibility.financialSummary.netProfitAED;
+
+  const investments =
+    "investments" in businessEntity && Array.isArray(businessEntity.investments)
+      ? businessEntity.investments
+      : [];
+
+  // 4. Audit log operational or automated closure
+  await logAuditEvent({
+    userId: session.userId,
+    action: options?.isAutomated ? "BUSINESS_AUTOMATICALLY_CLOSED" : "BUSINESS_OPERATIONALLY_CLOSED",
+    entity: "Business",
+    entityId: businessId,
+    newValues: {
+      businessCode: businessEntity.code,
+      status: BusinessStatus.SETTLED,
+      netProfitAED,
+      totalParticipants: investments.length > 0 ? investments.length : undefined,
+      isAutomated: options?.isAutomated || false,
+    },
+  });
+
+  // 5. Invalidate caches so wallet summaries reflect newly closed business entitlements
+  await invalidateBusinessFinancials(businessId, businessEntity.partnerId);
+  const { invalidateInvestorCaches } = await import("@/lib/redis/invalidation");
+  for (const inv of investments) {
+    try {
+      await invalidateInvestorCaches(businessId, businessEntity.partnerId, inv.investorId);
+    } catch (err) {
+      console.warn(`Cache invalidation error for investor ${inv.investorId}:`, err);
+    }
+  }
+
+  return {
+    success: true,
+    business: updatedBusiness,
+    isAutomated: options?.isAutomated || false,
+    message: `Business ${businessEntity.name} (${businessEntity.code}) successfully closed. All investor entitlements are finalized and available for settlement or reinvestment.`,
+  };
+}
+
 /**
  * Delete a Business entity.
  * Admins cannot delete Partner-owned businesses without Admin participation (403 Forbidden).
@@ -884,4 +1364,3 @@ export async function deleteBusiness(session: SessionPayload, businessId: string
 
   return { success: true };
 }
-

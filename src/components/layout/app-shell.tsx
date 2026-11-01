@@ -12,15 +12,15 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 antialiased">
+    <div className="min-h-screen bg-white text-gray-900 antialiased print:min-h-0 print:bg-white">
       {/* Sidebar (Desktop Fixed & Mobile Drawer) */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Main Content Area */}
-      <div className="flex min-h-screen flex-1 flex-col min-w-0 lg:pl-64">
+      <div className="flex min-h-screen flex-1 flex-col min-w-0 lg:pl-64 print:pl-0 print:min-h-0 print:block">
         <MobileHeader onOpenSidebar={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-7">
-          <div className="w-full space-y-6">{children}</div>
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-7 print:p-0 print:overflow-visible print:block">
+          <div className="w-full space-y-6 print:space-y-0">{children}</div>
         </main>
       </div>
     </div>

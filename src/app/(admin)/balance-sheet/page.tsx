@@ -11,9 +11,11 @@ import {
   BalanceSheetFilters,
   BalanceSheetStatement,
   SettlementBreakdownTable,
+  ClientBalanceSheetPrintView,
 } from "@/components/admin/balance-sheet";
 import { exportBalanceSheetToPdf } from "@/lib/export/export-balance-sheet-pdf";
 import { exportBalanceSheetToExcel } from "@/lib/export/export-balance-sheet-excel";
+import { getClientBalanceSheetReportData } from "@/lib/export/balance-sheet-client-adapter";
 
 interface BusinessesApiResponse {
   success: boolean;
@@ -131,102 +133,123 @@ export default function BalanceSheetPage() {
     setSelectedProduct("all");
   };
 
+  const clientReportData = useMemo(() => {
+    if (!bsResponse) return null;
+    return getClientBalanceSheetReportData(bsResponse, {
+      businessName: currentBusinessName,
+      asOfDate,
+      statusLabel: selectedStatus === "all" ? "All Status" : selectedStatus,
+      productLabel:
+        selectedProduct === "all"
+          ? "All Products"
+          : selectedProduct.replace(/_/g, " "),
+    });
+  }, [bsResponse, currentBusinessName, asOfDate, selectedStatus, selectedProduct]);
+
   return (
-    <div className="space-y-6 pb-14 print:space-y-4 print:pb-0">
-      {/* Page Header */}
-      <FadeUp delay={0.05}>
-        <PageHeader
-          title="Balance Sheet"
-          subtitle="Financial Position & Holdings"
-        />
-      </FadeUp>
-
-      {/* Top Period & Export Control Bar */}
-      <FadeUp delay={0.08}>
-        <BalanceSheetPeriodBar
-          asOfDate={asOfDate}
-          onAsOfDateChange={setAsOfDate}
-          onReset={handleReset}
-          onExportPdf={handleExportPdf}
-          onExportExcel={handleExportExcel}
-          onPrint={() => window.print()}
-          isExportingPdf={isExportingPdf}
-          isExportingExcel={isExportingExcel}
-        />
-      </FadeUp>
-
-      {/* Error state */}
-      {error && (
-        <FadeUp delay={0.1}>
-          <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
-            Unable to load balance sheet data. Please check your network
-            connection or business access permissions.
-          </div>
+    <div className="space-y-6 pb-14 print:space-y-0 print:pb-0">
+      {/* Interactive On-Screen Balance Sheet View (Hidden on Print) */}
+      <div className="space-y-6 print:hidden">
+        {/* Page Header */}
+        <FadeUp delay={0.05}>
+          <PageHeader
+            title="Balance Sheet"
+            subtitle="Financial Position & Holdings"
+          />
         </FadeUp>
-      )}
 
-      {/* Loading Skeleton */}
-      {isLoading && !bsResponse && (
-        <div className="space-y-6 animate-pulse">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 rounded-xl bg-gray-100" />
-            ))}
-          </div>
-          <div className="h-10 rounded-xl bg-gray-100" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="h-96 rounded-xl bg-gray-100" />
-            <div className="h-96 rounded-xl bg-gray-100" />
-          </div>
-        </div>
-      )}
+        {/* Top Period & Export Control Bar */}
+        <FadeUp delay={0.08}>
+          <BalanceSheetPeriodBar
+            asOfDate={asOfDate}
+            onAsOfDateChange={setAsOfDate}
+            onReset={handleReset}
+            onExportPdf={handleExportPdf}
+            onExportExcel={handleExportExcel}
+            onPrint={() => window.print()}
+            isExportingPdf={isExportingPdf}
+            isExportingExcel={isExportingExcel}
+          />
+        </FadeUp>
 
-      {/* Loaded Content */}
-      {bsResponse && (
-        <>
-          {/* Summary KPI Metric Cards */}
-          <FadeUp delay={0.12}>
-            <BalanceSheetKpiCards kpis={bsResponse.kpis} />
+        {/* Error state */}
+        {error && (
+          <FadeUp delay={0.1}>
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+              Unable to load balance sheet data. Please check your network
+              connection or business access permissions.
+            </div>
           </FadeUp>
+        )}
 
-          {/* Filter Bar */}
-          <FadeUp delay={0.16}>
-            <div className="print:hidden">
-              <BalanceSheetFilters
-                searchTerm={searchTerm}
-                onSearchChange={setSearchTerm}
+        {/* Loading Skeleton */}
+        {isLoading && !bsResponse && (
+          <div className="space-y-6 animate-pulse">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-24 rounded-xl bg-gray-100" />
+              ))}
+            </div>
+            <div className="h-10 rounded-xl bg-gray-100" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="h-96 rounded-xl bg-gray-100" />
+              <div className="h-96 rounded-xl bg-gray-100" />
+            </div>
+          </div>
+        )}
+
+        {/* Loaded Content */}
+        {bsResponse && (
+          <>
+            {/* Summary KPI Metric Cards */}
+            <FadeUp delay={0.12}>
+              <BalanceSheetKpiCards kpis={bsResponse.kpis} />
+            </FadeUp>
+
+            {/* Filter Bar */}
+            <FadeUp delay={0.16}>
+              <div>
+                <BalanceSheetFilters
+                  searchTerm={searchTerm}
+                  onSearchChange={setSearchTerm}
+                  selectedBusiness={selectedBusiness}
+                  onBusinessChange={setSelectedBusiness}
+                  businessesList={businessesList}
+                  selectedStatus={selectedStatus}
+                  onStatusChange={setSelectedStatus}
+                  selectedProduct={selectedProduct}
+                  onProductChange={setSelectedProduct}
+                  availableProducts={availableProducts}
+                />
+              </div>
+            </FadeUp>
+
+            {/* 2-Column Statement: Investment & Inventory / Sales, Costs & Profit */}
+            <FadeUp delay={0.2}>
+              <BalanceSheetStatement
+                capital={bsResponse.capital}
+                inventory={bsResponse.inventory}
+                trading={bsResponse.trading}
                 selectedBusiness={selectedBusiness}
                 onBusinessChange={setSelectedBusiness}
                 businessesList={businessesList}
-                selectedStatus={selectedStatus}
-                onStatusChange={setSelectedStatus}
-                selectedProduct={selectedProduct}
-                onProductChange={setSelectedProduct}
-                availableProducts={availableProducts}
               />
-            </div>
-          </FadeUp>
+            </FadeUp>
 
-          {/* 2-Column Statement: Investment & Inventory / Sales, Costs & Profit */}
-          <FadeUp delay={0.2}>
-            <BalanceSheetStatement
-              capital={bsResponse.capital}
-              inventory={bsResponse.inventory}
-              trading={bsResponse.trading}
-              selectedBusiness={selectedBusiness}
-              onBusinessChange={setSelectedBusiness}
-              businessesList={businessesList}
-            />
-          </FadeUp>
+            {/* Investor Settlement Breakdown Table */}
+            <FadeUp delay={0.24}>
+              <SettlementBreakdownTable
+                settlements={bsResponse.settlementBreakdown || []}
+                searchTerm={searchTerm}
+              />
+            </FadeUp>
+          </>
+        )}
+      </div>
 
-          {/* Investor Settlement Breakdown Table */}
-          <FadeUp delay={0.24}>
-            <SettlementBreakdownTable
-              settlements={bsResponse.settlementBreakdown || []}
-              searchTerm={searchTerm}
-            />
-          </FadeUp>
-        </>
+      {/* Client-Format Print Report (Visible ONLY when printing) */}
+      {clientReportData && (
+        <ClientBalanceSheetPrintView report={clientReportData} />
       )}
     </div>
   );

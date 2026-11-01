@@ -113,6 +113,7 @@ export async function invalidateInvestorCaches(
   if (investorId) {
     keys.push(CacheKeys.investors.detail(investorId));
     keys.push(CacheKeys.investors.settlement(businessId, investorId));
+    keys.push(CacheKeys.investors.wallet(investorId));
   }
 
   if (partnerId) {

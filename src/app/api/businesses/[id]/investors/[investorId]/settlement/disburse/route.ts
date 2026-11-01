@@ -41,6 +41,7 @@ export async function POST(
       escrowAccount: validationResult.data.escrowAccount,
       transactionDate: validationResult.data.transactionDate,
       notes: validationResult.data.notes,
+      creditToWallet: (validationResult.data as { creditToWallet?: boolean }).creditToWallet,
     });
 
     return NextResponse.json(result);

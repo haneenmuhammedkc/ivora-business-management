@@ -3,10 +3,15 @@ import { SessionPayload } from "@/lib/auth/session";
 import { requireBusinessAccess, requireResourceAccess } from "@/lib/auth/authorization";
 import { AuthError } from "@/lib/auth/guards";
 import { logAuditEvent } from "@/lib/audit/audit.service";
-import { Prisma, QuantityUnit, SaleStatus, PurchaseStatus, UserRole } from "@prisma/client";
+import { Prisma, QuantityUnit, SaleStatus, PurchaseStatus, UserRole, BusinessStatus } from "@prisma/client";
 import { getOrSetCache } from "@/lib/redis/cache";
 import { CacheKeys, CacheTTL } from "@/lib/redis/keys";
 import { invalidateTransactionCaches } from "@/lib/redis/invalidation";
+import {
+  getBusinessInventoryLiquidationStatus,
+  getBusinessClosureEligibility,
+  closeBusinessAndExecuteFinalSettlement,
+} from "@/services/business/business.service";
 import {
   createSaleSchema,
   updateSaleSchema,
@@ -346,6 +351,106 @@ export async function getSaleById(session: SessionPayload, saleId: string) {
   return resource;
 }
 
+export interface AutomaticClosureOutcome {
+  attempted: boolean;
+  succeeded: boolean;
+  businessStatus?: BusinessStatus;
+  reasons?: string[];
+  error?: string;
+  isAutomated?: boolean;
+}
+
+/**
+ * Checks if all inventory across all products in the business is liquidated.
+ * If zero remaining inventory across all products and closure eligibility conditions pass,
+ * automatically executes business closure and final settlement.
+ */
+export async function triggerAutomaticBusinessClosureIfEligible(
+  session: SessionPayload,
+  businessId: string
+): Promise<AutomaticClosureOutcome> {
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, code: true, name: true, status: true },
+    });
+
+    if (!business) {
+      return { attempted: false, succeeded: false, error: "Business not found" };
+    }
+
+    if (business.status === BusinessStatus.SETTLED || business.status === BusinessStatus.INACTIVE) {
+      return {
+        attempted: false,
+        succeeded: true,
+        businessStatus: business.status,
+      };
+    }
+
+    // 1. Confirm complete inventory liquidation across ALL products
+    const liquidation = await getBusinessInventoryLiquidationStatus(businessId);
+    if (!liquidation.isLiquidated || liquidation.totalUnsoldQuantity > 0 || liquidation.unsoldInventory.length > 0) {
+      return {
+        attempted: false,
+        succeeded: false,
+        businessStatus: business.status,
+        reasons: [`Business still has remaining unsold inventory across ${liquidation.unsoldInventory.length} product(s).`],
+      };
+    }
+
+    // 2. Validate all closure prerequisites (no pending expenses, valid sales recognition, etc.)
+    const eligibility = await getBusinessClosureEligibility(session, businessId);
+    if (!eligibility.isEligible) {
+      await logAuditEvent({
+        userId: session.userId,
+        action: "BUSINESS_AUTO_CLOSURE_SKIPPED",
+        entity: "Business",
+        entityId: businessId,
+        newValues: {
+          businessCode: business.code,
+          reasons: eligibility.reasons,
+        },
+      });
+
+      return {
+        attempted: true,
+        succeeded: false,
+        businessStatus: business.status,
+        reasons: eligibility.reasons,
+      };
+    }
+
+    // 3. All prerequisites met: Execute final closure & settlement
+    const closureResult = await closeBusinessAndExecuteFinalSettlement(session, businessId, { isAutomated: true });
+
+    return {
+      attempted: true,
+      succeeded: closureResult.success,
+      businessStatus: BusinessStatus.SETTLED,
+      isAutomated: true,
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Automatic Business Closure Error for ${businessId}]:`, errorMsg);
+
+    await logAuditEvent({
+      userId: session.userId,
+      action: "BUSINESS_AUTO_CLOSURE_FAILED",
+      entity: "Business",
+      entityId: businessId,
+      newValues: {
+        error: errorMsg,
+      },
+    });
+
+    return {
+      attempted: true,
+      succeeded: false,
+      error: errorMsg,
+    };
+  }
+}
+
 /**
  * Creates a Sale atomically within a transaction with concurrency protection,
  * inventory consumption, and authoritative Decimal financial calculation.
@@ -365,6 +470,15 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
   // 3. Atomic Database Transaction
   const sale = await prisma.$transaction(
     async (tx) => {
+      // Step 0: Ensure business is active and not already closed
+      const currentBiz = await tx.business.findUnique({
+        where: { id: validated.businessId },
+        select: { status: true },
+      });
+      if (currentBiz?.status === BusinessStatus.SETTLED) {
+        throw new AuthError("Cannot record sales for a closed and settled business.", 400);
+      }
+
       // Step A: Reconcile / ensure inventory record exists
       let inv = await tx.inventory.findUnique({
         where: {
@@ -440,19 +554,17 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
         2,
         Prisma.Decimal.ROUND_HALF_UP
       );
-      const fxRateDecimal = new Prisma.Decimal(validated.realizedFxRate).toDecimalPlaces(
-        4,
-        Prisma.Decimal.ROUND_HALF_UP
-      );
+      const fxRateDecimal = new Prisma.Decimal(validated.realizedFxRate);
 
       if (fxRateDecimal.lte(0)) {
-        throw new AuthError("Realized FX rate must be greater than zero", 400);
+        throw new AuthError("Conversion rate must be greater than zero", 400);
       }
 
-      const exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      // AED Equivalent Realized = Total Selling Price (INR) × Conversion Rate (AED per INR)
+      const exactAedTotal = inrRealizationDecimal.mul(fxRateDecimal);
       const aedEquivalentDecimal = exactAedTotal.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-      // SALES BASE PRICE = Total Selling Price INR ÷ FX Rate ÷ Quantity
+      // SALES BASE PRICE = AED Equivalent Realized ÷ Quantity
       const salesBasePriceDecimal = exactAedTotal
         .div(saleQtyDecimal)
         .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
@@ -517,7 +629,13 @@ export async function createSale(session: SessionPayload, input: CreateSaleInput
   // Invalidate Redis caches
   await invalidateTransactionCaches(sale.businessId, "sales", sale.id);
 
-  return sale;
+  // Check and trigger automated business closure if all inventory is liquidated across all products
+  const closureOutcome = await triggerAutomaticBusinessClosureIfEligible(session, sale.businessId);
+
+  return {
+    ...sale,
+    automaticClosure: closureOutcome,
+  };
 }
 
 /**
@@ -544,6 +662,15 @@ export async function updateSale(
   // 3. Database Transaction
   const updated = await prisma.$transaction(
     async (tx) => {
+      // Step 0: Ensure business is active and not already closed
+      const currentBiz = await tx.business.findUnique({
+        where: { id: existing.businessId },
+        select: { status: true },
+      });
+      if (currentBiz?.status === BusinessStatus.SETTLED) {
+        throw new AuthError("Cannot modify sales for a closed and settled business.", 400);
+      }
+
       const targetBusinessId = validated.businessId || existing.businessId;
       const targetProductType = validated.productType || existing.productType;
       const targetQuantityUnit =
@@ -644,12 +771,23 @@ export async function updateSale(
           ? validated.realizedFxRate
           : existing.realizedFxRate;
 
-      const fxRateDecimal = new Prisma.Decimal(rawFx).toDecimalPlaces(
-        4,
-        Prisma.Decimal.ROUND_HALF_UP
-      );
+      const fxRateDecimal = new Prisma.Decimal(rawFx);
 
-      const exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      if (fxRateDecimal.lte(0)) {
+        throw new AuthError("Conversion rate must be greater than zero", 400);
+      }
+
+      // Historical compatibility:
+      // If updating a historical sale where realizedFxRate was entered under legacy division (rate >= 1)
+      // and the user did NOT supply a new rate in this update, preserve legacy division for that rate.
+      // If a new rate was provided or the rate is a conversion rate (rate < 1), use multiplication:
+      let exactAedTotal: Prisma.Decimal;
+      if (validated.realizedFxRate === undefined && fxRateDecimal.gte(1)) {
+        exactAedTotal = inrRealizationDecimal.div(fxRateDecimal);
+      } else {
+        exactAedTotal = inrRealizationDecimal.mul(fxRateDecimal);
+      }
+
       const aedEquivalentDecimal = exactAedTotal.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
       const salesBasePriceDecimal = exactAedTotal
         .div(newQtyDecimal)
@@ -717,7 +855,13 @@ export async function updateSale(
   // Invalidate Redis caches
   await invalidateTransactionCaches(updated.businessId, "sales", updated.id);
 
-  return updated;
+  // Check and trigger automated business closure if all inventory is liquidated across all products
+  const closureOutcome = await triggerAutomaticBusinessClosureIfEligible(session, updated.businessId);
+
+  return {
+    ...updated,
+    automaticClosure: closureOutcome,
+  };
 }
 
 /**
@@ -753,6 +897,15 @@ export async function deleteSale(session: SessionPayload, saleId: string) {
   >("Sale", saleId, "DELETE", session);
 
   await prisma.$transaction(async (tx) => {
+    // Step 0: Ensure business is active and not already closed
+    const currentBiz = await tx.business.findUnique({
+      where: { id: existing.businessId },
+      select: { status: true },
+    });
+    if (currentBiz?.status === BusinessStatus.SETTLED) {
+      throw new AuthError("Cannot delete sales for a closed and settled business.", 400);
+    }
+
     await tx.sale.delete({
       where: { id: saleId },
     });

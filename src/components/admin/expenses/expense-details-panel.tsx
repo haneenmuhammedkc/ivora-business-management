@@ -103,6 +103,26 @@ export function ExpenseDetailsPanel({
           </span>
         </div>
 
+        {/* Currency conversion breakdown if applicable */}
+        {(expense.currency === "INR" || (expense.description && /INR\s*[\d,]+.*@/i.test(expense.description))) && (
+          <div className="grid grid-cols-2 gap-3 text-xs bg-white p-2.5 rounded-lg border border-gray-200">
+            <div>
+              <span className="text-gray-500 block text-[10.5px]">Source Amount:</span>
+              <span className="font-semibold text-gray-900">
+                {expense.sourceAmount
+                  ? `₹ ${Number(expense.sourceAmount).toLocaleString("en-IN")}`
+                  : "INR Recorded"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 block text-[10.5px]">Conversion Rate:</span>
+              <span className="font-mono text-gray-900">
+                {expense.conversionRate ? `${expense.conversionRate} AED/INR` : "Recorded"}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div className="flex flex-col gap-1">
             <span className="text-gray-500">Payment / Disbursement Method:</span>

@@ -324,7 +324,7 @@ export async function listBusinessInvestorRows(session: SessionPayload) {
         partnerInvestmentAED: partnerInv,
         partnerEquityPct: partnerEquity,
         partnerId: b.partnerId,
-        partnerName: b.partner?.name || (b.partnerId ? "Partner" : "No partner"),
+        partnerName: b.partner?.name?.trim() || (b.partnerId ? "Partner" : "No partner"),
         externalInvestorsCount: externalCount,
         totalParticipantsCount,
         status: b.status,
@@ -817,7 +817,12 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
 
     const recentTx = investor.investments.map((inv) => ({
       id: `CAP-${investor.code}-${inv.id.slice(-4)}`,
-      title: "External Investment Capital",
+      title:
+        investor.type === InvestorType.ADMIN
+          ? "Admin Investment Capital"
+          : investor.type === InvestorType.PARTNER
+          ? "Partner Investment Capital"
+          : "External Investment Capital",
       date: formatDate(new Date(inv.depositDate || inv.createdAt)),
       reference: `Escrow Account (${b.code})`,
       amountFormatted: `AED ${(Number(inv.committedAmount) || 0).toLocaleString()} Cleared`,
@@ -826,7 +831,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
 
     return {
       id: investor.id,
-      participantType: "INVESTOR",
+      participantType: investor.type,
       name: investor.name,
       code: investor.code,
       email: investor.email || null,
@@ -834,7 +839,13 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
       emailOrSubtitle: `${investor.code} • ${investor.email || "investor@ivora-trade.ae"}`,
       businessId: b.id,
       business: b.name,
-      businessEntity: `${b.code} • External Capital`,
+      businessEntity: `${b.code} • ${
+        investor.type === InvestorType.ADMIN
+          ? "Admin Capital"
+          : investor.type === InvestorType.PARTNER
+          ? "Partner Equity"
+          : "External Capital"
+      }`,
       entityLabel: `${b.name} (${b.code}) • ${investor.code}`,
       investmentAED: totalCommitted,
       allocatedGrams: firstInvGrams,
@@ -849,14 +860,24 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
         totalInvestmentAED: totalCommitted,
         allocatedGrams: firstInvGrams,
         profitShare: `${calculatedShare}%`,
-        profitShareContract: `Standard Contract (${calculatedShare}%)`,
+        profitShareContract:
+          investor.type === InvestorType.ADMIN
+            ? `Admin Treasury Allocation (${calculatedShare}%)`
+            : investor.type === InvestorType.PARTNER
+            ? `Partner Equity (${calculatedShare}%)`
+            : `Standard Contract (${calculatedShare}%)`,
         allocatedProfit: 0,
         outstandingBalance: 0,
         paidAmount: 0,
         recentTransactions: recentTx.length > 0 ? recentTx : [
           {
             id: `CAP-${investor.code}`,
-            title: "External Investment Capital",
+            title:
+              investor.type === InvestorType.ADMIN
+                ? "Admin Investment Capital"
+                : investor.type === InvestorType.PARTNER
+                ? "Partner Investment Capital"
+                : "External Investment Capital",
             date: invDateFormatted,
             reference: `Escrow Account (${b.code})`,
             amountFormatted: `AED ${totalCommitted.toLocaleString()} Cleared`,

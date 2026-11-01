@@ -46,7 +46,10 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
   // Form State
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
   const [category, setCategory] = useState<string>("");
+  const [currency, setCurrency] = useState<"AED" | "INR">("AED");
   const [amount, setAmount] = useState("");
+  const [inrAmount, setInrAmount] = useState("");
+  const [conversionRate, setConversionRate] = useState("");
   const [expenseDate, setExpenseDate] = useState(getTodayDateString());
   const [description, setDescription] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<string>("Cash");
@@ -59,6 +62,16 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
 
   const activeBusinessId = selectedBusinessId || businesses[0]?.id || "";
   const amountNum = Number(amount) || 0;
+  const inrAmountNum = Number(inrAmount) || 0;
+  const rateNum = Number(conversionRate) || 0;
+
+  // Expense Amount (AED) = Expense Amount (INR) × Conversion Rate (AED per INR)
+  const convertedAedAmount = useMemo(() => {
+    if (currency !== "INR" || inrAmountNum <= 0 || rateNum <= 0) return 0;
+    return Number((inrAmountNum * rateNum).toFixed(2));
+  }, [currency, inrAmountNum, rateNum]);
+
+  const effectiveAedAmount = currency === "INR" ? convertedAedAmount : amountNum;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,9 +88,20 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
       return;
     }
 
-    if (!amountNum || amountNum <= 0) {
-      setErrorMessage("Please enter a valid expense amount greater than zero.");
-      return;
+    if (currency === "INR") {
+      if (!inrAmountNum || inrAmountNum <= 0) {
+        setErrorMessage("Please enter a valid INR expense amount greater than zero.");
+        return;
+      }
+      if (!rateNum || rateNum <= 0) {
+        setErrorMessage("Please enter a valid Conversion Rate (AED / INR) greater than zero.");
+        return;
+      }
+    } else {
+      if (!amountNum || amountNum <= 0) {
+        setErrorMessage("Please enter a valid expense amount greater than zero.");
+        return;
+      }
     }
 
     if (!description.trim()) {
@@ -91,7 +115,10 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
       const payload = {
         businessId: activeBusinessId,
         category: category.trim(),
-        amount: amountNum,
+        amount: effectiveAedAmount,
+        currency,
+        sourceAmount: currency === "INR" ? inrAmountNum : undefined,
+        conversionRate: currency === "INR" ? rateNum : undefined,
         expenseDate,
         description: description.trim(),
         paymentMethod: paymentMethod || "Cash",
@@ -207,23 +234,105 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
 
         {/* 02. FINANCIAL DETAILS & DESCRIPTION */}
         <div className="space-y-3.5 pt-2 border-t border-gray-100">
-          <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500 block">
-            02. FINANCIAL DETAILS & DESCRIPTION
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500 block">
+              02. FINANCIAL DETAILS & DESCRIPTION
+            </span>
+            <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-xs font-medium">
+              <span className="text-[11px] text-gray-500 px-1.5 font-medium">Currency:</span>
+              <button
+                type="button"
+                onClick={() => setCurrency("AED")}
+                className={`px-2.5 py-1 rounded text-xs transition-colors cursor-pointer ${
+                  currency === "AED"
+                    ? "bg-white text-gray-950 font-bold shadow-2xs"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                AED
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrency("INR")}
+                className={`px-2.5 py-1 rounded text-xs transition-colors cursor-pointer ${
+                  currency === "INR"
+                    ? "bg-white text-gray-950 font-bold shadow-2xs"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                INR (₹)
+              </button>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
-              label="Amount (AED)"
-              type="number"
-              step="0.01"
-              min="0.01"
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="text-right font-semibold"
-              required
-            />
+          {currency === "INR" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Input
+                label="Expense Amount (INR)"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="e.g. 5000.00"
+                value={inrAmount}
+                onChange={(e) => setInrAmount(e.target.value)}
+                className="text-right font-semibold"
+                required
+              />
 
+              <Input
+                label="Conversion Rate (AED / INR)"
+                type="number"
+                step="any"
+                min="0.00000001"
+                placeholder="e.g. 0.03624"
+                value={conversionRate}
+                onChange={(e) => setConversionRate(e.target.value)}
+                className="text-right font-mono"
+                required
+              />
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Amount (AED)
+                  </label>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase">
+                    AUTO
+                  </span>
+                </div>
+                <div className="h-10 px-3.5 rounded-lg border border-neutral-200 bg-neutral-50 flex items-center justify-end text-xs cursor-default select-none">
+                  <span className="font-mono font-bold text-gray-950">
+                    AED {convertedAedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Amount (AED)"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="text-right font-semibold"
+                required
+              />
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-gray-400">
+                  Conversion Rate (AED / INR)
+                </label>
+                <div className="h-10 px-3.5 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center text-xs text-gray-400 select-none">
+                  Not required for direct AED expenses
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Expense Date"
               type="date"
@@ -276,12 +385,35 @@ export function NewExpenseEntry({ onRecordExpense }: NewExpenseEntryProps) {
           <span className="text-[10.5px] font-bold uppercase tracking-wider text-gray-700 block">
             04. SUMMARY PREVIEW
           </span>
-          <div className="flex items-center justify-between text-gray-700">
-            <span>Settled Amount:</span>
-            <span className="font-bold text-gray-950">
-              AED {amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
+          {currency === "INR" ? (
+            <div className="space-y-1.5 text-gray-700">
+              <div className="flex items-center justify-between">
+                <span>Source Amount (INR):</span>
+                <span className="font-semibold text-gray-900">
+                  ₹ {inrAmountNum.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Conversion Rate:</span>
+                <span className="font-mono text-gray-900">
+                  {conversionRate || "—"} AED / INR
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-gray-200">
+                <span className="font-medium text-gray-900">Settled Converted Amount:</span>
+                <span className="font-bold text-gray-950 text-sm">
+                  AED {effectiveAedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-gray-700">
+              <span>Settled Amount:</span>
+              <span className="font-bold text-gray-950">
+                AED {amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}

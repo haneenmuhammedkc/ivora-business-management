@@ -12,6 +12,7 @@
   "dependencies": {
     "@prisma/client": "^6.4.1",
     "bcryptjs": "^3.0.3",
+    "exceljs": "^4.4.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "jspdf": "^4.2.1",
