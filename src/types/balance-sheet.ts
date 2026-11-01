@@ -99,7 +99,9 @@ export interface InvestorSettlementBreakdownItem {
   investorCode: string;
   investorType?: "ADMIN" | "PARTNER" | "INVESTOR";
   totalInvestmentAED: number;
+  allocatedGrams?: number | null;
   profitAmountAED: number;
+  perGramProfitAED?: number | null;
   totalDueAED: number;
   capitalPaidAED: number;
   profitPaidAED: number;

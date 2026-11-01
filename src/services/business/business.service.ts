@@ -323,6 +323,17 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
           },
           orderBy: { transactionDate: "desc" },
         },
+        inventory: {
+          select: {
+            id: true,
+            productType: true,
+            totalPurchasedQuantity: true,
+            totalSoldQuantity: true,
+            remainingQuantity: true,
+            averageCostPerUnitAED: true,
+            carryingValueAED: true,
+          },
+        },
       },
     });
 
@@ -382,6 +393,27 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
       adminInvestmentAED <= 0 &&
       (creationLog && creationLog.user ? creationLog.user.role === UserRole.PARTNER : true);
 
+    const inventoryItems = (raw.inventory || []).map((inv) => ({
+      id: inv.id,
+      productType: inv.productType,
+      totalPurchasedQuantity: Number(inv.totalPurchasedQuantity || 0),
+      totalSoldQuantity: Number(inv.totalSoldQuantity || 0),
+      remainingQuantity: Number(inv.remainingQuantity || 0),
+      averageCostPerUnitAED: Number(inv.averageCostPerUnitAED || 0),
+      carryingValueAED: Number(inv.carryingValueAED || 0),
+    }));
+
+    const totalRemainingQuantity = inventoryItems.reduce((acc, item) => acc + item.remainingQuantity, 0);
+    const totalCarryingValueAED = inventoryItems.reduce((acc, item) => acc + item.carryingValueAED, 0);
+    const averageCostPerUnitAED = totalRemainingQuantity > 0 ? totalCarryingValueAED / totalRemainingQuantity : 0;
+
+    const remainingInventorySummary = {
+      totalRemainingQuantity,
+      totalCarryingValueAED,
+      averageCostPerUnitAED,
+      items: inventoryItems,
+    };
+
     return {
       ...raw,
       totalInvestmentAED: effectiveInvestmentAED,
@@ -402,6 +434,7 @@ export async function getBusinessById(session: SessionPayload, businessId: strin
       createdAtFormatted: formattedDate,
       subtitle: raw.description || `${raw.name} • ${raw.code}`,
       isPartnerOwnedWithoutAdmin,
+      remainingInventorySummary,
     };
   });
 

@@ -165,6 +165,7 @@ export async function getInvestorSettlementOverview(
     let committedAmount = 0;
     let contractualSharePct = 0;
     let persistedAllocatedProfitAED: number | null = null;
+    let participantAllocatedGrams: number | null = null;
     const relatedInvestorIds: string[] = [investorId];
 
     // Check if investorId matches an existing DB record
@@ -204,6 +205,7 @@ export async function getInvestorSettlementOverview(
         totalBizInv > 0 && committedAmount > 0
           ? Number(((committedAmount / totalBizInv) * 100).toFixed(2))
           : 0;
+  
 
       const adminInvestor =
         dbInvestor?.type === InvestorType.ADMIN
@@ -280,6 +282,7 @@ export async function getInvestorSettlementOverview(
       if (primaryInvestment) {
         committedAmount = Number(primaryInvestment.committedAmount) || 0;
         contractualSharePct = Number(primaryInvestment.profitSharePct) || 0;
+        participantAllocatedGrams = primaryInvestment.allocatedGrams ? Number(primaryInvestment.allocatedGrams) : null;
         if (primaryInvestment.allocatedProfitAmount !== null && primaryInvestment.allocatedProfitAmount !== undefined) {
           persistedAllocatedProfitAED = Number(primaryInvestment.allocatedProfitAmount);
         }
@@ -290,10 +293,26 @@ export async function getInvestorSettlementOverview(
     }
 
     // 4. Calculate default vs persisted profit allocation
-    const defaultAllocatedProfitAED =
-      netProfitAED > 0 && contractualSharePct > 0
-        ? Number(((netProfitAED * contractualSharePct) / 100).toFixed(2))
-        : 0;
+    let defaultAllocatedProfitAED = 0;
+    if (participantAllocatedGrams && participantAllocatedGrams > 0) {
+      const allBizInvestments = await prisma.investment.findMany({
+        where: { businessId, status: { in: ["ACTIVE", "SETTLED"] } },
+        select: { allocatedGrams: true },
+      });
+      const totalBizGrams = allBizInvestments.reduce((sum, i) => sum + (Number(i.allocatedGrams) || 0), 0);
+      if (totalBizGrams > 0 && netProfitAED > 0) {
+        const masterRate = netProfitAED / totalBizGrams;
+        defaultAllocatedProfitAED = Number((participantAllocatedGrams * masterRate).toFixed(2));
+      } else if (contractualSharePct > 0) {
+        defaultAllocatedProfitAED = Number(((netProfitAED * contractualSharePct) / 100).toFixed(2));
+      }
+    } else if (netProfitAED > 0 && contractualSharePct > 0) {
+      defaultAllocatedProfitAED = Number(((netProfitAED * contractualSharePct) / 100).toFixed(2));
+    }
+
+
+
+
 
     const allocatedProfitAED =
       persistedAllocatedProfitAED !== null ? persistedAllocatedProfitAED : defaultAllocatedProfitAED;
@@ -702,6 +721,7 @@ export async function recordDisbursalPayment(
               select: {
                 id: true,
                 committedAmount: true,
+                allocatedGrams: true,
                 profitSharePct: true,
                 allocatedProfitAmount: true,
               },
@@ -717,6 +737,7 @@ export async function recordDisbursalPayment(
               select: {
                 id: true,
                 committedAmount: true,
+                allocatedGrams: true,
                 profitSharePct: true,
                 allocatedProfitAmount: true,
               },
@@ -734,6 +755,7 @@ export async function recordDisbursalPayment(
               select: {
                 id: true,
                 committedAmount: true,
+                allocatedGrams: true,
                 profitSharePct: true,
                 allocatedProfitAmount: true,
               },
@@ -756,6 +778,21 @@ export async function recordDisbursalPayment(
       let allocatedProfitDecimal: Prisma.Decimal;
       if (investment.allocatedProfitAmount !== null && investment.allocatedProfitAmount !== undefined) {
         allocatedProfitDecimal = investment.allocatedProfitAmount;
+      } else if (investment.allocatedGrams && Number(investment.allocatedGrams) > 0) {
+        const allBizInvestments = await tx.investment.findMany({
+          where: { businessId, status: { in: ["ACTIVE", "SETTLED"] } },
+          select: { allocatedGrams: true },
+        });
+        const totalBizGrams = allBizInvestments.reduce((sum, i) => sum + (Number(i.allocatedGrams) || 0), 0);
+        if (totalBizGrams > 0 && precomputedNetProfitAED > 0) {
+          const masterRate = precomputedNetProfitAED / totalBizGrams;
+          const defaultAlloc = Number((Number(investment.allocatedGrams) * masterRate).toFixed(2));
+          allocatedProfitDecimal = new Prisma.Decimal(defaultAlloc.toFixed(2));
+        } else {
+          const share = Number(investment.profitSharePct) || 0;
+          const defaultAlloc = (precomputedNetProfitAED * share) / 100;
+          allocatedProfitDecimal = new Prisma.Decimal(defaultAlloc.toFixed(2));
+        }
       } else {
         const share = Number(investment.profitSharePct) || 0;
         const defaultAlloc = (precomputedNetProfitAED * share) / 100;

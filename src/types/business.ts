@@ -122,6 +122,23 @@ export interface BusinessTransactionSummary {
   transactionDate: string | Date;
 }
 
+export interface BusinessInventoryItemSummary {
+  id: string;
+  productType: string;
+  totalPurchasedQuantity: number;
+  totalSoldQuantity: number;
+  remainingQuantity: number;
+  averageCostPerUnitAED: number;
+  carryingValueAED: number;
+}
+
+export interface BusinessRemainingInventorySummary {
+  totalRemainingQuantity: number;
+  totalCarryingValueAED: number;
+  averageCostPerUnitAED: number;
+  items: BusinessInventoryItemSummary[];
+}
+
 export interface BusinessWorkspaceDetail {
   id: string;
   name: string;
@@ -159,6 +176,7 @@ export interface BusinessWorkspaceDetail {
   sales: BusinessSaleSummary[];
   expenses: BusinessExpenseSummary[];
   transactions: BusinessTransactionSummary[];
+  remainingInventorySummary?: BusinessRemainingInventorySummary;
   isPartnerOwnedWithoutAdmin?: boolean;
   isViewOnlyForAdmin?: boolean;
 }

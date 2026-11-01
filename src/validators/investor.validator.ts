@@ -21,6 +21,10 @@ export interface CreateInvestorInput {
   investmentCapitalAED?: unknown;
   committedAmount?: unknown;
   phone?: unknown;
+  entryBasis?: unknown;
+  quantityGms?: unknown;
+  ratePerGm?: unknown;
+  allocatedGrams?: unknown;
 }
 
 export interface CreateInvestorValidatedData {
@@ -29,6 +33,8 @@ export interface CreateInvestorValidatedData {
   businessId: string;
   investmentAmount: number;
   phone: string | null;
+  entryBasis?: "AMOUNT" | "WEIGHT";
+  allocatedGrams?: number | null;
 }
 
 export type InvestorValidationErrorKey =
@@ -37,6 +43,8 @@ export type InvestorValidationErrorKey =
   | "businessId"
   | "investmentAmount"
   | "phone"
+  | "quantityGms"
+  | "ratePerGm"
   | "general";
 
 export type InvestorValidationErrors = Partial<Record<InvestorValidationErrorKey, string>>;
@@ -114,6 +122,50 @@ function parseFinancialAmount(
 
   // Safe 2-decimal rounded number
   const rounded = Math.round(num * 100) / 100;
+  return { error: null, parsedValue: rounded };
+}
+
+/**
+ * Validates a commodity weight in grams.
+ * Enforces maximum 3 decimal places and positive finite numeric bounds.
+ */
+export function parseWeightQuantity(
+  val: unknown,
+  fieldName = "Quantity in grams"
+): { error: string | null; parsedValue: number | null } {
+  if (val === undefined || val === null || val === "") {
+    return { error: `${fieldName} is required and must be greater than 0.`, parsedValue: null };
+  }
+
+  const rawStr = String(val).trim();
+  if (rawStr === "") {
+    return { error: `${fieldName} is required and must be greater than 0.`, parsedValue: null };
+  }
+
+  if (!/^\d+(\.\d+)?$/.test(rawStr)) {
+    return {
+      error: `${fieldName} must be a valid positive number.`,
+      parsedValue: null,
+    };
+  }
+
+  const decimalPart = rawStr.split(".")[1];
+  if (decimalPart && decimalPart.length > 3) {
+    return {
+      error: `${fieldName} cannot have more than 3 decimal places.`,
+      parsedValue: null,
+    };
+  }
+
+  const num = Number(rawStr);
+  if (isNaN(num) || !isFinite(num) || num <= 0) {
+    return {
+      error: `${fieldName} must be greater than 0.`,
+      parsedValue: null,
+    };
+  }
+
+  const rounded = Math.round(num * 1000) / 1000;
   return { error: null, parsedValue: rounded };
 }
 
@@ -244,18 +296,40 @@ export function sanitizeInvestorInput(input: CreateInvestorInput): CreateInvesto
   const rawBusinessId = (input.businessId ?? "") as string;
   const rawPhone = (input.phone ?? "") as string;
 
-  const rawCapital = input.investmentCapitalAED ?? input.investmentAmount ?? input.committedAmount;
-  const parsedCapital = parseFinancialAmount(rawCapital, "Investment capital", { required: true });
-
   const trimmedEmail = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
   const trimmedPhone = typeof rawPhone === "string" ? rawPhone.trim() : "";
+
+  let investmentAmount = 0;
+  let allocatedGrams: number | null = null;
+  const isWeightBasis = input.entryBasis === "WEIGHT";
+
+  if (isWeightBasis) {
+    const weightRes = parseWeightQuantity(input.quantityGms, "Weight in grams");
+    const rateRes = parseFinancialAmount(input.ratePerGm, "Rate per gram", { required: true });
+    if (!weightRes.error && !rateRes.error && weightRes.parsedValue && rateRes.parsedValue) {
+      investmentAmount = Math.round(weightRes.parsedValue * rateRes.parsedValue * 100) / 100;
+      allocatedGrams = weightRes.parsedValue;
+    }
+  } else {
+    const rawCapital = input.investmentCapitalAED ?? input.investmentAmount ?? input.committedAmount;
+    const parsedCapital = parseFinancialAmount(rawCapital, "Investment capital", { required: true });
+    investmentAmount = parsedCapital.parsedValue ?? 0;
+    if (input.allocatedGrams !== undefined && input.allocatedGrams !== null && input.allocatedGrams !== "") {
+      const gRes = parseWeightQuantity(input.allocatedGrams, "Allocated grams");
+      if (!gRes.error) {
+        allocatedGrams = gRes.parsedValue;
+      }
+    }
+  }
 
   return {
     name: typeof rawName === "string" ? rawName.trim().replace(/\s+/g, " ") : "",
     email: trimmedEmail.length > 0 ? trimmedEmail : null,
     businessId: typeof rawBusinessId === "string" ? rawBusinessId.trim() : "",
-    investmentAmount: parsedCapital.parsedValue ?? 0,
+    investmentAmount,
     phone: trimmedPhone.length > 0 ? trimmedPhone : null,
+    entryBasis: isWeightBasis ? "WEIGHT" : "AMOUNT",
+    allocatedGrams,
   };
 }
 
@@ -295,11 +369,31 @@ export function validateCreateInvestor(input: unknown): InvestorValidationResult
     errors.businessId = businessIdError;
   }
 
-  // 4. Investment Capital Validation
-  const rawCapital = raw.investmentCapitalAED ?? raw.investmentAmount ?? raw.committedAmount;
-  const capitalError = validateInvestmentAmount(rawCapital);
-  if (capitalError) {
-    errors.investmentAmount = capitalError;
+  // 4. Investment Capital / Weight Validation
+  if (raw.entryBasis === "WEIGHT") {
+    const weightRes = parseWeightQuantity(raw.quantityGms, "Weight in grams");
+    if (weightRes.error) {
+      errors.quantityGms = weightRes.error;
+    }
+    const rateRes = parseFinancialAmount(raw.ratePerGm, "Rate per gram", { required: true });
+    if (rateRes.error) {
+      errors.ratePerGm = rateRes.error;
+    }
+
+    if (!weightRes.error && !rateRes.error && weightRes.parsedValue && rateRes.parsedValue) {
+      const derivedAED = Math.round(weightRes.parsedValue * rateRes.parsedValue * 100) / 100;
+      if (derivedAED <= 0) {
+        errors.investmentAmount = "Derived investment capital must be greater than 0.";
+      } else if (derivedAED > INVESTOR_MAX_INVESTMENT_AMOUNT) {
+        errors.investmentAmount = `Investment capital cannot exceed ${INVESTOR_MAX_INVESTMENT_AMOUNT.toLocaleString("en-US", { maximumFractionDigits: 2 })} AED.`;
+      }
+    }
+  } else {
+    const rawCapital = raw.investmentCapitalAED ?? raw.investmentAmount ?? raw.committedAmount;
+    const capitalError = validateInvestmentAmount(rawCapital);
+    if (capitalError) {
+      errors.investmentAmount = capitalError;
+    }
   }
 
   // 5. Phone Validation (if provided)
@@ -328,6 +422,10 @@ export interface UpdateInvestorInputData {
   investmentCapitalAED?: unknown;
   committedAmount?: unknown;
   status?: unknown;
+  entryBasis?: unknown;
+  quantityGms?: unknown;
+  ratePerGm?: unknown;
+  allocatedGrams?: unknown;
 }
 
 export interface UpdateInvestorValidatedData {
@@ -335,6 +433,7 @@ export interface UpdateInvestorValidatedData {
   email?: string | null;
   phone?: string | null;
   investmentAmount?: number;
+  allocatedGrams?: number | null;
   status?: "ACTIVE" | "INACTIVE";
 }
 
@@ -401,24 +500,57 @@ export function validateUpdateInvestor(input: unknown): UpdateInvestorValidation
     }
   }
 
-  // 4. Investment Capital Validation
-  const rawCapital =
-    raw.investmentCapitalAED !== undefined
-      ? raw.investmentCapitalAED
-      : raw.investmentAmount !== undefined
-      ? raw.investmentAmount
-      : raw.committedAmount;
+  // 4. Investment Capital / Weight Validation
+  if (raw.entryBasis === "WEIGHT") {
+    const weightRes = parseWeightQuantity(raw.quantityGms, "Weight in grams");
+    if (weightRes.error) {
+      errors.quantityGms = weightRes.error;
+    }
+    const rateRes = parseFinancialAmount(raw.ratePerGm, "Rate per gram", { required: true });
+    if (rateRes.error) {
+      errors.ratePerGm = rateRes.error;
+    }
+    if (!weightRes.error && !rateRes.error && weightRes.parsedValue && rateRes.parsedValue) {
+      const derivedAED = Math.round(weightRes.parsedValue * rateRes.parsedValue * 100) / 100;
+      if (derivedAED <= 0) {
+        errors.investmentAmount = "Derived investment capital must be greater than 0.";
+      } else {
+        sanitized.investmentAmount = derivedAED;
+        sanitized.allocatedGrams = weightRes.parsedValue;
+      }
+    }
+  } else {
+    const rawCapital =
+      raw.investmentCapitalAED !== undefined
+        ? raw.investmentCapitalAED
+        : raw.investmentAmount !== undefined
+        ? raw.investmentAmount
+        : raw.committedAmount;
 
-  if (rawCapital !== undefined && rawCapital !== null && rawCapital !== "") {
-    const capitalError = validateInvestmentAmount(rawCapital);
-    if (capitalError) {
-      errors.investmentAmount = capitalError;
-    } else {
-      const parsed = parseFinancialAmount(rawCapital, "Investment capital", { required: true });
-      if (parsed.error) {
-        errors.investmentAmount = parsed.error;
-      } else if (parsed.parsedValue !== null) {
-        sanitized.investmentAmount = parsed.parsedValue;
+    if (rawCapital !== undefined && rawCapital !== null && rawCapital !== "") {
+      const capitalError = validateInvestmentAmount(rawCapital);
+      if (capitalError) {
+        errors.investmentAmount = capitalError;
+      } else {
+        const parsed = parseFinancialAmount(rawCapital, "Investment capital", { required: true });
+        if (parsed.error) {
+          errors.investmentAmount = parsed.error;
+        } else if (parsed.parsedValue !== null) {
+          sanitized.investmentAmount = parsed.parsedValue;
+        }
+      }
+    }
+
+    if (raw.allocatedGrams !== undefined) {
+      if (raw.allocatedGrams === null || raw.allocatedGrams === "") {
+        sanitized.allocatedGrams = null;
+      } else {
+        const parsedGrams = parseWeightQuantity(raw.allocatedGrams, "Allocated grams");
+        if (parsedGrams.error) {
+          errors.quantityGms = parsedGrams.error;
+        } else {
+          sanitized.allocatedGrams = parsedGrams.parsedValue;
+        }
       }
     }
   }

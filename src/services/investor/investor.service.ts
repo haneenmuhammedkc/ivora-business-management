@@ -27,6 +27,10 @@ export interface CreateInvestorInput {
   committedAmount?: number | string;
   defaultSharePct?: number | string;
   status?: string;
+  entryBasis?: "AMOUNT" | "WEIGHT";
+  quantityGms?: number | string;
+  ratePerGm?: number | string;
+  allocatedGrams?: number | string | null;
 }
 
 /**
@@ -519,6 +523,7 @@ export async function getBusinessInvestorDetails(
         businessEntity: `${b.code} • External Capital`,
         entityLabel: `${b.name} (${b.code}) • ${inv.investor.code}`,
         investmentAED: amountVal,
+        allocatedGrams: inv.allocatedGrams ? Number(inv.allocatedGrams) : null,
         date: invDateFormatted,
         sharePercent: shareVal,
         allocatedProfitAED: 0,
@@ -528,6 +533,7 @@ export async function getBusinessInvestorDetails(
         selected: false,
         details: {
           totalInvestmentAED: amountVal,
+          allocatedGrams: inv.allocatedGrams ? Number(inv.allocatedGrams) : null,
           profitShare: `${shareVal}%`,
           profitShareContract: `Standard Contract (${shareVal}%)`,
           allocatedProfit: 0,
@@ -798,6 +804,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
     );
 
     const firstInv = investor.investments[0];
+    const firstInvGrams = firstInv?.allocatedGrams ? Number(firstInv.allocatedGrams) : null;
     const invDateFormatted = firstInv
       ? formatDate(new Date(firstInv.depositDate || firstInv.createdAt))
       : formatDate(new Date(investor.createdAt));
@@ -830,6 +837,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
       businessEntity: `${b.code} • External Capital`,
       entityLabel: `${b.name} (${b.code}) • ${investor.code}`,
       investmentAED: totalCommitted,
+      allocatedGrams: firstInvGrams,
       date: invDateFormatted,
       sharePercent: calculatedShare,
       allocatedProfitAED: 0,
@@ -839,6 +847,7 @@ export async function getInvestorById(session: SessionPayload, investorId: strin
       selected: false,
       details: {
         totalInvestmentAED: totalCommitted,
+        allocatedGrams: firstInvGrams,
         profitShare: `${calculatedShare}%`,
         profitShareContract: `Standard Contract (${calculatedShare}%)`,
         allocatedProfit: 0,
@@ -988,6 +997,10 @@ export async function createInvestor(session: SessionPayload, input: CreateInves
         investorId: investor.id,
         businessId: business.id,
         committedAmount: new Prisma.Decimal(capitalNum),
+        allocatedGrams:
+          input.allocatedGrams !== undefined && input.allocatedGrams !== null && input.allocatedGrams !== ""
+            ? new Prisma.Decimal(Number(input.allocatedGrams))
+            : null,
         profitSharePct: new Prisma.Decimal(calculatedEquityPct),
         depositDate: new Date(),
         status: "ACTIVE",
@@ -1050,6 +1063,7 @@ export interface UpdateInvestorInput {
   defaultSharePct?: number;
   investmentAmount?: number | string;
   committedAmount?: number | string;
+  allocatedGrams?: number | string | null;
   status?: "ACTIVE" | "INACTIVE";
 }
 
@@ -1147,6 +1161,14 @@ export async function updateInvestor(session: SessionPayload, investorId: string
           data: {
             committedAmount: new Prisma.Decimal(newCapitalNum),
             profitSharePct: new Prisma.Decimal(calculatedEquityPct),
+            ...(input.allocatedGrams !== undefined
+              ? {
+                  allocatedGrams:
+                    input.allocatedGrams !== null && input.allocatedGrams !== ""
+                      ? new Prisma.Decimal(input.allocatedGrams)
+                      : null,
+                }
+              : {}),
             ...(input.status ? { status: input.status } : {}),
           },
         });
@@ -1171,6 +1193,18 @@ export async function updateInvestor(session: SessionPayload, investorId: string
       await tx.investment.updateMany({
         where: { investorId: existingInvestor.id },
         data: { status: input.status },
+      });
+    }
+
+    if (!hasCapitalUpdate && input.allocatedGrams !== undefined && existingInvestor.investments[0]) {
+      await tx.investment.update({
+        where: { id: existingInvestor.investments[0].id },
+        data: {
+          allocatedGrams:
+            input.allocatedGrams !== null && input.allocatedGrams !== ""
+              ? new Prisma.Decimal(input.allocatedGrams)
+              : null,
+        },
       });
     }
 

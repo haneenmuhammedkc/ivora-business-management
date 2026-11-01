@@ -11,6 +11,7 @@ import {
   validateInvestorName,
   validateInvestorEmail,
   validateInvestmentAmount,
+  parseWeightQuantity,
   InvestorValidationErrors,
 } from "@/validators";
 
@@ -47,7 +48,13 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  
+  // Entry basis toggle: AMOUNT vs WEIGHT
+  const [entryBasis, setEntryBasis] = useState<"AMOUNT" | "WEIGHT">("AMOUNT");
   const [investmentAmount, setInvestmentAmount] = useState("");
+  const [quantityGms, setQuantityGms] = useState("");
+  const [ratePerGm, setRatePerGm] = useState("");
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<InvestorValidationErrors>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -136,23 +143,39 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     return isNaN(num) || !isFinite(num) ? 0 : num;
   }, [investmentAmount]);
 
+  // Derived capital for weight-based entry
+  const derivedCapitalFromWeight = useMemo(() => {
+    const qStr = quantityGms.trim();
+    const rStr = ratePerGm.trim();
+    if (!qStr || !rStr) return 0;
+    const qNum = Number(qStr);
+    const rNum = Number(rStr);
+    if (isNaN(qNum) || isNaN(rNum) || qNum <= 0 || rNum <= 0) return 0;
+    return Math.round(qNum * rNum * 100) / 100;
+  }, [quantityGms, ratePerGm]);
+
+  // Effective authoritative AED capital entered
+  const effectiveCapitalNum = useMemo(() => {
+    return entryBasis === "WEIGHT" ? derivedCapitalFromWeight : enteredAmountNum;
+  }, [entryBasis, derivedCapitalFromWeight, enteredAmountNum]);
+
   const isExceedingCapacity = useMemo(() => {
-    if (enteredAmountNum <= 0 || capacityBreakdown === null) return false;
-    return enteredAmountNum > remainingCapacity;
-  }, [enteredAmountNum, remainingCapacity, capacityBreakdown]);
+    if (effectiveCapitalNum <= 0 || capacityBreakdown === null) return false;
+    return effectiveCapitalNum > remainingCapacity;
+  }, [effectiveCapitalNum, remainingCapacity, capacityBreakdown]);
 
   // Live equity calculation:
   // Investor Equity % = (Investor Investment Capital / Business.totalInvestmentAED) * 100
   const calculatedEquity = useMemo(() => {
-    if (enteredAmountNum <= 0 || totalInvestmentBase <= 0) {
+    if (effectiveCapitalNum <= 0 || totalInvestmentBase <= 0) {
       return "0.00%";
     }
-    const ratio = (enteredAmountNum / totalInvestmentBase) * 100;
+    const ratio = (effectiveCapitalNum / totalInvestmentBase) * 100;
     if (isNaN(ratio) || !isFinite(ratio) || ratio < 0) {
       return "0.00%";
     }
     return `${ratio.toFixed(2)}%`;
-  }, [enteredAmountNum, totalInvestmentBase]);
+  }, [effectiveCapitalNum, totalInvestmentBase]);
 
   /**
    * Helper to scroll and focus to the first invalid field.
@@ -165,6 +188,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
       name: "investorName",
       email: "contactEmail",
       investmentAmount: "investmentCapital",
+      quantityGms: "quantityGms",
+      ratePerGm: "ratePerGm",
     };
 
     for (const key of errorKeys) {
@@ -219,6 +244,32 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
     }
   };
 
+  const handleQuantityChange = (val: string) => {
+    setQuantityGms(val);
+    if (errors.quantityGms) {
+      const res = parseWeightQuantity(val, "Weight in grams");
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (res.error) next.quantityGms = res.error;
+        else delete next.quantityGms;
+        return next;
+      });
+    }
+  };
+
+  const handleRateChange = (val: string) => {
+    setRatePerGm(val);
+    if (errors.ratePerGm) {
+      const err = validateInvestmentAmount(val);
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (err) next.ratePerGm = err;
+        else delete next.ratePerGm;
+        return next;
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -228,12 +279,17 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
       return;
     }
 
-    const validationResult = validateCreateInvestor({
+    const payload = {
       name,
       email,
       businessId: selectedBusiness.id,
-      investmentCapitalAED: investmentAmount,
-    });
+      entryBasis,
+      quantityGms: entryBasis === "WEIGHT" ? quantityGms : undefined,
+      ratePerGm: entryBasis === "WEIGHT" ? ratePerGm : undefined,
+      investmentCapitalAED: entryBasis === "AMOUNT" ? investmentAmount : derivedCapitalFromWeight,
+    };
+
+    const validationResult = validateCreateInvestor(payload);
 
     if (!validationResult.isValid || !validationResult.data) {
       setErrors(validationResult.errors);
@@ -245,7 +301,8 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
       const errText = `Investment capital (AED ${validationResult.data.investmentAmount.toLocaleString()}) exceeds the business's remaining capacity (AED ${capacityBreakdown.remainingCapacityAED.toLocaleString()}).`;
       setErrors((prev) => ({ ...prev, investmentAmount: errText }));
       setErrorMessage(errText);
-      const el = document.getElementById("investmentCapital");
+      const targetField = entryBasis === "WEIGHT" ? "quantityGms" : "investmentCapital";
+      const el = document.getElementById(targetField);
       if (el) {
         el.focus();
         el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -431,32 +488,122 @@ export function NewInvestorEntry({ initialBusinessId }: NewInvestorEntryProps) {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            {/* Investment Capital (AED) - Editable */}
-            <div>
-              <Input
-                id="investmentCapital"
-                label="Investment Capital (AED)"
-                type="number"
-                step="any"
-                min="1"
-                placeholder="e.g. 25000"
-                value={investmentAmount}
-                onChange={(e) => handleInvestmentChange(e.target.value)}
-                error={errors.investmentAmount}
-                className="text-right font-semibold"
-                required
-              />
-              {isExceedingCapacity ? (
-                <p className="mt-1 text-[11px] font-semibold text-red-600">
-                  Exceeds available capacity! Max allowed: AED {remainingCapacity.toLocaleString()}
-                </p>
-              ) : enteredAmountNum > 0 && capacityBreakdown !== null ? (
-                <p className="mt-1 text-[11px] text-emerald-700 font-medium">
-                  Remaining after investment: AED {(remainingCapacity - enteredAmountNum).toLocaleString()}
-                </p>
-              ) : null}
+          {/* Entry Mode Toggle: Amount vs Weight */}
+          <div className="pt-2">
+            <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-2">
+              Capital Contribution Basis
+            </label>
+            <div className="inline-flex items-center gap-1.5 p-1 bg-gray-100/90 rounded-lg border border-gray-200/80">
+              <button
+                type="button"
+                onClick={() => setEntryBasis("AMOUNT")}
+                className={`py-1.5 px-3.5 text-xs font-semibold rounded-md transition-all ${
+                  entryBasis === "AMOUNT"
+                    ? "bg-white text-gray-950 shadow-2xs font-bold"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                Enter by Amount (AED)
+              </button>
+              <button
+                type="button"
+                onClick={() => setEntryBasis("WEIGHT")}
+                className={`py-1.5 px-3.5 text-xs font-semibold rounded-md transition-all ${
+                  entryBasis === "WEIGHT"
+                    ? "bg-white text-gray-950 shadow-2xs font-bold"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                Enter by Weight (Grams)
+              </button>
             </div>
+          </div>
+
+          {/* Form Fields Depending on Entry Mode */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            {entryBasis === "AMOUNT" ? (
+              /* Amount Mode */
+              <div>
+                <Input
+                  id="investmentCapital"
+                  label="Investment Capital (AED)"
+                  type="number"
+                  step="any"
+                  min="1"
+                  placeholder="e.g. 25000"
+                  value={investmentAmount}
+                  onChange={(e) => handleInvestmentChange(e.target.value)}
+                  error={errors.investmentAmount}
+                  className="text-right font-semibold"
+                  required
+                />
+                {isExceedingCapacity ? (
+                  <p className="mt-1 text-[11px] font-semibold text-red-600">
+                    Exceeds available capacity! Max allowed: AED {remainingCapacity.toLocaleString()}
+                  </p>
+                ) : effectiveCapitalNum > 0 && capacityBreakdown !== null ? (
+                  <p className="mt-1 text-[11px] text-emerald-700 font-medium">
+                    Remaining after investment: AED {(remainingCapacity - effectiveCapitalNum).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              /* Weight Mode */
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    id="quantityGms"
+                    label="Weight in Grams (g)"
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    placeholder="e.g. 20.000"
+                    value={quantityGms}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
+                    error={errors.quantityGms}
+                    className="text-right font-semibold"
+                    required
+                  />
+                  <Input
+                    id="ratePerGm"
+                    label="Rate per Gram (AED/g)"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="e.g. 350.00"
+                    value={ratePerGm}
+                    onChange={(e) => handleRateChange(e.target.value)}
+                    error={errors.ratePerGm}
+                    className="text-right font-semibold"
+                    required
+                  />
+                </div>
+
+                {/* Conversion Preview Box */}
+                <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/90 text-xs flex items-center justify-between">
+                  <span className="text-gray-500 font-medium">Derived Capital:</span>
+                  <span className="font-bold text-gray-950 text-sm">
+                    AED {derivedCapitalFromWeight.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {errors.investmentAmount && (
+                  <p className="text-[11px] font-semibold text-red-600">
+                    {errors.investmentAmount}
+                  </p>
+                )}
+
+                {isExceedingCapacity ? (
+                  <p className="text-[11px] font-semibold text-red-600">
+                    Derived capital exceeds available capacity! Max allowed: AED {remainingCapacity.toLocaleString()}
+                  </p>
+                ) : effectiveCapitalNum > 0 && capacityBreakdown !== null ? (
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Remaining after investment: AED {(remainingCapacity - effectiveCapitalNum).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+            )}
 
             {/* Profit Share / Equity Ratio (%) - Read-only, Live calculated */}
             <div>

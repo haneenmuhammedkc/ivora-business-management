@@ -289,6 +289,11 @@ export function SettlementBreakdownTable({
                         maximumFractionDigits: 2,
                       })}
                     </span>
+                    {item.allocatedGrams && item.allocatedGrams > 0 ? (
+                      <div className="text-[10px] text-gray-400 font-medium">
+                        {item.allocatedGrams.toLocaleString("en-US", { maximumFractionDigits: 3 })} g
+                      </div>
+                    ) : null}
                   </td>
 
                   {/* Profit Allocation */}
@@ -306,6 +311,11 @@ export function SettlementBreakdownTable({
                         maximumFractionDigits: 2,
                       })}
                     </span>
+                    {item.perGramProfitAED && item.perGramProfitAED > 0 ? (
+                      <div className="text-[10px] text-emerald-600 font-medium">
+                        @ AED {item.perGramProfitAED.toFixed(2)}/g
+                      </div>
+                    ) : null}
                   </td>
 
                   {/* Total Due */}

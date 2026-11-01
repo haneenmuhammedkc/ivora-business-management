@@ -10,6 +10,7 @@ import {
   validateInvestorEmail,
   validateInvestorPhone,
   validateInvestmentAmount,
+  parseWeightQuantity,
   InvestorValidationErrors,
 } from "@/validators/investor.validator";
 
@@ -42,9 +43,22 @@ function EditInvestorModalContent({
   const [name, setName] = useState(investor.name || "");
   const [email, setEmail] = useState(investor.email || "");
   const [phone, setPhone] = useState(investor.phone || "");
+
+  const initialHasWeight = Boolean(investor.allocatedGrams && investor.allocatedGrams > 0);
+  const [entryBasis, setEntryBasis] = useState<"AMOUNT" | "WEIGHT">(initialHasWeight ? "WEIGHT" : "AMOUNT");
   const [investmentAmount, setInvestmentAmount] = useState(
     String(investor.investmentAED || "")
   );
+  const [quantityGms, setQuantityGms] = useState(
+    investor.allocatedGrams ? String(investor.allocatedGrams) : ""
+  );
+  const [ratePerGm, setRatePerGm] = useState(() => {
+    if (investor.allocatedGrams && investor.allocatedGrams > 0 && investor.investmentAED > 0) {
+      return String(Number((investor.investmentAED / investor.allocatedGrams).toFixed(2)));
+    }
+    return "";
+  });
+
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">(
     investor.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"
   );
@@ -116,22 +130,36 @@ function EditInvestorModalContent({
     return isNaN(num) || !isFinite(num) ? 0 : num;
   }, [investmentAmount]);
 
+  const derivedCapitalFromWeight = useMemo(() => {
+    const qStr = quantityGms.trim();
+    const rStr = ratePerGm.trim();
+    if (!qStr || !rStr) return 0;
+    const qNum = Number(qStr);
+    const rNum = Number(rStr);
+    if (isNaN(qNum) || isNaN(rNum) || qNum <= 0 || rNum <= 0) return 0;
+    return Math.round(qNum * rNum * 100) / 100;
+  }, [quantityGms, ratePerGm]);
+
+  const effectiveCapitalNum = useMemo(() => {
+    return entryBasis === "WEIGHT" ? derivedCapitalFromWeight : enteredAmountNum;
+  }, [entryBasis, derivedCapitalFromWeight, enteredAmountNum]);
+
   const isExceedingCapacity = useMemo(() => {
-    if (enteredAmountNum <= 0 || !capacityBreakdown) return false;
-    return enteredAmountNum > maxAllowedForThisInvestor;
-  }, [enteredAmountNum, maxAllowedForThisInvestor, capacityBreakdown]);
+    if (effectiveCapitalNum <= 0 || !capacityBreakdown) return false;
+    return effectiveCapitalNum > maxAllowedForThisInvestor;
+  }, [effectiveCapitalNum, maxAllowedForThisInvestor, capacityBreakdown]);
 
   // Live equity ratio calculation
   const calculatedEquity = useMemo(() => {
-    if (enteredAmountNum <= 0 || businessTotalInvestment <= 0) {
+    if (effectiveCapitalNum <= 0 || businessTotalInvestment <= 0) {
       return "0.00%";
     }
-    const ratio = (enteredAmountNum / businessTotalInvestment) * 100;
+    const ratio = (effectiveCapitalNum / businessTotalInvestment) * 100;
     if (isNaN(ratio) || !isFinite(ratio) || ratio < 0) {
       return "0.00%";
     }
     return `${ratio.toFixed(2)}%`;
-  }, [enteredAmountNum, businessTotalInvestment]);
+  }, [effectiveCapitalNum, businessTotalInvestment]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,11 +183,25 @@ function EditInvestorModalContent({
       if (phoneErr) validationErrors.phone = phoneErr;
     }
 
-    // Validate Amount
-    const amountErr = validateInvestmentAmount(investmentAmount);
-    if (amountErr) {
-      validationErrors.investmentAmount = amountErr;
-    } else if (isExceedingCapacity) {
+    // Validate Amount / Weight
+    if (entryBasis === "WEIGHT") {
+      const qRes = parseWeightQuantity(quantityGms, "Weight in grams");
+      if (qRes.error) validationErrors.quantityGms = qRes.error;
+
+      const rErr = validateInvestmentAmount(ratePerGm);
+      if (rErr) validationErrors.ratePerGm = rErr;
+
+      if (!qRes.error && !rErr && derivedCapitalFromWeight <= 0) {
+        validationErrors.investmentAmount = "Derived investment capital must be greater than 0.";
+      }
+    } else {
+      const amountErr = validateInvestmentAmount(investmentAmount);
+      if (amountErr) {
+        validationErrors.investmentAmount = amountErr;
+      }
+    }
+
+    if (isExceedingCapacity) {
       validationErrors.investmentAmount = `Amount exceeds available capacity. Max allowed: AED ${maxAllowedForThisInvestor.toLocaleString()}`;
     }
 
@@ -172,16 +214,20 @@ function EditInvestorModalContent({
     setIsSubmitting(true);
 
     try {
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        investmentAmount: effectiveCapitalNum,
+        status,
+        entryBasis,
+        allocatedGrams: entryBasis === "WEIGHT" ? Number(quantityGms) : null,
+      };
+
       const res = await fetch(`/api/investors/${encodeURIComponent(investor.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim() || null,
-          phone: phone.trim() || null,
-          investmentAmount: enteredAmountNum,
-          status,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -315,35 +361,107 @@ function EditInvestorModalContent({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div>
-                <Input
-                  id="editInvestmentAmount"
-                  label="Investment Capital (AED)"
-                  type="number"
-                  step="any"
-                  min="1"
-                  value={investmentAmount}
-                  onChange={(e) => {
-                    setInvestmentAmount(e.target.value);
-                    if (errors.investmentAmount) {
-                      setErrors((prev) => ({ ...prev, investmentAmount: undefined }));
-                    }
-                  }}
-                  error={errors.investmentAmount}
-                  className="text-right font-semibold"
-                  required
-                />
-                {isExceedingCapacity ? (
-                  <p className="mt-1 text-[11px] font-semibold text-red-600">
-                    Exceeds max allowed (AED {maxAllowedForThisInvestor.toLocaleString()})
-                  </p>
-                ) : enteredAmountNum > 0 && capacityBreakdown ? (
-                  <p className="mt-1 text-[11px] text-emerald-700 font-medium">
-                    Available remaining: AED {(maxAllowedForThisInvestor - enteredAmountNum).toLocaleString()}
-                  </p>
-                ) : null}
+            {/* Entry Mode Toggle */}
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                Contribution Basis
+              </label>
+              <div className="inline-flex items-center gap-1.5 p-1 bg-gray-100 rounded-lg border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setEntryBasis("AMOUNT")}
+                  className={`py-1 px-3 text-xs font-semibold rounded-md transition-all ${
+                    entryBasis === "AMOUNT"
+                      ? "bg-white text-gray-950 shadow-2xs font-bold"
+                      : "text-gray-500 hover:text-gray-900"
+                  }`}
+                >
+                  Amount (AED)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEntryBasis("WEIGHT")}
+                  className={`py-1 px-3 text-xs font-semibold rounded-md transition-all ${
+                    entryBasis === "WEIGHT"
+                      ? "bg-white text-gray-950 shadow-2xs font-bold"
+                      : "text-gray-500 hover:text-gray-900"
+                  }`}
+                >
+                  Weight (Grams)
+                </button>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {entryBasis === "AMOUNT" ? (
+                <div>
+                  <Input
+                    id="editInvestmentAmount"
+                    label="Investment Capital (AED)"
+                    type="number"
+                    step="any"
+                    min="1"
+                    value={investmentAmount}
+                    onChange={(e) => {
+                      setInvestmentAmount(e.target.value);
+                      if (errors.investmentAmount) {
+                        setErrors((prev) => ({ ...prev, investmentAmount: undefined }));
+                      }
+                    }}
+                    error={errors.investmentAmount}
+                    className="text-right font-semibold"
+                    required
+                  />
+                  {isExceedingCapacity ? (
+                    <p className="mt-1 text-[11px] font-semibold text-red-600">
+                      Exceeds max allowed (AED {maxAllowedForThisInvestor.toLocaleString()})
+                    </p>
+                  ) : effectiveCapitalNum > 0 && capacityBreakdown ? (
+                    <p className="mt-1 text-[11px] text-emerald-700 font-medium">
+                      Available remaining: AED {(maxAllowedForThisInvestor - effectiveCapitalNum).toLocaleString()}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      id="editQuantityGms"
+                      label="Weight (g)"
+                      type="number"
+                      step="0.001"
+                      min="0.001"
+                      value={quantityGms}
+                      onChange={(e) => {
+                        setQuantityGms(e.target.value);
+                        if (errors.quantityGms) setErrors((prev) => ({ ...prev, quantityGms: undefined }));
+                      }}
+                      error={errors.quantityGms}
+                      className="text-right font-semibold"
+                      required
+                    />
+                    <Input
+                      id="editRatePerGm"
+                      label="Rate (AED/g)"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={ratePerGm}
+                      onChange={(e) => {
+                        setRatePerGm(e.target.value);
+                        if (errors.ratePerGm) setErrors((prev) => ({ ...prev, ratePerGm: undefined }));
+                      }}
+                      error={errors.ratePerGm}
+                      className="text-right font-semibold"
+                      required
+                    />
+                  </div>
+                  <div className="p-2 rounded bg-gray-50 border border-gray-200 text-[11px] flex justify-between">
+                    <span className="text-gray-500">Derived:</span>
+                    <span className="font-bold text-gray-900">AED {derivedCapitalFromWeight.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -358,8 +476,8 @@ function EditInvestorModalContent({
                     className="block w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs sm:text-sm font-bold text-gray-900 text-right cursor-not-allowed select-none"
                   />
                 </div>
-                <p className="mt-1 text-[11px] text-gray-500">
-                  Authoritative live formula: (Capital ÷ Business Total) × 100
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Calculated against business total capital
                 </p>
               </div>
             </div>
@@ -369,36 +487,52 @@ function EditInvestorModalContent({
               <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
                 Participation Status
               </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as "ACTIVE" | "INACTIVE")}
-                className="block w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-900 focus:border-gray-900 focus:outline-hidden focus:ring-1 focus:ring-gray-900"
-              >
-                <option value="ACTIVE">ACTIVE (Receives profit distributions & committed capacity)</option>
-                <option value="INACTIVE">INACTIVE (Deactivated / Released capacity)</option>
-              </select>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-800">
+                  <input
+                    type="radio"
+                    name="investorStatus"
+                    value="ACTIVE"
+                    checked={status === "ACTIVE"}
+                    onChange={() => setStatus("ACTIVE")}
+                    className="text-black focus:ring-black h-3.5 w-3.5"
+                  />
+                  <span>ACTIVE (Participating in current distributions)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-500">
+                  <input
+                    type="radio"
+                    name="investorStatus"
+                    value="INACTIVE"
+                    checked={status === "INACTIVE"}
+                    onChange={() => setStatus("INACTIVE")}
+                    className="text-black focus:ring-black h-3.5 w-3.5"
+                  />
+                  <span>INACTIVE</span>
+                </label>
+              </div>
             </div>
           </div>
 
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+          {/* Action Buttons */}
+          <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-gray-100">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
               disabled={isSubmitting}
-              className="text-xs font-semibold"
+              className="text-xs"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               variant="primary"
-              disabled={isSubmitting || isExceedingCapacity}
+              disabled={isSubmitting}
               icon={<CheckIcon size={14} />}
-              className="text-xs font-bold px-5"
+              className="text-xs font-bold"
             >
-              {isSubmitting ? "Saving Changes..." : "Save Changes"}
+              {isSubmitting ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         </form>

@@ -24,6 +24,7 @@ export interface InvestorRecord {
   businessEntity: string;
   entityLabel: string;
   investmentAED: number;
+  allocatedGrams?: number | null;
   date: string;
   sharePercent: number | null;
   allocatedProfitAED: number;
@@ -33,6 +34,7 @@ export interface InvestorRecord {
   selected?: boolean;
   details: {
     totalInvestmentAED: number;
+    allocatedGrams?: number | null;
     profitShare: string;
     profitShareContract: string;
     allocatedProfit: number;

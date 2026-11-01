@@ -1021,13 +1021,49 @@ export async function getFullBalanceSheetData(
       bizNetProfitMap.set(b.id, bNet);
     }
 
+    // Pre-calculate total allocated grams and authoritative business-level per-gram rate
+    const bizTotalInvestorGramsMap = new Map<string, number>();
+    for (const inv of allInvestments) {
+      if (inv.allocatedGrams) {
+        const grams = Number(inv.allocatedGrams) || 0;
+        if (grams > 0) {
+          bizTotalInvestorGramsMap.set(
+            inv.businessId,
+            (bizTotalInvestorGramsMap.get(inv.businessId) || 0) + grams
+          );
+        }
+      }
+    }
+
+    const bizPerGramProfitRateMap = new Map<string, number>();
+    for (const [bizId, totalGrams] of bizTotalInvestorGramsMap.entries()) {
+      const bNet = bizNetProfitMap.get(bizId) || 0;
+      if (totalGrams > 0 && bNet > 0) {
+        bizPerGramProfitRateMap.set(bizId, bNet / totalGrams);
+      }
+    }
+
     for (const inv of allInvestments) {
       const bNet = bizNetProfitMap.get(inv.businessId) || 0;
       const totalInvestment = Number(inv.committedAmount || 0);
+      const allocatedGrams = inv.allocatedGrams ? Number(inv.allocatedGrams) : null;
 
       let profitAmount = 0;
+      let perGramProfitAED: number | null = null;
       if (inv.allocatedProfitAmount !== null && inv.allocatedProfitAmount !== undefined) {
         profitAmount = Number(inv.allocatedProfitAmount);
+        if (allocatedGrams && allocatedGrams > 0) {
+          perGramProfitAED = Number((profitAmount / allocatedGrams).toFixed(4));
+        }
+      } else if (allocatedGrams && allocatedGrams > 0) {
+        const masterRate = bizPerGramProfitRateMap.get(inv.businessId);
+        if (masterRate !== undefined && masterRate > 0) {
+          profitAmount = Number((allocatedGrams * masterRate).toFixed(2));
+          perGramProfitAED = Number(masterRate.toFixed(4));
+        } else {
+          profitAmount = 0;
+          perGramProfitAED = 0;
+        }
       } else {
         const sharePct = Number(inv.profitSharePct || 0);
         profitAmount = bNet > 0 && sharePct > 0 ? Number(((bNet * sharePct) / 100).toFixed(2)) : 0;
@@ -1068,7 +1104,9 @@ export async function getFullBalanceSheetData(
         investorCode: inv.investor.code,
         investorType: inv.investor.type,
         totalInvestmentAED: totalInvestment,
+        allocatedGrams: allocatedGrams,
         profitAmountAED: profitAmount,
+        perGramProfitAED: perGramProfitAED,
         totalDueAED: totalDue,
         capitalPaidAED: capitalPaid,
         profitPaidAED: profitPaid,

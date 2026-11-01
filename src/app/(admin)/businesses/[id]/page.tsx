@@ -43,7 +43,7 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
       <div className="space-y-6 pb-14">
         <div className="h-6 w-36 rounded bg-gray-100 animate-pulse" />
         <div className="h-20 w-full rounded-xl bg-gray-100 animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-24 rounded-xl bg-gray-100 animate-pulse" />
           ))}
@@ -186,7 +186,7 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
         </FadeUp>
       )}
 
-      {/* 5 Financial Overview KPI Cards */}
+      {/* 6 Financial Overview KPI Cards */}
       <FadeUp delay={0.12}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {/* Total Investment */}
@@ -265,6 +265,35 @@ export default function BusinessDetailPage({ params }: BusinessDetailPageProps) 
               </div>
               <span className="text-[10px] text-gray-400 font-medium block mt-0.5">
                 Realized Arbitrage Spread
+              </span>
+            </div>
+          </div>
+
+          {/* Remaining Stock / Loss */}
+          <div className="p-4 rounded-xl border border-gray-200/90 bg-white shadow-2xs flex flex-col justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              REMAINING STOCK / LOSS
+            </span>
+            <div className="mt-2">
+              <span className="text-lg sm:text-xl font-extrabold text-gray-950">
+                {(business.remainingInventorySummary?.totalRemainingQuantity ?? 0).toLocaleString("en-US", {
+                  minimumFractionDigits: 3,
+                  maximumFractionDigits: 3,
+                })}{" "}
+                g
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium block mt-0.5">
+                {(business.remainingInventorySummary?.totalRemainingQuantity ?? 0) > 0 ? (
+                  <>
+                    Valuation: AED{" "}
+                    {(business.remainingInventorySummary?.totalCarryingValueAED ?? 0).toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </>
+                ) : (
+                  "Fully Liquidated"
+                )}
               </span>
             </div>
           </div>
